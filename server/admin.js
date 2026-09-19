@@ -23,6 +23,14 @@ function requireAdmin(req, res, next) {
     }
 
     // Plan B: a normal license session whose key is flagged as an admin key.
+    // Deliberately NOT checking lockedIp here (unlike the regular customer
+    // key flow in auth.js) - on platforms like Render, the IP Express sees
+    // for the same visitor can vary between requests depending on which
+    // edge/proxy handled it, even with trust proxy configured correctly.
+    // For a customer key that's a feature (stops casual sharing); for the
+    // site owner's own admin session it's just a way to randomly lock
+    // yourself out of your own panel, which isn't worth the tradeoff here.
+    // isAdmin + not-revoked + not-expired is still required.
     try {
       const payload = jwt.verify(token, process.env.JWT_SECRET);
       const record = store.findKey(payload.key);
@@ -30,8 +38,7 @@ function requireAdmin(req, res, next) {
         record &&
         record.isAdmin &&
         record.status !== 'revoked' &&
-        (!record.expiresAt || new Date(record.expiresAt).getTime() >= Date.now()) &&
-        (!record.lockedIp || record.lockedIp === req.ip);
+        (!record.expiresAt || new Date(record.expiresAt).getTime() >= Date.now());
       if (stillValid) {
         req.adminContext = { key: record.key, note: record.note, lockedIp: record.lockedIp };
         return next();
