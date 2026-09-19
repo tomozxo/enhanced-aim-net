@@ -13,7 +13,7 @@ it's worth knowing before you sell/hand out keys.
 You need your own GitHub account (free) and a new repository.
 
 ```bash
-cd aim.tomoz.net
+cd enhanced.aim.net
 git init
 git add .
 git commit -m "Initial commit"
@@ -38,7 +38,7 @@ git push -u origin main
    `JWT_SECRET` and `ADMIN_TOKEN` values for you automatically.
 3. Click **Apply** / **Deploy**. First build takes a couple of minutes.
 4. Once it's live, Render shows you the URL - something like
-   `https://aim-tomoz-net.onrender.com`. That's your link.
+   `https://enhanced-aim-net.onrender.com`. That's your link.
 
 ## 3. Get your admin key
 
@@ -71,9 +71,9 @@ code change.
 
 ## 4. Optional: your own domain instead of onrender.com
 
-If you own a domain (e.g. tomoz.net) and want `aim.tomoz.net` instead of the
+If you own a domain (e.g. aim.net) and want `enhanced.aim.net` instead of the
 `onrender.com` link: Render dashboard → your service → **Settings** →
-**Custom Domain** → add `aim.tomoz.net` → it gives you a CNAME record to add
+**Custom Domain** → add `enhanced.aim.net` → it gives you a CNAME record to add
 at your domain's DNS provider. Once that propagates (usually minutes to a
 couple hours), the real domain works with HTTPS automatically, no other
 changes needed - nothing in the app hardcodes a domain.

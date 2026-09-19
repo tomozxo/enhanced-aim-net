@@ -1,4 +1,4 @@
-# aim.tomoz.net — R6 sensitivity calibration tool
+# enhanced.aim.net — R6 sensitivity calibration tool
 
 A licensed, key-gated web app for finding a Rainbow Six Siege mouse
 sensitivity: hip-fire, 1× ADS and 2.5× ADS, with fullscreen flick/target/tracking
@@ -20,7 +20,7 @@ installer from nodejs.org, or on Windows:
 winget install -e --id OpenJS.NodeJS.LTS
 ```
 
-Then, from the `aim.tomoz.net` folder:
+Then, from the `enhanced.aim.net` folder:
 
 ```bash
 npm install

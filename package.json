@@ -1,5 +1,5 @@
 {
-  "name": "aim.tomoz.net",
+  "name": "enhanced.aim.net",
   "version": "1.0.0",
   "description": "Licensed Rainbow Six Siege sensitivity calibration tool with key/IP-locked access",
   "main": "server/index.js",

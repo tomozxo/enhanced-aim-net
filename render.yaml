@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: aim-tomoz-net
+    name: enhanced-aim-net
     runtime: node
     plan: free
     buildCommand: npm install
