@@ -26,8 +26,19 @@ process.on('unhandledRejection', (err) => {
 });
 
 const app = express();
-const trustHops = Number(process.env.TRUST_PROXY_HOPS || 0);
-if (trustHops > 0) app.set('trust proxy', trustHops);
+// TRUST_PROXY_HOPS: "true" trusts the whole proxy chain and reads the
+// left-most X-Forwarded-For entry as the real client IP - the safe default
+// on a platform like Render where the exact number of proxy hops in front
+// of the app isn't fixed/documented. A specific number (e.g. "1") is only
+// safe if you've actually verified your host sits behind exactly that many
+// hops; guessing wrong here is what caused IP-lock false-mismatches.
+const trustProxySetting = (process.env.TRUST_PROXY_HOPS || '').trim().toLowerCase();
+if (trustProxySetting === 'true') {
+  app.set('trust proxy', true);
+} else {
+  const trustHops = Number(trustProxySetting || 0);
+  if (trustHops > 0) app.set('trust proxy', trustHops);
+}
 
 app.use(express.json());
 
