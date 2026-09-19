@@ -1,0 +1,20 @@
+{
+  "name": "aim.tomoz.net",
+  "version": "1.0.0",
+  "description": "Licensed Rainbow Six Siege sensitivity calibration tool with key/IP-locked access",
+  "main": "server/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "keys:new": "node server/cli.js new",
+    "keys:list": "node server/cli.js list"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>aim.tomoz.net</title>
+<link rel="stylesheet" href="css/styles.css" />
+<script>
+  // Applied before first paint so there's no flash of the wrong theme.
+  (function () {
+    try {
+      var m = localStorage.getItem('r6sf_theme_mode');
+      document.documentElement.dataset.theme = m === 'light' ? 'light' : 'dark';
+    } catch (e) {}
+  })();
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-brand">
+    <span class="icon">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/><path d="M12 1.5V5M12 19V22.5M1.5 12H5M19 12H22.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </span>
+    <span>aim.tomoz.net</span>
+  </div>
+  <div class="mode-toggle">
+    <button class="mode-btn" data-mode="light">Light</button>
+    <button class="mode-btn" data-mode="dark">Dark</button>
+  </div>
+</header>
+
+<div class="page" id="pageRoot" style="display:none">
+  <header class="page-header">
+    <h1>Find your sweet spot.</h1>
+    <div class="steps">
+      <span class="step" data-step="1">01 Set up</span>
+      <span class="step" data-step="2">02 Compare</span>
+      <span class="step" data-step="3">03 Fine-tune</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header"><h2>Your R6 settings</h2><span class="sidebar-tag">01 / SETUP</span></div>
+
+      <div class="field-row">
+        <div class="field-label">Hip-fire H</div>
+        <div class="stepper" data-field="hipfireH">
+          <input type="number" value="4" min="1" max="100" />
+          <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Hip-fire V</div>
+        <div class="stepper" data-field="hipfireV">
+          <input type="number" value="4" min="1" max="100" />
+          <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">ADS · 1x</div>
+        <div id="ads1xDisplay" style="font-size:12.5px;color:var(--text-dim)">Estimated</div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">ADS · 2.5x</div>
+        <div class="stepper" data-field="ads25x">
+          <input type="number" value="50" min="1" max="100" />
+          <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label">Keep ADS speed when hip-fire changes</div>
+        <label class="toggle"><input type="checkbox" id="keepAdsSpeed" checked /><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="field-row">
+        <div class="field-label">I use a custom multiplier</div>
+        <label class="toggle"><input type="checkbox" id="useCustomMultiplier" /><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="sub-field">
+        <span class="sub-field-label">MouseSensitivityMultiplierUnit</span>
+        <input type="number" step="0.001" value="0.02" id="customMultiplier" disabled />
+      </div>
+
+      <div class="field-row">
+        <div class="field-label">Mouse DPI</div>
+        <div class="stepper" data-field="dpi">
+          <input type="number" value="800" min="100" max="26000" step="50" />
+          <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">In-game FOV</div>
+        <div class="stepper" data-field="fov">
+          <input type="number" value="87" min="60" max="110" />
+          <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">In-game aspect ratio</div>
+        <div class="select-wrap">
+          <select id="aspectRatio">
+            <option value="16:9">16:9</option>
+            <option value="16:10">16:10</option>
+            <option value="3:2">3:2</option>
+            <option value="4:3">4:3</option>
+            <option value="5:4">5:4</option>
+            <option value="21:9">21:9</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="fill-hint">How R6 fills your screen</div>
+      <div class="field-row" style="padding-top:6px;border-bottom:none">
+        <div class="select-wrap" style="width:100%">
+          <select id="screenFill" style="width:100%">
+            <option value="keep-aspect">Keep aspect ratio</option>
+            <option value="stretch">Stretch to fill</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="expander">
+        <button class="expander-toggle" id="matchMouseToggle"><span class="chev">›</span> Match mouse movement</button>
+        <div class="expander-body" id="matchMouseBody">
+          <div class="sub-field">
+            <span class="sub-field-label">Measured cm/360° for 1x ADS (optional)</span>
+            <input type="number" id="measuredCm360" placeholder="e.g. 42.5" step="0.1" />
+          </div>
+        </div>
+      </div>
+
+      <div class="expander">
+        <button class="expander-toggle" id="themeToggle"><span class="chev">›</span> Accent color</button>
+        <div class="expander-body" id="themeBody">
+          <div class="sub-field" style="border-top:none;padding-top:0">
+            <div class="accent-row">
+              <input type="color" id="accentPicker" class="accent-picker" value="#e5493a" />
+              <div class="accent-swatches" id="accentSwatches"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="tabbar">
+        <div class="tabs" id="mainTabs">
+          <button class="tab active" data-tab="hipfire">Hip-fire</button>
+          <button class="tab" data-tab="ads1x">1× ADS</button>
+          <button class="tab" data-tab="ads25x">2.5× ADS</button>
+        </div>
+        <div class="tabbar-status" id="tabbarStatus">Ready when you are</div>
+      </div>
+
+      <div class="main-panel" id="mainPanel">
+        <div class="main-panel-center" id="idleState">
+          <div class="icon">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/><path d="M12 1.5V5M12 19V22.5M1.5 12H5M19 12H22.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </div>
+          <h3>Make every movement count.</h3>
+          <p>Compare three sensitivities across flicking, target clearing and tracking. Repeated rounds help check whether a setting performs consistently.</p>
+          <button class="btn-accent" id="startCalibrationBtn">Start calibration ↗</button>
+          <p class="caption" id="calibrationHint">27 × 7-second blocks + warm-up · about 4 minutes per optic · runs fullscreen</p>
+        </div>
+        <div class="panel-footer">
+          <div class="kbd-hint"><span class="kbd">LMB</span> Shoot in flick &amp; targets drills</div>
+          <div class="kbd-hint"><span class="kbd">ESC</span> Pause · release mouse</div>
+        </div>
+      </div>
+
+      <div class="statsbar">
+        <div class="stat"><div class="stat-label">Active sensitivity</div><div class="stat-value" id="statActiveSens">4</div></div>
+        <div class="stat"><div class="stat-label">Estimated cm/360°</div><div class="stat-value" id="statCm360">—</div></div>
+        <div class="stat"><div class="stat-label">Hit accuracy</div><div class="stat-value" id="statAccuracy">—</div></div>
+        <div class="stat"><div class="stat-label">Targets hit</div><div class="stat-value" id="statTargets">—</div></div>
+      </div>
+      <p class="model-note" id="modelNote">1× ADS uses an estimated R6 model. For a closer match, enter this optic's measured in-game cm/360° under <button class="linklike" id="modelNoteLink">"Match mouse movement"</button>, then calibrate mouse input.</p>
+
+      <div class="refine-header">
+        <div>
+          <h3>Find it. Then refine it.</h3>
+          <p id="refineSub">We test your current setting and approximately 15% either side.</p>
+        </div>
+        <div class="refine-controls">
+          <div class="select-wrap">
+            <select id="drillPreview">
+              <option value="flick">Flicking</option>
+              <option value="targets">Targets</option>
+              <option value="tracking">Tracking</option>
+            </select>
+          </div>
+          <button class="plain-btn" id="practiceBtn">Practice</button>
+          <button class="plain-btn" id="fullscreenBtn">⛶ Fullscreen</button>
+        </div>
+      </div>
+
+      <div class="bottom-grid">
+        <div class="card" id="recommendationCard">
+          <div class="card-header">
+            <h3>Your recommendation</h3>
+            <span class="badge incomplete" id="retestBadge">INCOMPLETE</span>
+          </div>
+          <div id="recommendationBody">
+            <p class="card-empty">These results used earlier settings or an older scoring method. Run a fresh calibration before applying a recommendation.</p>
+          </div>
+        </div>
+
+        <div class="card" id="comparisonCard">
+          <div class="card-header">
+            <h3>Session comparison</h3>
+            <span class="comparison-tag" id="comparisonTag">1× ADS</span>
+          </div>
+          <table class="comparison" id="comparisonTable">
+            <thead><tr><th>Sens</th><th>Flick hits/s</th><th>Cleared/s</th><th>On target</th><th>Score</th></tr></thead>
+            <tbody id="comparisonBody"><tr><td colspan="5" class="card-empty">No results yet.</td></tr></tbody>
+          </table>
+          <p class="comparison-footnote" id="comparisonFootnote">Run a calibration to populate this table. Score: flicking, targets, tracking weighted equally at 33% each, relative to the best in each drill.</p>
+          <button class="clear-link" id="clearComparisonBtn">Clear comparison</button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Fullscreen drill overlay -->
+<div class="drill-overlay" id="drillOverlay">
+  <div class="drill-topbar">
+    <div class="drill-tabs" id="drillTabs">
+      <span class="tab active" data-tab="hipfire">Hip-fire</span>
+      <span class="tab" data-tab="ads1x">1× ADS</span>
+      <span class="tab" data-tab="ads25x">2.5× ADS</span>
+    </div>
+    <div class="drill-status" id="drillStatus">Ready</div>
+  </div>
+
+  <div class="drill-stage" id="drillStage">
+    <canvas id="drillCanvas"></canvas>
+    <div class="drill-hud-tl" id="drillPhaseLabel">WARM-UP / FLICK</div>
+    <div class="drill-hud-tr" id="drillTimer">7.0s</div>
+
+    <div class="getready" id="getReady">
+      <div class="big" id="getReadyLabel">Test 1 of 3 · Flicking</div>
+      <div class="num" id="getReadyNum">3</div>
+    </div>
+
+    <div class="pause-overlay" id="pauseOverlay">
+      <div class="pause-card">
+        <div class="icon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>
+        </div>
+        <h3>Take a breath.</h3>
+        <p id="pauseReason">Paused because the window lost focus.</p>
+        <button class="btn-accent" id="resumeBtn">Resume round</button>
+        <p class="caption">Progress is kept. Click to capture your mouse again.</p>
+        <button class="clear-link" id="endPracticeBtn" style="display:none">End practice</button>
+      </div>
+    </div>
+
+    <div class="results-overlay" id="resultsOverlay">
+      <div class="results-card">
+        <h3 id="resultsTitle">Calibration complete</h3>
+        <p id="resultsSub">Here's how each candidate performed.</p>
+        <button class="btn-accent" id="closeResultsBtn">See results</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="drill-footer">
+    <div class="kbd-hint"><span class="kbd">LMB</span> Shoot in flick &amp; targets drills</div>
+    <div class="kbd-hint"><span class="kbd">ESC</span> Pause · release mouse</div>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

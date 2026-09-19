@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: aim-tomoz-net
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      # Render auto-generates strong random values for these - you never
+      # have to come up with or paste in a secret yourself.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_TOKEN
+        generateValue: true
+      # Render puts every request through its own proxy first, so the app
+      # needs this set to 1 to read the REAL visitor IP (not Render's proxy
+      # IP) - without it, the IP-lock feature breaks: every key would look
+      # like it's activating from the same address.
+      - key: TRUST_PROXY_HOPS
+        value: "1"

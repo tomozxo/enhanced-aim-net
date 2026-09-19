@@ -1,0 +1,4 @@
+node_modules/
+.env
+data/keys.json
+data/keys.json.tmp

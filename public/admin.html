@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>aim.tomoz.net — Admin</title>
+<style>
+  :root { --bg: #0a0a0a; --card: #141414; --border: #232323; --text: #eee; --sub: #9a9a9a; --accent: #e5493a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 32px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { color: var(--sub); margin: 0 0 24px; font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; max-width: 960px; }
+  label { display: block; font-size: 12px; color: var(--sub); margin-bottom: 6px; }
+  input { background: #0d0d0d; border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 13px; width: 100%; }
+  .row { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 160px; }
+  button { background: var(--accent); color: #fff; border: none; padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; font-weight: 600; }
+  button.secondary { background: #232323; }
+  button.danger { background: #7a1f1f; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--sub); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  code { background: #0d0d0d; padding: 2px 6px; border-radius: 4px; }
+  .status { padding: 2px 8px; border-radius: 100px; font-size: 11px; text-transform: uppercase; }
+  .status.unused { background: #2a2a2a; color: #aaa; }
+  .status.active { background: #1f3a24; color: #6fcf7c; }
+  .status.revoked { background: #3a1f1f; color: #e57373; }
+  .msg { font-size: 12.5px; margin-top: 10px; min-height: 16px; }
+  .msg.err { color: #e57373; }
+  .msg.ok { color: #6fcf7c; }
+  .actions { display: flex; gap: 6px; }
+  .actions button { padding: 5px 10px; font-size: 11.5px; }
+  #gate { max-width: 420px; margin: 80px auto; }
+</style>
+</head>
+<body>
+
+<div id="gate" class="card" style="display:none">
+  <h1>Admin access</h1>
+  <p class="sub">Enter an admin license key (same format as a normal key), or the raw ADMIN_TOKEN from your server's .env file.</p>
+  <div class="row">
+    <div><label>Admin key or ADMIN_TOKEN</label><input id="adminToken" type="password" placeholder="R6S-XXXX-XXXX-XXXX-XXXX or ADMIN_TOKEN" /></div>
+  </div>
+  <div style="margin-top:12px"><button id="unlockBtn">Continue</button></div>
+  <div id="gateMsg" class="msg"></div>
+</div>
+
+<div id="panel" style="display:none">
+  <h1>aim.tomoz.net — License keys</h1>
+  <p class="sub">Generate, list, unlock and revoke keys. Each key locks itself to the first IP that activates it.</p>
+
+  <div class="card" id="whoamiCard" style="padding:14px 20px">
+    <div id="whoamiText" style="font-size:13px;color:var(--sub)">Checking session…</div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div><label>Note (buyer / order ref)</label><input id="note" placeholder="optional" /></div>
+      <div><label>Expires in (days, blank = never)</label><input id="expiresInDays" type="number" min="1" placeholder="e.g. 30" /></div>
+      <div style="flex:0">
+        <label style="display:flex;align-items:center;gap:6px;white-space:nowrap;margin-bottom:8px">
+          <input type="checkbox" id="isAdminCheckbox" style="width:auto" /> Admin key
+        </label>
+      </div>
+      <div style="flex:0"><button id="createBtn">Generate key</button></div>
+    </div>
+    <div id="createMsg" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:8px">
+      <div style="flex:0"><button class="secondary" id="refreshBtn">Refresh</button></div>
+    </div>
+    <table id="keysTable">
+      <thead>
+        <tr><th>Key</th><th>Status</th><th>Note</th><th>Admin</th><th>Locked IP</th><th>Last seen</th><th>Expires</th><th>Actions</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let token = '';
+
+const gate = document.getElementById('gate');
+const panel = document.getElementById('panel');
+const gateMsg = document.getElementById('gateMsg');
+const createMsg = document.getElementById('createMsg');
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(opts.headers || {}),
+    },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) throw new Error(data.message || `Request failed (${res.status})`);
+  return data;
+}
+
+async function tryEnter() {
+  const raw = document.getElementById('adminToken').value.trim();
+  if (!raw) return;
+  gateMsg.textContent = 'Checking...';
+  gateMsg.className = 'msg';
+  try {
+    let candidate = raw;
+    if (/^R6S-/i.test(raw)) {
+      // Looks like a license key, not the raw ADMIN_TOKEN - activate it first
+      // to get a session token, same as the main site does.
+      const res = await fetch('/api/auth/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: raw }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.message || 'That key did not activate.');
+      if (!data.isAdmin) throw new Error('That key works, but it is not an admin key.');
+      candidate = data.token;
+      try { localStorage.setItem('r6sf_token', data.token); } catch {}
+    }
+    token = candidate;
+    await api('/api/admin/keys');
+    sessionStorage.setItem('r6sf_admin_token', token);
+    gate.style.display = 'none';
+    panel.style.display = 'block';
+    loadKeys();
+    loadWhoami();
+  } catch (e) {
+    gateMsg.textContent = e.message;
+    gateMsg.className = 'msg err';
+  }
+}
+
+async function trySavedSession() {
+  const savedAdmin = sessionStorage.getItem('r6sf_admin_token');
+  if (savedAdmin) {
+    token = savedAdmin;
+    try {
+      await api('/api/admin/keys');
+      panel.style.display = 'block';
+      loadKeys();
+      loadWhoami();
+      return;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // Seamless path: reuse the same session token app.html uses, in case this
+  // browser already activated an admin key on the main site.
+  let shared = '';
+  try { shared = localStorage.getItem('r6sf_token') || ''; } catch {}
+  if (shared) {
+    token = shared;
+    try {
+      await api('/api/admin/keys');
+      sessionStorage.setItem('r6sf_admin_token', token);
+      panel.style.display = 'block';
+      loadKeys();
+      loadWhoami();
+      return;
+    } catch {
+      /* not an admin session - show the manual gate */
+    }
+  }
+
+  gate.style.display = 'block';
+}
+
+async function loadWhoami() {
+  const el = document.getElementById('whoamiText');
+  try {
+    const data = await api('/api/admin/me');
+    if (data.viaRawToken) {
+      el.innerHTML = 'Signed in with the raw <code>ADMIN_TOKEN</code> from your server\'s .env file.';
+    } else if (data.key) {
+      el.innerHTML =
+        `Signed in as <code>${data.key}</code>${data.note ? ' &mdash; ' + data.note : ''} ` +
+        `&middot; locked to <code>${data.lockedIp || '—'}</code>. Every key you generate below is created under this admin session.`;
+    } else {
+      el.textContent = '';
+    }
+  } catch {
+    el.textContent = '';
+  }
+}
+
+document.getElementById('unlockBtn').addEventListener('click', tryEnter);
+document.getElementById('adminToken').addEventListener('keydown', (e) => { if (e.key === 'Enter') tryEnter(); });
+
+function fmt(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString();
+}
+
+async function loadKeys() {
+  const { keys } = await api('/api/admin/keys');
+  const tbody = document.querySelector('#keysTable tbody');
+  tbody.innerHTML = '';
+  keys
+    .slice()
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .forEach((k) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><code>${k.key}</code></td>
+        <td><span class="status ${k.status}">${k.status}</span></td>
+        <td>${k.note || ''}</td>
+        <td>${k.isAdmin ? '✓' : ''}</td>
+        <td>${k.lockedIp || '—'}</td>
+        <td>${fmt(k.lastSeenAt)}</td>
+        <td>${k.expiresAt ? fmt(k.expiresAt) : 'never'}</td>
+        <td class="actions">
+          <button class="secondary" data-act="unlock" data-key="${k.key}" ${!k.lockedIp ? 'disabled' : ''}>Unlock IP</button>
+          <button class="danger" data-act="revoke" data-key="${k.key}" ${k.status === 'revoked' ? 'disabled' : ''}>Revoke</button>
+          <button class="danger" data-act="delete" data-key="${k.key}">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+}
+
+document.querySelector('#keysTable tbody').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const { act, key } = btn.dataset;
+  try {
+    if (act === 'unlock') await api(`/api/admin/keys/${key}/unlock`, { method: 'POST' });
+    if (act === 'revoke') {
+      if (!confirm(`Revoke ${key}? This immediately locks out anyone using it.`)) return;
+      await api(`/api/admin/keys/${key}/revoke`, { method: 'POST' });
+    }
+    if (act === 'delete') {
+      if (!confirm(`Permanently delete ${key}? This can't be undone.`)) return;
+      await api(`/api/admin/keys/${key}`, { method: 'DELETE' });
+    }
+    loadKeys();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+document.getElementById('createBtn').addEventListener('click', async () => {
+  const note = document.getElementById('note').value;
+  const expiresInDays = document.getElementById('expiresInDays').value;
+  const isAdmin = document.getElementById('isAdminCheckbox').checked;
+  createMsg.textContent = 'Generating...';
+  createMsg.className = 'msg';
+  try {
+    const { key } = await api('/api/admin/keys', {
+      method: 'POST',
+      body: JSON.stringify({ note, expiresInDays: expiresInDays || null, isAdmin }),
+    });
+    createMsg.innerHTML = '';
+    createMsg.className = 'msg ok';
+    const label = document.createElement('span');
+    label.textContent = `Created ${key.key}${isAdmin ? ' (admin)' : ''} — `;
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'secondary';
+    copyBtn.style.cssText = 'padding:2px 8px;font-size:11px';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(key.key);
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => (copyBtn.textContent = 'Copy'), 1500);
+      } catch {
+        alert(key.key); // clipboard API unavailable (e.g. non-HTTPS) - at least show it
+      }
+    });
+    createMsg.appendChild(label);
+    createMsg.appendChild(copyBtn);
+    document.getElementById('note').value = '';
+    document.getElementById('expiresInDays').value = '';
+    document.getElementById('isAdminCheckbox').checked = false;
+    loadKeys();
+  } catch (e) {
+    createMsg.textContent = e.message;
+    createMsg.className = 'msg err';
+  }
+});
+
+document.getElementById('refreshBtn').addEventListener('click', loadKeys);
+
+trySavedSession();
+</script>
+</body>
+</html>
