@@ -1,4 +1,4 @@
-const SWATCHES = ['#e5493a', '#e58a3a', '#e0c93a', '#4ac26b', '#3ab6e5', '#6a6ff0', '#c04ae0', '#e04a8f'];
+const SWATCHES = ['#8b5cf6', '#e5493a', '#e58a3a', '#e0c93a', '#4ac26b', '#3ab6e5', '#c04ae0', '#e04a8f'];
 const MODE_KEY = 'r6sf_theme_mode';
 
 export function getMode() {

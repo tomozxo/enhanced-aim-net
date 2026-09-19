@@ -13,7 +13,7 @@ const DEFAULTS = {
     aspectRatio: '16:9',
     screenFill: 'keep-aspect',
     measuredCm360_1x: null,
-    accentColor: '#e5493a',
+    accentColor: '#8b5cf6',
   },
   activeTab: 'hipfire', // hipfire | ads1x | ads25x
   // Per-tab calibration results. null until a calibration run finishes.
