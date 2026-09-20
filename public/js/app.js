@@ -4,6 +4,7 @@ import { baseSensForTab, estimateCm360, formatCm360, compensateAdsForHipfireChan
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine } from './drills.js';
 import { buildCandidates, buildQueue, scoreResults, narrowedSpread, INITIAL_SPREAD_PCT } from './calibration.js';
+import { CONVERT_GAMES, sensForGame, formatSens } from './sensConvert.js';
 
 const TAB_LABELS = { hipfire: 'Hip-fire', ads1x: '1× ADS', ads25x: '2.5× ADS' };
 
@@ -336,6 +337,18 @@ function renderAll() {
   renderStats(state);
   renderRecommendation(state);
   renderComparison(state);
+  renderConvert(state);
+}
+
+function renderConvert(state) {
+  const tab = state.activeTab;
+  $('convertTag').textContent = TAB_LABELS[tab];
+  const cm360 = estimateCm360(tab, state.settings);
+  const dpi = state.settings.dpi;
+  $('convertBody').innerHTML = CONVERT_GAMES.map((g) => {
+    const sens = sensForGame(cm360, dpi, g.yaw);
+    return `<tr><td>${g.name}</td><td>${formatSens(sens)}</td></tr>`;
+  }).join('');
 }
 
 function renderSettingsInputs(state) {

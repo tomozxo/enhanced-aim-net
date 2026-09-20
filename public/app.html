@@ -233,6 +233,20 @@
           <button class="clear-link" id="clearComparisonBtn">Clear comparison</button>
         </div>
       </div>
+
+      <div class="card" id="convertCard" style="margin-top:20px">
+        <div class="card-header">
+          <h3>Your sensitivity in other games</h3>
+          <span class="comparison-tag" id="convertTag">1× ADS</span>
+        </div>
+        <p style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 12px">
+          Same cm/360° (your R6 sens above), converted using each game's known sensitivity scaling. Same DPI assumed.
+        </p>
+        <table class="comparison" id="convertTable">
+          <thead><tr><th>Game</th><th>Sensitivity</th></tr></thead>
+          <tbody id="convertBody"></tbody>
+        </table>
+      </div>
     </main>
   </div>
 </div>
