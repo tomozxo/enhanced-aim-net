@@ -5,7 +5,13 @@ const DRILL_LABELS = { flick: 'FLICK', targets: 'TARGETS', tracking: 'TRACKING' 
 const TARGET_DISTANCE = 22; // world units targets sit out in front of the camera
 const CAMERA_HEIGHT = 6; // "elevated in the air" - eye height above the floor grid
 const TRACK_YAW_RANGE = (22 * Math.PI) / 180; // how far the tracking target swings left/right
-const TRACK_PITCH_RANGE = (10 * Math.PI) / 180;
+const TRACK_PITCH_RANGE = (7 * Math.PI) / 180;
+// Flick/clear spawns: wide left-right, deliberately shallow up-down, so the
+// drill is a horizontal flick exercise and never walks you into the floor.
+const SPAWN_YAW_SPREAD = (30 * Math.PI) / 180;
+const SPAWN_PITCH_RANGE = (7 * Math.PI) / 180;
+const WALL_RADIUS = 46; // grid backdrop, comfortably behind the targets at 22
+const WALL_HEIGHT = 44;
 
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -70,8 +76,10 @@ export class DrillEngine {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x000000);
-    this.scene.fog = new THREE.FogExp2(0x000000, 0.028);
+    this.scene.background = new THREE.Color(0x05030a);
+    // Light fog so the grid fades with distance instead of ending in a hard
+    // line. Kept gentle - heavy fog just puts the void back.
+    this.scene.fog = new THREE.FogExp2(0x05030a, 0.011);
 
     this.camera = new THREE.PerspectiveCamera(90, 1, 0.1, 500);
     this.camera.position.set(0, CAMERA_HEIGHT, 0);
@@ -80,17 +88,50 @@ export class DrillEngine {
     // Targets are unlit (flat MeshBasicMaterial, see _makeTargetMaterial) so
     // they read as a consistent bright color from every angle instead of
     // having a dim "shadow" side that's harder to see - no scene lighting
-    // needed for that, the grid floor doesn't react to lights either.
+    // needed for that, the grid surfaces don't react to lights either.
 
-    const grid = new THREE.GridHelper(400, 80, 0x4a2a5e, 0x201028);
-    grid.position.y = 0;
-    this.scene.add(grid);
+    const floor = new THREE.GridHelper(400, 80, 0x4a2a5e, 0x241436);
+    floor.position.y = 0;
+    this.scene.add(floor);
 
-    const targetGeo = new THREE.SphereGeometry(1, 24, 18);
-    this.targetGeo = targetGeo;
+    // A grid wall wrapping the whole arena, so there's always a backdrop
+    // behind a target instead of pitch black - a bright dot against a
+    // textured surface is far easier to pick out than one floating in a void.
+    const wall = new THREE.Mesh(
+      new THREE.CylinderGeometry(WALL_RADIUS, WALL_RADIUS, WALL_HEIGHT, 72, 1, true),
+      new THREE.MeshBasicMaterial({
+        map: this._makeGridTexture(),
+        side: THREE.BackSide,
+        transparent: true,
+      })
+    );
+    wall.position.y = WALL_HEIGHT / 2 - 6;
+    this.scene.add(wall);
+
+    this.targetGeo = new THREE.SphereGeometry(1, 24, 18);
 
     this.raycaster = new THREE.Raycaster();
     this.centerNDC = new THREE.Vector2(0, 0);
+  }
+
+  /** Procedural grid cell, tiled around the arena wall. */
+  _makeGridTexture() {
+    const size = 128;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#07040e';
+    ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = '#2a1940';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    // Fewer, larger cells: tiling them too finely just blurs the lines into
+    // a flat wash of colour at distance instead of reading as a grid.
+    tex.repeat.set(26, 6);
+    return tex;
   }
 
   _makeTargetMaterial() {
@@ -98,7 +139,9 @@ export class DrillEngine {
     // light angle, which makes it harder to see exactly where "the target"
     // is. Bright and flat from every angle is easier to read at a glance.
     const fill = new THREE.Color(cssVar('--target-fill') || '#c837ff');
-    return new THREE.MeshBasicMaterial({ color: fill });
+    // fog:false keeps every target the exact same brightness regardless of
+    // distance - the backdrop fades away, the thing you're aiming at doesn't.
+    return new THREE.MeshBasicMaterial({ color: fill, fog: false });
   }
 
   _bindEvents() {
@@ -136,16 +179,21 @@ export class DrillEngine {
     if (!this.sensSettings) return; // window can resize before the first configure()/run()
     const stageRect = this.stage.getBoundingClientRect();
     const { screenFill, aspectRatio, fov } = this.sensSettings.settings;
+    const selected = parseAspect(aspectRatio);
+
     let w = stageRect.width;
     let h = stageRect.height;
     if (screenFill === 'keep-aspect') {
-      const targetRatio = parseAspect(aspectRatio);
-      if (w / h > targetRatio) {
-        w = h * targetRatio;
+      // Letterbox/pillarbox: the canvas itself takes the selected shape.
+      if (w / h > selected) {
+        w = h * selected;
       } else {
-        h = w / targetRatio;
+        h = w / selected;
       }
     }
+    // For "stretch to fill" the canvas keeps the full screen shape, but the
+    // camera below still frames at the selected ratio - so a 4:3 image gets
+    // stretched across a 16:9 screen exactly like a stretched res in-game.
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
     this.canvas.style.left = `${(stageRect.width - w) / 2}px`;
@@ -155,10 +203,13 @@ export class DrillEngine {
     this.ch = h;
 
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
-    // Horizontal FOV setting -> vertical FOV Three.js expects, given the actual aspect ratio.
+    // Always frame using the SELECTED in-game aspect, never the window's.
+    // Previously this used the canvas shape, which meant "stretch to fill"
+    // rendered an undistorted native image and the setting did nothing.
+    this.camera.aspect = selected;
+    // Horizontal FOV setting -> the vertical FOV Three.js wants.
     const hFovRad = (Math.max(60, Math.min(110, fov)) * Math.PI) / 180;
-    const vFovRad = 2 * Math.atan(Math.tan(hFovRad / 2) / this.camera.aspect);
+    const vFovRad = 2 * Math.atan(Math.tan(hFovRad / 2) / selected);
     this.camera.fov = (vFovRad * 180) / Math.PI;
     this.camera.updateProjectionMatrix();
   }
@@ -348,29 +399,39 @@ export class DrillEngine {
 
   _spawnForBlock(block) {
     this._clearTargets();
-    const margin = 0.72; // fraction of the FOV half-angle kept clear of the very edge
     if (block.type === 'flick') {
-      this.targets = [this._randomTarget(margin, 0.85)];
+      this.targets = [this._randomTarget(0.85)];
       this.metrics.spawned = 1;
     } else if (block.type === 'targets') {
-      this.targets = Array.from({ length: 5 }, () => this._randomTarget(margin, 0.7));
+      this.targets = this._spawnWave(5, 0.7);
       this.metrics.spawned = 5;
     } else if (block.type === 'tracking') {
-      this.targets = [this._targetAt(0, 0, 0.8)];
+      this.targets = [this._targetAtAngles(0, 0, 0.8)];
     }
   }
 
-  /** Places a target somewhere within the current view (like before: a random point inside the visible frame), at a fixed distance out. `margin` shrinks the usable frame so targets never spawn flush against the edge. */
-  _randomTarget(margin, radius) {
-    const ndcX = rand(-margin, margin);
-    const ndcY = rand(-margin, margin);
-    return this._targetAt(ndcX, ndcY, radius);
+  /** Spawns at a yaw offset from wherever you're currently looking (so it's
+   * always on screen to flick to) but at an ABSOLUTE world pitch near eye
+   * level. Pitch being absolute is the important part: taking it from the
+   * current view meant every spawn inherited the last one's pitch, so
+   * chasing a low target dragged the next one lower again and the whole
+   * session gradually walked down into the floor. */
+  _randomTarget(radius) {
+    const yaw = this.yaw + rand(-SPAWN_YAW_SPREAD, SPAWN_YAW_SPREAD);
+    return this._targetAtAngles(yaw, rand(-SPAWN_PITCH_RANGE, SPAWN_PITCH_RANGE), radius);
   }
 
-  _targetAt(ndcX, ndcY, radius) {
-    const vec = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(this.camera);
-    const dir = vec.sub(this.camera.position).normalize();
-    const pos = this.camera.position.clone().add(dir.multiplyScalar(TARGET_DISTANCE));
+  /** A wave of targets spread evenly across the flick range so they don't pile up on top of each other. */
+  _spawnWave(count, radius) {
+    const band = (SPAWN_YAW_SPREAD * 2) / count;
+    return Array.from({ length: count }, (_, i) => {
+      const yaw = this.yaw - SPAWN_YAW_SPREAD + band * (i + rand(0.2, 0.8));
+      return this._targetAtAngles(yaw, rand(-SPAWN_PITCH_RANGE, SPAWN_PITCH_RANGE), radius);
+    });
+  }
+
+  _targetAtAngles(yaw, pitch, radius) {
+    const pos = this.camera.position.clone().add(this._dirFromAngles(yaw, pitch).multiplyScalar(TARGET_DISTANCE));
 
     const mesh = new THREE.Mesh(this.targetGeo, this._makeTargetMaterial());
     mesh.scale.setScalar(radius);
@@ -379,7 +440,7 @@ export class DrillEngine {
     // render() - a click can land before the renderer refreshes matrixWorld.
     mesh.updateMatrixWorld();
     this.scene.add(mesh);
-    return { mesh, r: radius, ndcX, ndcY };
+    return { mesh, r: radius };
   }
 
   _handleShoot() {
@@ -391,13 +452,13 @@ export class DrillEngine {
     this.metrics.hits += 1;
     if (block.type === 'flick') {
       this.scene.remove(this.targets[0].mesh);
-      this.targets = [this._randomTarget(0.72, 0.85)];
+      this.targets = [this._randomTarget(0.85)];
     } else {
       this.scene.remove(this.targets[hitIdx].mesh);
       this.targets.splice(hitIdx, 1);
       this.metrics.cleared += 1;
       if (this.targets.length === 0) {
-        this.targets = Array.from({ length: 5 }, () => this._randomTarget(0.72, 0.7));
+        this.targets = this._spawnWave(5, 0.7);
         this.metrics.spawned += 5;
       }
     }
