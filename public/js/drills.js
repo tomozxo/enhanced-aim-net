@@ -75,17 +75,10 @@ export class DrillEngine {
     this.camera.position.set(0, CAMERA_HEIGHT, 0);
     this.camera.rotation.order = 'YXZ';
 
-    // Directional (sun-like) key light - doesn't attenuate with distance,
-    // so a target always reads the same brightness whether it spawns near
-    // or at the far edge of the flick range. A point light with realistic
-    // falloff needed far more intensity than looked sane to keep tuning.
-    this.scene.add(new THREE.HemisphereLight(0x4a2a5e, 0x0a0510, 0.7));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.6);
-    sun.position.set(3, 12, 6);
-    this.scene.add(sun);
-    const rim = new THREE.PointLight(0xa50fec, 0.9, 120, 1);
-    rim.position.set(0, CAMERA_HEIGHT + 2, -30);
-    this.scene.add(rim);
+    // Targets are unlit (flat MeshBasicMaterial, see _makeTargetMaterial) so
+    // they read as a consistent bright color from every angle instead of
+    // having a dim "shadow" side that's harder to see - no scene lighting
+    // needed for that, the grid floor doesn't react to lights either.
 
     const grid = new THREE.GridHelper(400, 80, 0x4a2a5e, 0x201028);
     grid.position.y = 0;
@@ -99,8 +92,11 @@ export class DrillEngine {
   }
 
   _makeTargetMaterial() {
-    const fill = new THREE.Color(cssVar('--target-fill') || '#d8c9ab');
-    return new THREE.MeshStandardMaterial({ color: fill, roughness: 0.45, metalness: 0.05 });
+    // Flat/unlit on purpose - a shaded sphere has a dim side depending on
+    // light angle, which makes it harder to see exactly where "the target"
+    // is. Bright and flat from every angle is easier to read at a glance.
+    const fill = new THREE.Color(cssVar('--target-fill') || '#c837ff');
+    return new THREE.MeshBasicMaterial({ color: fill });
   }
 
   _bindEvents() {
@@ -253,6 +249,7 @@ export class DrillEngine {
     }
     if (this.paused) {
       this.paused = false;
+      this.stage.classList.remove('show-cursor');
       this.onPauseChange?.(false);
       if (this.phase === 'getready') {
         // Restart the 3-count fresh rather than trying to resume mid-tick -
@@ -270,6 +267,7 @@ export class DrillEngine {
 
   _pause(reason) {
     this.paused = true;
+    this.stage.classList.add('show-cursor');
     this.onPauseChange?.(true);
     this.el.pauseReason.textContent =
       reason === 'blur' ? 'Paused because the window lost focus.' : 'Paused. Click to resume.';
@@ -483,6 +481,7 @@ export class DrillEngine {
     // Release the mouse so the results card is clickable, but stay fullscreen
     // until the user dismisses it via exit().
     if (document.exitPointerLock) document.exitPointerLock();
+    this.stage.classList.add('show-cursor');
     this.onQueueComplete?.(this.results);
   }
 
@@ -498,6 +497,7 @@ export class DrillEngine {
     this.getReadyTimer = null;
     this.el.getReady.classList.remove('active');
     this.el.pauseOverlay.classList.remove('active');
+    this.stage.classList.remove('show-cursor');
     this._clearTargets();
   }
 

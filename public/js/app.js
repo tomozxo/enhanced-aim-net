@@ -261,28 +261,50 @@ function bindSettingsFields() {
   $('aspectRatio').addEventListener('change', (e) => updateSettings({ aspectRatio: e.target.value }));
   $('screenFill').addEventListener('change', (e) => updateSettings({ screenFill: e.target.value }));
 
-  $('measuredCm360').addEventListener('change', (e) => {
-    const v = e.target.value.trim();
-    updateSettings({ measuredCm360_1x: v ? Number(v) : null });
+  bindAds1xMeasured();
+}
+
+/** ADS·1x is nullable (empty = "use the estimate") and steps by 0.5, unlike
+ * the other sidebar fields, so it gets its own binding instead of bindStepper. */
+function bindAds1xMeasured() {
+  const wrap = document.querySelector('.stepper[data-field="ads1xMeasured"]');
+  const input = wrap.querySelector('input');
+  const up = wrap.querySelector('[data-dir="1"]');
+  const down = wrap.querySelector('[data-dir="-1"]');
+  const step = 0.5;
+
+  function commit(v) {
+    if (v == null) {
+      updateSettings({ measuredCm360_1x: null });
+      return;
+    }
+    updateSettings({ measuredCm360_1x: Math.max(1, Math.round(v * 10) / 10) });
+  }
+
+  function currentOrEstimate() {
+    const raw = input.value.trim();
+    if (raw) return Number(raw);
+    return estimateCm360('ads1x', { ...getState().settings, measuredCm360_1x: null });
+  }
+
+  up.addEventListener('click', () => commit(currentOrEstimate() + step));
+  down.addEventListener('click', () => commit(currentOrEstimate() - step));
+  input.addEventListener('change', () => {
+    const raw = input.value.trim();
+    commit(raw ? Number(raw) : null);
   });
 }
 
 function bindExpanders() {
-  const pairs = [
-    ['matchMouseToggle', 'matchMouseBody'],
-    ['themeToggle', 'themeBody'],
-  ];
-  pairs.forEach(([toggleId, bodyId]) => {
-    $(toggleId).addEventListener('click', () => {
-      $(toggleId).classList.toggle('open');
-      $(bodyId).classList.toggle('open');
-    });
+  $('themeToggle').addEventListener('click', () => {
+    $('themeToggle').classList.toggle('open');
+    $('themeBody').classList.toggle('open');
   });
 
   $('modelNoteLink').addEventListener('click', () => {
-    $('matchMouseToggle').classList.add('open');
-    $('matchMouseBody').classList.add('open');
-    $('matchMouseToggle').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const input = $('ads1xMeasuredInput');
+    input.focus();
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 }
 
@@ -316,8 +338,10 @@ function renderSettingsInputs(state) {
   $('customMultiplier').disabled = !s.useCustomMultiplier;
   $('aspectRatio').value = s.aspectRatio;
   $('screenFill').value = s.screenFill;
-  $('measuredCm360').value = s.measuredCm360_1x ?? '';
-  $('ads1xDisplay').textContent = s.measuredCm360_1x ? `${s.measuredCm360_1x} cm/360 (measured)` : 'Estimated';
+  const ads1xInput = $('ads1xMeasuredInput');
+  ads1xInput.value = s.measuredCm360_1x ?? '';
+  const estimate = estimateCm360('ads1x', { ...s, measuredCm360_1x: null });
+  ads1xInput.placeholder = `Est. ${formatCm360(estimate)}`;
 }
 
 function renderTabsUI(state) {

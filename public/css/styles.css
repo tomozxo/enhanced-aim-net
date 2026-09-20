@@ -9,8 +9,7 @@
   --text: #f2f2f2;
   --text-sub: #9a9a9a;
   --text-dim: #6b6b6b;
-  --target-fill: #d8c9ab;
-  --target-ring: #a9946a;
+  --target-fill: #c837ff;
   --radius: 12px;
 }
 
@@ -154,6 +153,8 @@ a { color: inherit; }
   padding: 0;
 }
 .stepper input:focus { outline: none; }
+.stepper[data-field="ads1xMeasured"] input { width: 70px; }
+.stepper[data-field="ads1xMeasured"] input::placeholder { color: var(--text-dim); }
 .stepper-arrows { display: flex; flex-direction: column; }
 .stepper-arrows button {
   width: 16px; height: 11px;
@@ -324,6 +325,9 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 .drill-tabs .tab { font-size: 12px; padding: 6px 12px; }
 .drill-status { font-size: 12.5px; color: var(--text-dim); }
 .drill-stage { flex: 1; position: relative; overflow: hidden; cursor: none; }
+/* Whenever a modal (pause/results) needs real mouse interaction, bring the
+   OS cursor back - "cursor: none" is only for actual aiming. */
+.drill-stage.show-cursor { cursor: auto; }
 /* Fixed at dead centre: in first-person mode the crosshair never moves, the
    camera rotates around it instead - the same as a real FPS reticle. */
 .drill-crosshair {
