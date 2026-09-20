@@ -65,10 +65,10 @@ function createKey({ note = '', expiresInDays = null, isAdmin = false } = {}) {
     isAdmin: !!isAdmin,
     createdAt: now,
     expiresAt: expiresInDays ? new Date(Date.now() + expiresInDays * 86400000).toISOString() : null,
-    lockedIp: null,
+    lockedDeviceId: null,
     activatedAt: null,
     lastSeenAt: null,
-    lastSeenIp: null,
+    lastSeenDeviceId: null,
   };
   db.keys.push(record);
   writeAll(db);
@@ -105,16 +105,18 @@ function deleteKey(key) {
 }
 
 function unlockKey(key) {
-  // Clears the IP lock so the key can be re-activated from a new network,
-  // e.g. the buyer changed ISP/moved/got a new router. Status stays 'active'.
-  return updateKey(key, { lockedIp: null });
+  // Clears the device lock so the key can be activated on a new
+  // browser/device, e.g. the buyer cleared cookies or got a new PC. Status
+  // stays 'active'.
+  return updateKey(key, { lockedDeviceId: null });
 }
 
 /**
- * Attempt to activate/verify a key against the requesting IP.
+ * Attempt to activate/verify a key against the requesting device (a
+ * long-lived cookie identifying "this browser" - see server/cookies.js).
  * Returns { ok: true, record } or { ok: false, code, message }.
  */
-function tryActivate(key, ip) {
+function tryActivate(key, deviceId) {
   const record = findKey(key);
   if (!record) return { ok: false, code: 'not_found', message: 'That key was not recognized.' };
   if (record.status === 'revoked') return { ok: false, code: 'revoked', message: 'This key has been revoked.' };
@@ -124,26 +126,27 @@ function tryActivate(key, ip) {
 
   const now = new Date().toISOString();
 
-  if (!record.lockedIp) {
+  if (!record.lockedDeviceId) {
     const updated = updateKey(key, {
       status: 'active',
-      lockedIp: ip,
+      lockedDeviceId: deviceId,
       activatedAt: record.activatedAt || now,
       lastSeenAt: now,
-      lastSeenIp: ip,
+      lastSeenDeviceId: deviceId,
     });
     return { ok: true, record: updated };
   }
 
-  if (record.lockedIp !== ip) {
+  if (record.lockedDeviceId !== deviceId) {
     return {
       ok: false,
-      code: 'ip_mismatch',
-      message: 'This key is locked to a different network. Ask the seller to reset it if you changed networks.',
+      code: 'device_mismatch',
+      message:
+        'This key is already activated on a different browser/device. Ask the seller to reset it if you need to move it.',
     };
   }
 
-  const updated = updateKey(key, { lastSeenAt: now, lastSeenIp: ip });
+  const updated = updateKey(key, { lastSeenAt: now, lastSeenDeviceId: deviceId });
   return { ok: true, record: updated };
 }
 

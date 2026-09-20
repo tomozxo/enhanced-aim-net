@@ -2,18 +2,18 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const store = require('./store');
 const { makeLimiter } = require('./rateLimit');
+const { getOrCreateDeviceId } = require('./cookies');
 
 const router = express.Router();
 
 const SESSION_TTL_SECONDS = 12 * 60 * 60; // 12h - short enough that a revoked/expired
 // key stops working reasonably quickly, long enough not to nag legit users.
 
-// Caps activation attempts per IP so someone can't script through the key space.
+// Caps activation attempts per IP so someone can't script through the key
+// space. This is brute-force protection, separate from the license lock
+// itself (which is now per-device via cookie, not per-IP) - rate limiting
+// still makes sense keyed by IP regardless.
 const rateLimited = makeLimiter({ max: 8, windowMs: 5 * 60 * 1000 });
-
-function clientIp(req) {
-  return req.ip;
-}
 
 // Turns any throw into a JSON 500 instead of an uncaught exception that
 // could kill the whole process (see server/index.js for the belt-and-braces
@@ -32,22 +32,22 @@ function wrap(fn) {
 router.post(
   '/activate',
   wrap((req, res) => {
-    const ip = clientIp(req);
     const key = String(req.body?.key || '').trim().toUpperCase();
 
     if (!key) return res.status(400).json({ ok: false, message: 'Enter a license key.' });
 
-    if (rateLimited(ip)) {
+    if (rateLimited(req.ip)) {
       return res.status(429).json({ ok: false, message: 'Too many attempts. Try again in a few minutes.' });
     }
 
-    const result = store.tryActivate(key, ip);
+    const deviceId = getOrCreateDeviceId(req, res);
+    const result = store.tryActivate(key, deviceId);
     if (!result.ok) {
       const status = result.code === 'not_found' ? 404 : 403;
       return res.status(status).json({ ok: false, message: result.message });
     }
 
-    const token = jwt.sign({ key: result.record.key, ip }, process.env.JWT_SECRET, {
+    const token = jwt.sign({ key: result.record.key }, process.env.JWT_SECRET, {
       expiresIn: SESSION_TTL_SECONDS,
     });
 
@@ -65,7 +65,6 @@ router.post(
 router.post(
   '/verify',
   wrap((req, res) => {
-    const ip = clientIp(req);
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return res.status(401).json({ ok: false, message: 'No session.' });
@@ -84,11 +83,13 @@ router.post(
     if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
       return res.status(401).json({ ok: false, message: 'This key has expired.' });
     }
-    if (record.lockedIp && record.lockedIp !== ip) {
-      return res.status(401).json({ ok: false, message: 'This session is tied to a different network.' });
+
+    const deviceId = getOrCreateDeviceId(req, res);
+    if (record.lockedDeviceId && record.lockedDeviceId !== deviceId) {
+      return res.status(401).json({ ok: false, message: 'This session is tied to a different browser/device.' });
     }
 
-    store.updateKey(record.key, { lastSeenAt: new Date().toISOString(), lastSeenIp: ip });
+    store.updateKey(record.key, { lastSeenAt: new Date().toISOString(), lastSeenDeviceId: deviceId });
     res.json({ ok: true, key: record.key, note: record.note, isAdmin: !!record.isAdmin });
   })
 );

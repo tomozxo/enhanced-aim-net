@@ -27,14 +27,20 @@ function cm360FromSensValue(tab, sensValue, settings) {
   return inches * 2.54;
 }
 
+const MEASURED_KEY = { hipfire: 'measuredCm360_hipfire', ads1x: 'measuredCm360_1x', ads25x: 'measuredCm360_ads25x' };
+
 export function estimateCm360(tab, settings) {
-  if (tab === 'ads1x' && settings.measuredCm360_1x) return Number(settings.measuredCm360_1x);
+  const measured = settings[MEASURED_KEY[tab]];
+  if (measured) return Number(measured);
   const sensValue = baseSensForTab(tab, settings);
   return cm360FromSensValue(tab, sensValue, settings);
 }
 
 export function estimateCm360Axis(axis, settings) {
-  // hip-fire only: H and V can differ, so drills track them independently.
+  // hip-fire only: H and V can differ, so drills track them independently -
+  // but a measured override is a single real-world number, so it applies to
+  // both axes equally (there's no way to separately measure H vs V).
+  if (settings.measuredCm360_hipfire) return Number(settings.measuredCm360_hipfire);
   const sensValue = axis === 'h' ? settings.hipfireH : settings.hipfireV;
   return cm360FromSensValue('hipfire', sensValue, settings);
 }

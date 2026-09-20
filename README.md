@@ -3,8 +3,9 @@
 A licensed, key-gated web app for finding a Rainbow Six Siege mouse
 sensitivity: hip-fire, 1× ADS and 2.5× ADS, with fullscreen flick/target/tracking
 drills, a 3-candidate-x-3-round calibration pass, an iterative "recalibrate"
-fine-tune step, per-user license keys locked to the first IP that activates
-them, and a user-adjustable accent color + light/dark mode.
+fine-tune step, per-user license keys locked to the first browser/device
+that activates them (via a cookie, not your network), and a user-adjustable
+accent color + light/dark mode.
 
 Just want a real public link to send people, instead of running this on
 your own machine? Skip to **[DEPLOY.md](DEPLOY.md)**.
@@ -39,10 +40,12 @@ treat it like any other admin credential.
 
 If you're deploying behind a reverse proxy (nginx, Cloudflare, a PaaS
 router), set `TRUST_PROXY_HOPS` to how many proxy hops sit in front of the
-app so `req.ip` resolves to the real visitor IP instead of the proxy's IP.
-Get this wrong and the IP-lock either locks to the proxy's IP (breaks
-everyone) or trusts a spoofable header (defeats the lock) — leave it at `0`
-for direct connections.
+app. The license lock itself no longer depends on this (it's cookie-based
+now, see below), but it still matters for two things: per-IP rate limiting
+on the activation endpoint, and correctly detecting HTTPS so the device
+cookie gets the `Secure` flag. `render.yaml` sets this to `"true"` (trust
+the whole chain) rather than a specific hop count, which is the safer
+default when you don't know the exact proxy topology in front of you.
 
 ## 3. Run it
 
@@ -58,9 +61,9 @@ npm start
 **This copy already has an admin key pre-seeded in `data/keys.json`** (sent
 to you separately, not written in this file) — just type it into the
 activation screen and you'll land in `/admin.html`. It's unused/unlocked to
-any IP until you activate it, exactly like any other key. If you ever need
-another one, or you're starting from a clean `data/` folder, there are two
-ways in:
+any device until you activate it, exactly like any other key. If you ever
+need another one, or you're starting from a clean `data/` folder, there are
+two ways in:
 
 **Your own admin key** — mint one from the command line:
 
@@ -72,7 +75,7 @@ That prints an `R6S-...` key. Enter it in the **same key box everyone else
 uses** on the main site (http://localhost:3000/) — the activation screen
 recognizes it's an admin key and sends you straight to `/admin.html`
 instead of the sensitivity tool. It's a real license key under the hood
-(same IP-lock, same session), just flagged as admin, so once you're in you
+(same device-lock, same session), just flagged as admin, so once you're in you
 can mint more admin keys for trusted staff straight from the panel (there's
 an "Admin key" checkbox next to Generate).
 
@@ -89,12 +92,12 @@ unchecked, click Generate), or from the command line:
 ```bash
 node server/cli.js new "buyer note" 30   # 30-day expiry, omit for no expiry
 node server/cli.js list
-node server/cli.js unlock R6S-XXXX-XXXX-XXXX-XXXX   # after a buyer's IP changes
+node server/cli.js unlock R6S-XXXX-XXXX-XXXX-XXXX   # after a buyer clears cookies/switches browsers
 node server/cli.js revoke R6S-XXXX-XXXX-XXXX-XXXX
 ```
 
 Keys look like `R6S-AB12-C3D4-E5F6-G7H8`. Hand one to each user — it
-IP-locks itself the first time they activate it.
+locks itself to their browser the first time they activate it.
 
 ## Troubleshooting: "Start calibration" does nothing
 
@@ -129,26 +132,34 @@ thing to send me.
 
 ## How the license lock works
 
-- A key activates on whichever IP address uses it **first**, and is locked
-  to that IP from then on. There's no separate password — the key itself is
-  the credential.
-- This is a **network-IP lock, not a device/hardware lock**. A browser
-  cannot read a real hardware ID (motherboard/disk serial etc.) — that's
-  blocked by every browser for privacy reasons, full stop. Locking to a
-  browser fingerprint instead was the other option on the table; IP-only is
-  what's implemented here per your call.
-- Practically: dynamic home IPs, mobile networks, and VPNs can all change a
-  user's IP, which will lock them out until you unlock the key from the
-  admin panel. Two people behind the same NAT/office IP will conflict too.
-  This trades convenience for simplicity — there's no support burden from a
-  fingerprinting false-negative, but you should expect "it stopped working"
-  tickets whenever someone's ISP reassigns their IP. Unlock via the admin
-  panel's "Unlock IP" button or `node server/cli.js` (add a CLI unlock
-  command if you want one; today unlocking is admin-panel or a direct edit
-  of `data/keys.json`).
+- On first activation, the server sets a long-lived, random cookie
+  (`r6sf_device`, `server/cookies.js`) identifying "this browser" and
+  records it on the key. Every later activation/verify check compares the
+  incoming cookie against that stored value instead of an IP address.
+  There's no separate password — the key itself is the credential.
+- This replaced an earlier IP-based lock. IP-locking broke in two ordinary
+  situations: a buyer's ISP/mobile network reassigning their IP (locks them
+  out of a key that's genuinely still theirs), and - what actually forced
+  the change - Render's proxy not reporting a fully consistent IP for the
+  same visitor across requests, which intermittently locked people out of
+  their *own* freshly-activated key. A cookie doesn't have either problem:
+  it survives network changes entirely, since it isn't derived from the
+  network at all.
+- The cookie is `HttpOnly` (page JS can't read or tamper with it) and
+  `SameSite=Lax`, set for 10 years. What it does *not* survive: clearing
+  cookies, private/incognito windows (each one starts with an empty cookie
+  jar, so it looks like a new device every time), or switching to a
+  different browser on the same PC - each of those needs an admin "Unlock
+  device" the same way a changed IP used to.
+- Two people behind the same WiFi network are no longer a problem the way
+  they were under IP-locking (different browsers, different cookies) -
+  device-locking is arguably *stricter* against casual sharing than IP ever
+  was, since copying a specific cookie value between machines is a lot less
+  convenient than "we're on the same WiFi."
 - Sessions are JWTs valid for 12 hours, re-checked against the key store
-  (revoked/expired/IP) on every reload and every 5 minutes. Revoking a key
-  in the admin panel kicks the user out within that window, not instantly.
+  (revoked/expired/device) on every reload and every 5 minutes. Revoking a
+  key in the admin panel kicks the user out within that window, not
+  instantly.
 - This is a client-side gate on top of a server-side check — solid against
   casual key sharing, not proof against someone determined to read the
   page's JS. There's no way to make a pure website fully tamper-proof;
@@ -156,15 +167,24 @@ thing to send me.
 
 ## About the sensitivity numbers
 
-Siege doesn't publish a cm/360° formula, and 1× (reflex/red-dot) sights
-apply a speed-up internally that isn't exposed as a settings-menu number at
-all — that's why the sidebar shows "Estimated" for ADS·1×. The "Estimated
-cm/360°" stat and the drills' crosshair speed all come from an approximate
-model in [`public/js/sensMath.js`](public/js/sensMath.js), tuned so the
-numbers move the right direction and land in a plausible range — not
-reverse-engineered from the game's code. Use "Match mouse movement" in the
-sidebar to enter a cm/360° you've actually measured in-game for 1× ADS, and
-the app uses that instead of the estimate.
+Siege doesn't publish a cm/360° formula, so every optic's "Estimated
+cm/360°" and the drills' actual crosshair rotation speed come from an
+approximate model in [`public/js/sensMath.js`](public/js/sensMath.js), each
+tab tuned with its own constant so the numbers move the right direction and
+land in a plausible range — not reverse-engineered from the game's code.
+Real-world feedback (people whose in-game feel didn't match the drill at
+identical settings) is expected here; there's no way to get this exactly
+right without access to Ubisoft's actual formula.
+
+The fix is the "Calibrate to your real sens" section in the sidebar: enter
+a cm/360° you've actually measured in-game (turn a fixed, known distance on
+your mousepad, e.g. with a ruler, and read the resulting rotation) for
+Hip-fire, 1× ADS, and/or 2.5× ADS, and the app uses that measured value
+instead of the estimate for that tab, sidestepping the model's constants
+entirely. ADS·1× specifically has *no* raw settings-menu number in real
+Siege at all (1× sights apply an internal speed-up Ubisoft doesn't expose),
+so measuring is the only way to get that one right - the sidebar shows
+"Est. X" as a placeholder there until you do.
 
 The drills themselves use the browser's Pointer Lock API (`movementX/Y`),
 which reports OS-processed pixel deltas, not raw HID mouse counts — this is
@@ -189,6 +209,7 @@ and keeps progress; "Resume round" re-captures the mouse.
 
 ```
 server/         Express app: license activation/verify, admin key API, JSON file store
+  cookies.js      Device-cookie helper (the license lock's identity source)
 public/         Static frontend (no build step)
   index.html    License activation screen
   app.html      The sensitivity tool itself (gated by a valid session)
@@ -198,7 +219,7 @@ public/         Static frontend (no build step)
     state.js         App settings + calibration results, persisted to localStorage
     sensMath.js       The approximate sensitivity/cm-360 model
     theme.js          Accent color picker + light/dark mode
-    drills.js         Canvas drill engine: pointer lock, fullscreen, pause/resume
+    drills.js         Three.js first-person drill engine: pointer lock, fullscreen, pause/resume
     calibration.js    Candidate/queue building and scoring
     app.js            Wires it all together
 data/keys.json  License key store (created on first run; not committed)
@@ -213,5 +234,7 @@ data/keys.json  License key store (created on first run; not committed)
   server; it is not a database. Swap `server/store.js` for a real DB if you
   outgrow it.
 - No HTTPS/TLS is configured here — put this behind a reverse proxy (nginx,
-  Caddy, Cloudflare) that terminates TLS before exposing it publicly. IP
-  locking and admin tokens over plain HTTP are not meaningfully secure.
+  Caddy, Cloudflare) that terminates TLS before exposing it publicly.
+  Device cookies and admin tokens sent over plain HTTP are not meaningfully
+  secure (the cookie also only gets its `Secure` flag when the app can see
+  the connection is HTTPS - see `TRUST_PROXY_HOPS` above).

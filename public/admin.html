@@ -92,7 +92,7 @@
     <h1>License keys</h1>
   </div>
   <p style="color:var(--text-sub);font-size:13px;margin:-14px 0 22px">
-    Generate, list, unlock and revoke keys. Each key locks itself to the first IP that activates it.
+    Generate, list, unlock and revoke keys. Each key locks itself to the first browser/device that activates it (via a cookie, not your network).
   </p>
 
   <div class="card" id="whoamiCard" style="margin-bottom:20px">
@@ -127,7 +127,7 @@
     <div style="overflow-x:auto">
       <table class="admin-table" id="keysTable">
         <thead>
-          <tr><th>Key</th><th>Status</th><th>Note</th><th>Admin</th><th>Locked IP</th><th>Last seen</th><th>Expires</th><th>Actions</th></tr>
+          <tr><th>Key</th><th>Status</th><th>Note</th><th>Admin</th><th>Locked device</th><th>Last seen</th><th>Expires</th><th>Actions</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -240,8 +240,8 @@ async function loadWhoami() {
       el.innerHTML = 'Signed in with the raw <code class="key-code">ADMIN_TOKEN</code> from your server\'s .env file.';
     } else if (data.key) {
       el.innerHTML =
-        `Signed in as <code class="key-code">${data.key}</code>${data.note ? ' &mdash; ' + data.note : ''} ` +
-        `&middot; locked to <code class="key-code">${data.lockedIp || '—'}</code>. Every key you generate below is created under this admin session.`;
+        `Signed in as <code class="key-code">${data.key}</code>${data.note ? ' &mdash; ' + data.note : ''}. ` +
+        `Every key you generate below is created under this admin session.`;
     } else {
       el.textContent = '';
     }
@@ -272,11 +272,11 @@ async function loadKeys() {
         <td><span class="status-pill ${k.status}">${k.status}</span></td>
         <td>${k.note || ''}</td>
         <td>${k.isAdmin ? '✓' : ''}</td>
-        <td>${k.lockedIp || '—'}</td>
+        <td>${k.lockedDeviceId ? `<code class="key-code">${k.lockedDeviceId.slice(0, 10)}…</code>` : '—'}</td>
         <td>${fmt(k.lastSeenAt)}</td>
         <td>${k.expiresAt ? fmt(k.expiresAt) : 'never'}</td>
         <td class="row-actions">
-          <button class="btn-small" data-act="unlock" data-key="${k.key}" ${!k.lockedIp ? 'disabled' : ''}>Unlock IP</button>
+          <button class="btn-small" data-act="unlock" data-key="${k.key}" ${!k.lockedDeviceId ? 'disabled' : ''}>Unlock device</button>
           <button class="btn-small danger" data-act="revoke" data-key="${k.key}" ${k.status === 'revoked' ? 'disabled' : ''}>Revoke</button>
           <button class="btn-small danger" data-act="delete" data-key="${k.key}">Delete</button>
         </td>

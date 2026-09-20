@@ -31,7 +31,9 @@ const app = express();
 // on a platform like Render where the exact number of proxy hops in front
 // of the app isn't fixed/documented. A specific number (e.g. "1") is only
 // safe if you've actually verified your host sits behind exactly that many
-// hops; guessing wrong here is what caused IP-lock false-mismatches.
+// hops. The license lock itself is cookie-based now (see server/cookies.js),
+// not IP-based, so this only affects per-IP rate limiting and correct
+// HTTPS detection for the device cookie's Secure flag.
 const trustProxySetting = (process.env.TRUST_PROXY_HOPS || '').trim().toLowerCase();
 if (trustProxySetting === 'true') {
   app.set('trust proxy', true);

@@ -12,7 +12,9 @@ const DEFAULTS = {
     fov: 87,
     aspectRatio: '16:9',
     screenFill: 'keep-aspect',
+    measuredCm360_hipfire: null,
     measuredCm360_1x: null,
+    measuredCm360_ads25x: null,
     accentColor: '#a50fec',
   },
   activeTab: 'hipfire', // hipfire | ads1x | ads25x
@@ -102,7 +104,9 @@ export function basisFor(tab) {
     dpi: s.dpi,
     fov: s.fov,
     aspectRatio: s.aspectRatio,
+    measuredCm360_hipfire: s.measuredCm360_hipfire,
     measuredCm360_1x: s.measuredCm360_1x,
+    measuredCm360_ads25x: s.measuredCm360_ads25x,
   });
 }
 

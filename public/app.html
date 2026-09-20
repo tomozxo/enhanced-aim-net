@@ -125,6 +125,26 @@
       </div>
 
       <div class="expander">
+        <button class="expander-toggle" id="calibrateToggle"><span class="chev">›</span> Calibrate to your real sens</button>
+        <div class="expander-body" id="calibrateBody">
+          <p style="font-size:11px;color:var(--text-dim);margin:0 0 10px;line-height:1.5">
+            All three optics use an estimated model, not R6's real formula. If a drill
+            feels faster or slower than in-game, measure your actual cm/360° (turn a
+            fixed distance on your mousepad, count the in-game rotation) and enter it
+            here to override the estimate for that optic.
+          </p>
+          <div class="sub-field">
+            <span class="sub-field-label">Measured cm/360° for Hip-fire</span>
+            <input type="number" id="measuredHipfireInput" placeholder="e.g. 40.0" step="0.1" min="1" />
+          </div>
+          <div class="sub-field">
+            <span class="sub-field-label">Measured cm/360° for 2.5x ADS</span>
+            <input type="number" id="measuredAds25xInput" placeholder="e.g. 90.0" step="0.1" min="1" />
+          </div>
+        </div>
+      </div>
+
+      <div class="expander">
         <button class="expander-toggle" id="themeToggle"><span class="chev">›</span> Accent color</button>
         <div class="expander-body" id="themeBody">
           <div class="sub-field" style="border-top:none;padding-top:0">

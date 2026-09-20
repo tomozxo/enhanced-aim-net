@@ -300,11 +300,24 @@ function bindExpanders() {
     $('themeToggle').classList.toggle('open');
     $('themeBody').classList.toggle('open');
   });
+  $('calibrateToggle').addEventListener('click', () => {
+    $('calibrateToggle').classList.toggle('open');
+    $('calibrateBody').classList.toggle('open');
+  });
 
   $('modelNoteLink').addEventListener('click', () => {
     const input = $('ads1xMeasuredInput');
     input.focus();
     input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+
+  $('measuredHipfireInput').addEventListener('change', (e) => {
+    const v = e.target.value.trim();
+    updateSettings({ measuredCm360_hipfire: v ? Number(v) : null });
+  });
+  $('measuredAds25xInput').addEventListener('change', (e) => {
+    const v = e.target.value.trim();
+    updateSettings({ measuredCm360_ads25x: v ? Number(v) : null });
   });
 }
 
@@ -342,6 +355,9 @@ function renderSettingsInputs(state) {
   ads1xInput.value = s.measuredCm360_1x ?? '';
   const estimate = estimateCm360('ads1x', { ...s, measuredCm360_1x: null });
   ads1xInput.placeholder = `Est. ${formatCm360(estimate)}`;
+
+  $('measuredHipfireInput').value = s.measuredCm360_hipfire ?? '';
+  $('measuredAds25xInput').value = s.measuredCm360_ads25x ?? '';
 }
 
 function renderTabsUI(state) {

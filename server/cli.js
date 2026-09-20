@@ -27,7 +27,7 @@ if (cmd === 'new') {
       status: k.status,
       admin: k.isAdmin ? 'yes' : '',
       note: k.note,
-      lockedIp: k.lockedIp || '-',
+      lockedDevice: k.lockedDeviceId ? k.lockedDeviceId.slice(0, 10) + '…' : '-',
       activatedAt: k.activatedAt || '-',
       expiresAt: k.expiresAt || 'never',
     }))
