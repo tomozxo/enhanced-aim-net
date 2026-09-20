@@ -5,6 +5,63 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>enhanced.aim.net</title>
 <link rel="stylesheet" href="css/styles.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+<style>
+  body.gate-body { font-family: 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; position: relative; overflow: hidden; }
+  .gate-body .topbar-brand, .gate-body h1 { font-weight: 700; letter-spacing: .01em; }
+  .gate-body h1 { font-size: 26px; }
+  .gate-body .gate-btn { font-weight: 700; letter-spacing: .02em; text-transform: uppercase; font-size: 13.5px; }
+
+  /* Animated purple aurora behind the card - a few large, heavily blurred
+     blobs slowly drifting past each other. Pure CSS, no canvas/JS, and
+     each blob has its own duration/delay so the motion never looks
+     mechanically synced. */
+  .aurora { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  .aurora span {
+    position: absolute; border-radius: 50%; filter: blur(90px); opacity: 0.55;
+    will-change: transform;
+  }
+  .aurora span:nth-child(1) {
+    width: 46vw; height: 46vw; left: -12vw; top: -14vw;
+    background: radial-gradient(circle, #a50fec 0%, transparent 70%);
+    animation: aurora-drift-a 22s ease-in-out infinite;
+  }
+  .aurora span:nth-child(2) {
+    width: 38vw; height: 38vw; right: -10vw; top: 6vw;
+    background: radial-gradient(circle, #6b1fb8 0%, transparent 70%);
+    animation: aurora-drift-b 26s ease-in-out infinite;
+  }
+  .aurora span:nth-child(3) {
+    width: 42vw; height: 42vw; left: 22vw; bottom: -20vw;
+    background: radial-gradient(circle, #c93ce0 0%, transparent 70%);
+    animation: aurora-drift-c 30s ease-in-out infinite;
+  }
+  :root[data-theme="light"] .aurora span { opacity: 0.28; }
+  @keyframes aurora-drift-a {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(6vw, 8vw) scale(1.15); }
+  }
+  @keyframes aurora-drift-b {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-7vw, 5vw) scale(1.1); }
+  }
+  @keyframes aurora-drift-c {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(4vw, -6vw) scale(1.12); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .aurora span { animation: none; }
+  }
+
+  .gate-body .topbar, .gate-body .gate-card { position: relative; z-index: 1; }
+  .gate-body .gate-card {
+    backdrop-filter: blur(14px);
+    background: color-mix(in srgb, var(--panel) 78%, transparent);
+    box-shadow: 0 20px 60px -20px rgba(165, 15, 236, 0.35);
+  }
+</style>
 <script>
   (function () {
     try {
@@ -15,6 +72,7 @@
 </script>
 </head>
 <body class="gate-body">
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
   <header class="topbar" style="position:fixed;top:0;left:0;right:0">
     <div class="topbar-brand">
       <span class="icon">

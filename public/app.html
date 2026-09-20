@@ -237,6 +237,7 @@
 
   <div class="drill-stage" id="drillStage">
     <canvas id="drillCanvas"></canvas>
+    <div class="drill-crosshair" aria-hidden="true"></div>
     <div class="drill-hud-tl" id="drillPhaseLabel">WARM-UP / FLICK</div>
     <div class="drill-hud-tr" id="drillTimer">7.0s</div>
 
@@ -254,7 +255,10 @@
         <p id="pauseReason">Paused because the window lost focus.</p>
         <button class="btn-accent" id="resumeBtn">Resume round</button>
         <p class="caption">Progress is kept. Click to capture your mouse again.</p>
-        <button class="clear-link" id="endPracticeBtn" style="display:none">End practice</button>
+        <div class="pause-secondary-actions">
+          <button class="clear-link" id="exitFullscreenBtn">Exit fullscreen</button>
+          <button class="clear-link" id="endSessionBtn">End session</button>
+        </div>
       </div>
     </div>
 

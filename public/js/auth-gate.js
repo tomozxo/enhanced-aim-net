@@ -26,11 +26,19 @@
     sessionStorage.removeItem('r6sf_gate_msg');
   }
 
+  const PREFIX = 'R6S';
+
   function formatAsTyped(value) {
     const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const body = clean.startsWith('R6S') ? clean.slice(3) : clean;
+    if (!clean) return '';
+    // Backspacing down into the prefix itself leaves a fragment like "R" or
+    // "R6" - that's a partial prefix, not typed body content. Leave it
+    // exactly as-is instead of slapping a fresh "R6S-" in front of it (that
+    // was the bug: deleting down to "R6" kept re-expanding into "R6S-R6").
+    if (clean.length <= PREFIX.length && PREFIX.startsWith(clean)) return clean;
+    const body = clean.startsWith(PREFIX) ? clean.slice(PREFIX.length) : clean;
     const groups = body.match(/.{1,4}/g) || [];
-    return ['R6S', ...groups].join('-');
+    return [PREFIX, ...groups].join('-');
   }
 
   input.addEventListener('input', () => {

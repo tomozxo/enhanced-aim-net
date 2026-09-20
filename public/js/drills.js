@@ -1,6 +1,9 @@
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 import { estimateCm360, estimateCm360Axis } from './sensMath.js';
 
 const DRILL_LABELS = { flick: 'FLICK', targets: 'TARGETS', tracking: 'TRACKING' };
+const TARGET_DISTANCE = 22; // world units targets sit out in front of the camera
+const CAMERA_HEIGHT = 6; // "elevated in the air" - eye height above the floor grid
 
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -15,12 +18,14 @@ function rand(min, max) {
   return min + Math.random() * (max - min);
 }
 
+const HALF_PI = Math.PI / 2;
+const PITCH_LIMIT = HALF_PI - 0.01;
+
 export class DrillEngine {
   constructor({ overlayEl, stageEl, canvasEl, elements, onBlockComplete, onQueueComplete, onPauseChange, onStartError }) {
     this.overlay = overlayEl;
     this.stage = stageEl;
     this.canvas = canvasEl;
-    this.ctx = canvasEl.getContext('2d');
     this.el = elements; // { phaseLabel, timer, getReady, getReadyLabel, getReadyNum, pauseOverlay, pauseReason, resumeBtn }
     this.onBlockComplete = onBlockComplete;
     this.onQueueComplete = onQueueComplete;
@@ -31,8 +36,9 @@ export class DrillEngine {
     this.queueIndex = -1;
     this.running = false;
     this.paused = false;
-    this.crosshair = { x: 0, y: 0 };
-    this.targets = [];
+    this.yaw = 0;
+    this.pitch = 0;
+    this.targets = []; // { mesh, r } - r is the hit-test radius in world units
     this.metrics = null;
     this.blockElapsedMs = 0;
     this.blockDurationMs = 0;
@@ -41,8 +47,51 @@ export class DrillEngine {
     this.trackPhase = 0;
     this.windowBlurredRecently = false;
 
+    this._initScene();
     this._bindEvents();
     this.el.resumeBtn.addEventListener('click', () => this._requestLock());
+  }
+
+  // ---------- Three.js scene: a first-person view of a lit void with a
+  // floor grid receding to the horizon and shaded spheres to flick onto. ----------
+  _initScene() {
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x000000);
+    this.scene.fog = new THREE.FogExp2(0x000000, 0.028);
+
+    this.camera = new THREE.PerspectiveCamera(90, 1, 0.1, 500);
+    this.camera.position.set(0, CAMERA_HEIGHT, 0);
+    this.camera.rotation.order = 'YXZ';
+
+    // Directional (sun-like) key light - doesn't attenuate with distance,
+    // so a target always reads the same brightness whether it spawns near
+    // or at the far edge of the flick range. A point light with realistic
+    // falloff needed far more intensity than looked sane to keep tuning.
+    this.scene.add(new THREE.HemisphereLight(0x4a2a5e, 0x0a0510, 0.7));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.6);
+    sun.position.set(3, 12, 6);
+    this.scene.add(sun);
+    const rim = new THREE.PointLight(0xa50fec, 0.9, 120, 1);
+    rim.position.set(0, CAMERA_HEIGHT + 2, -30);
+    this.scene.add(rim);
+
+    const grid = new THREE.GridHelper(400, 80, 0x4a2a5e, 0x201028);
+    grid.position.y = 0;
+    this.scene.add(grid);
+
+    const targetGeo = new THREE.SphereGeometry(1, 24, 18);
+    this.targetGeo = targetGeo;
+
+    this.raycaster = new THREE.Raycaster();
+    this.centerNDC = new THREE.Vector2(0, 0);
+  }
+
+  _makeTargetMaterial() {
+    const fill = new THREE.Color(cssVar('--target-fill') || '#d8c9ab');
+    return new THREE.MeshStandardMaterial({ color: fill, roughness: 0.45, metalness: 0.05 });
   }
 
   _bindEvents() {
@@ -79,7 +128,7 @@ export class DrillEngine {
   _resizeCanvas() {
     if (!this.sensSettings) return; // window can resize before the first configure()/run()
     const stageRect = this.stage.getBoundingClientRect();
-    const { screenFill, aspectRatio } = this.sensSettings.settings;
+    const { screenFill, aspectRatio, fov } = this.sensSettings.settings;
     let w = stageRect.width;
     let h = stageRect.height;
     if (screenFill === 'keep-aspect') {
@@ -90,17 +139,21 @@ export class DrillEngine {
         h = w / targetRatio;
       }
     }
-    this.canvas.width = Math.round(w * devicePixelRatio);
-    this.canvas.height = Math.round(h * devicePixelRatio);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
     this.canvas.style.left = `${(stageRect.width - w) / 2}px`;
     this.canvas.style.top = `${(stageRect.height - h) / 2}px`;
     this.canvas.style.position = 'absolute';
-    this.ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     this.cw = w;
     this.ch = h;
-    if (!this.crosshair.x) this.crosshair = { x: w / 2, y: h / 2 };
+
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    // Horizontal FOV setting -> vertical FOV Three.js expects, given the actual aspect ratio.
+    const hFovRad = (Math.max(60, Math.min(110, fov)) * Math.PI) / 180;
+    const vFovRad = 2 * Math.atan(Math.tan(hFovRad / 2) / this.camera.aspect);
+    this.camera.fov = (vFovRad * 180) / Math.PI;
+    this.camera.updateProjectionMatrix();
   }
 
   /** Swaps in the block's candidate sens value (hip-fire H/V or the ADS value) on top of the live settings, so each calibration block actually tests that candidate rather than whatever's live in the sidebar. */
@@ -112,32 +165,33 @@ export class DrillEngine {
     return { ...base, ads25x: sens };
   }
 
-  _movementScale() {
+  /** Degrees of camera rotation per raw mouse-movement unit, straight from the cm/360 model - no screen-pixel conversion needed since we're rotating a real camera now. */
+  _rotationScale() {
     const tab = this.sensSettings.tab;
     const settings = this._effectiveSettings();
-    const fov = settings.fov;
-    const pxPerDegree = this.cw / fov;
     const dpi = settings.dpi;
-
     const degPerPxFor = (cm360) => (360 * 2.54) / (cm360 * dpi);
 
     if (tab === 'hipfire') {
       const cmH = estimateCm360Axis('h', settings);
       const cmV = estimateCm360Axis('v', settings);
-      return {
-        x: degPerPxFor(cmH) * pxPerDegree,
-        y: degPerPxFor(cmV) * pxPerDegree,
-      };
+      return { x: degPerPxFor(cmH) * (Math.PI / 180), y: degPerPxFor(cmV) * (Math.PI / 180) };
     }
     const cm = estimateCm360(tab, settings);
-    const s = degPerPxFor(cm) * pxPerDegree;
+    const s = degPerPxFor(cm) * (Math.PI / 180);
     return { x: s, y: s };
   }
 
   _applyMovement(mx, my) {
-    const scale = this._movementScale();
-    this.crosshair.x = Math.max(0, Math.min(this.cw, this.crosshair.x + mx * scale.x));
-    this.crosshair.y = Math.max(0, Math.min(this.ch, this.crosshair.y + my * scale.y));
+    const scale = this._rotationScale();
+    this.yaw -= mx * scale.x;
+    this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch - my * scale.y));
+    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.x = this.pitch;
+    // Keep the world matrix current immediately, rather than only after the
+    // next render - a click (_handleShoot) or a target spawn can happen
+    // between animation frames and both rely on an up-to-date camera transform.
+    this.camera.updateMatrixWorld(true);
   }
 
   /** queueBlocks: [{ type, durationSec, scored, phaseLabel, getReadyLabel, candidateSens }] */
@@ -241,8 +295,15 @@ export class DrillEngine {
     this.blockDurationMs = block.durationSec * 1000;
     this.blockElapsedMs = 0;
     this.el.phaseLabel.textContent = `${block.phaseLabel} / ${DRILL_LABELS[block.type]}`;
-    this.targets = [];
+    this._clearTargets();
     this.metrics = { hits: 0, clicks: 0, cleared: 0, onTargetMs: 0, spawned: 0 };
+    // Recentre the view at the start of every block so a candidate never
+    // inherits wherever the last block happened to leave the camera aimed.
+    this.yaw = 0;
+    this.pitch = 0;
+    this.camera.rotation.y = 0;
+    this.camera.rotation.x = 0;
+    this.camera.updateMatrixWorld(true);
     this.trackPhase = Math.random() * 1000;
     this._spawnForBlock(block);
     this.running = true;
@@ -251,62 +312,86 @@ export class DrillEngine {
     this._loop();
   }
 
+  _clearTargets() {
+    this.targets.forEach((t) => this.scene.remove(t.mesh));
+    this.targets = [];
+  }
+
   _spawnForBlock(block) {
-    const margin = 90;
+    this._clearTargets();
+    const margin = 0.72; // fraction of the FOV half-angle kept clear of the very edge
     if (block.type === 'flick') {
-      this.targets = [this._randomTarget(margin, 26)];
+      this.targets = [this._randomTarget(margin, 0.85)];
       this.metrics.spawned = 1;
     } else if (block.type === 'targets') {
-      this.targets = Array.from({ length: 5 }, () => this._randomTarget(margin, 22));
+      this.targets = Array.from({ length: 5 }, () => this._randomTarget(margin, 0.7));
       this.metrics.spawned = 5;
     } else if (block.type === 'tracking') {
-      this.targets = [{ x: this.cw / 2, y: this.ch / 2, r: 24 }];
+      this.targets = [this._targetAt(0, 0, 0.8)];
     }
   }
 
-  _randomTarget(margin, r) {
-    return { x: rand(margin, this.cw - margin), y: rand(margin, this.ch - margin), r };
+  /** Places a target somewhere within the current view (like before: a random point inside the visible frame), at a fixed distance out. `margin` shrinks the usable frame so targets never spawn flush against the edge. */
+  _randomTarget(margin, radius) {
+    const ndcX = rand(-margin, margin);
+    const ndcY = rand(-margin, margin);
+    return this._targetAt(ndcX, ndcY, radius);
+  }
+
+  _targetAt(ndcX, ndcY, radius) {
+    const vec = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(this.camera);
+    const dir = vec.sub(this.camera.position).normalize();
+    const pos = this.camera.position.clone().add(dir.multiplyScalar(TARGET_DISTANCE));
+
+    const mesh = new THREE.Mesh(this.targetGeo, this._makeTargetMaterial());
+    mesh.scale.setScalar(radius);
+    mesh.position.copy(pos);
+    this.scene.add(mesh);
+    return { mesh, r: radius, ndcX, ndcY };
   }
 
   _handleShoot() {
     const block = this.currentBlock;
     if (!block || (block.type !== 'flick' && block.type !== 'targets')) return;
     this.metrics.clicks += 1;
-    let hitIdx = -1;
-    let bestDist = Infinity;
-    this.targets.forEach((t, i) => {
-      const d = Math.hypot(t.x - this.crosshair.x, t.y - this.crosshair.y);
-      if (d <= t.r && d < bestDist) {
-        bestDist = d;
-        hitIdx = i;
-      }
-    });
+    const hitIdx = this._raycastHit();
     if (hitIdx === -1) return;
     this.metrics.hits += 1;
     if (block.type === 'flick') {
-      this.targets = [this._randomTarget(90, 26)];
+      this.scene.remove(this.targets[0].mesh);
+      this.targets = [this._randomTarget(0.72, 0.85)];
     } else {
+      this.scene.remove(this.targets[hitIdx].mesh);
       this.targets.splice(hitIdx, 1);
       this.metrics.cleared += 1;
       if (this.targets.length === 0) {
-        this.targets = Array.from({ length: 5 }, () => this._randomTarget(90, 22));
+        this.targets = Array.from({ length: 5 }, () => this._randomTarget(0.72, 0.7));
         this.metrics.spawned += 5;
       }
     }
+  }
+
+  /** Raycasts from the crosshair (screen centre) into the scene, returns the index of the hit target in this.targets, or -1. */
+  _raycastHit() {
+    this.raycaster.setFromCamera(this.centerNDC, this.camera);
+    const meshes = this.targets.map((t) => t.mesh);
+    const hits = this.raycaster.intersectObjects(meshes, false);
+    if (!hits.length) return -1;
+    return meshes.indexOf(hits[0].object);
   }
 
   _updateTracking(dtMs) {
     const t = this.targets[0];
     if (!t) return;
     this.trackPhase += dtMs / 1000;
-    const cx = this.cw / 2;
-    const cy = this.ch / 2;
-    const rx = Math.min(this.cw, this.ch) * 0.28;
-    const ry = Math.min(this.cw, this.ch) * 0.2;
-    t.x = cx + Math.sin(this.trackPhase * 0.9) * rx + Math.sin(this.trackPhase * 2.1) * rx * 0.18;
-    t.y = cy + Math.cos(this.trackPhase * 0.7) * ry + Math.cos(this.trackPhase * 1.7) * ry * 0.18;
-    const d = Math.hypot(t.x - this.crosshair.x, t.y - this.crosshair.y);
-    if (d <= t.r) this.metrics.onTargetMs += dtMs;
+    const ndcX = Math.sin(this.trackPhase * 0.9) * 0.55 + Math.sin(this.trackPhase * 2.1) * 0.1;
+    const ndcY = Math.cos(this.trackPhase * 0.7) * 0.4 + Math.cos(this.trackPhase * 1.7) * 0.08;
+
+    const vec = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(this.camera);
+    const dir = vec.sub(this.camera.position).normalize();
+    t.mesh.position.copy(this.camera.position).add(dir.multiplyScalar(TARGET_DISTANCE));
+
+    if (this._raycastHit() === 0) this.metrics.onTargetMs += dtMs;
   }
 
   _loop() {
@@ -318,7 +403,7 @@ export class DrillEngine {
 
     if (this.currentBlock.type === 'tracking') this._updateTracking(dt);
 
-    this._render();
+    this.renderer.render(this.scene, this.camera);
 
     const remaining = this.blockDurationMs - this.blockElapsedMs;
     if (this.blockDurationMs >= 300000) {
@@ -367,6 +452,7 @@ export class DrillEngine {
   }
 
   exit() {
+    this._clearTargets();
     if (document.exitPointerLock) document.exitPointerLock();
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     this.overlay.classList.remove('active');
@@ -375,78 +461,9 @@ export class DrillEngine {
   stop() {
     this.running = false;
     if (this.rafId) cancelAnimationFrame(this.rafId);
+    this._clearTargets();
     if (document.exitPointerLock) document.exitPointerLock();
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     this.overlay.classList.remove('active');
-  }
-
-  _render() {
-    const ctx = this.ctx;
-    ctx.clearRect(0, 0, this.cw, this.ch);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, this.cw, this.ch);
-
-    this._drawGrid(ctx);
-
-    const fill = cssVar('--target-fill') || '#d8c9ab';
-    const ring = cssVar('--target-ring') || '#a9946a';
-    this.targets.forEach((t) => {
-      ctx.beginPath();
-      ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
-      ctx.fillStyle = fill;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(t.x, t.y, t.r * 0.42, 0, Math.PI * 2);
-      ctx.strokeStyle = ring;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    });
-
-    this._drawCrosshair(ctx);
-  }
-
-  _drawGrid(ctx) {
-    const cols = 8;
-    const rows = 6;
-    const cx = this.cw / 2;
-    const cy = this.ch / 2;
-    const bow = Math.max(8, (100 - this.sensSettings.settings.fov) * 0.6 + 14);
-    ctx.strokeStyle = 'rgba(255,255,255,0.055)';
-    ctx.lineWidth = 1;
-
-    for (let i = 0; i <= cols; i++) {
-      const x = (this.cw / cols) * i;
-      const off = ((x - cx) / cx) ** 2 * bow;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.quadraticCurveTo(x + (x < cx ? off : -off), cy, x, this.ch);
-      ctx.stroke();
-    }
-    for (let j = 0; j <= rows; j++) {
-      const y = (this.ch / rows) * j;
-      const off = ((y - cy) / cy) ** 2 * bow;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.quadraticCurveTo(cx, y + (y < cy ? off : -off), this.cw, y);
-      ctx.stroke();
-    }
-  }
-
-  _drawCrosshair(ctx) {
-    const { x, y } = this.crosshair;
-    ctx.strokeStyle = '#f2f2f2';
-    ctx.lineWidth = 1.4;
-    const len = 7;
-    const gap = 3;
-    ctx.beginPath();
-    ctx.moveTo(x - len - gap, y);
-    ctx.lineTo(x - gap, y);
-    ctx.moveTo(x + gap, y);
-    ctx.lineTo(x + len + gap, y);
-    ctx.moveTo(x, y - len - gap);
-    ctx.lineTo(x, y - gap);
-    ctx.moveTo(x, y + gap);
-    ctx.lineTo(x, y + len + gap);
-    ctx.stroke();
   }
 }

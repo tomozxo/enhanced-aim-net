@@ -48,7 +48,6 @@ async function main() {
     onQueueComplete: (results) => handleQueueComplete(engine, results),
     onPauseChange: (paused) => {
       if (paused) $('drillStatus').textContent = 'Paused';
-      $('endPracticeBtn').style.display = paused && run?.isPractice ? 'inline-block' : 'none';
     },
     onStartError: (err) => {
       run = null;
@@ -165,11 +164,19 @@ async function main() {
   $('practiceBtn').addEventListener('click', () => startPractice());
   $('fullscreenBtn').addEventListener('click', () => startPractice({ freeform: true }));
 
-  $('endPracticeBtn').addEventListener('click', () => {
+  $('endSessionBtn').addEventListener('click', () => {
+    // Works for a calibration run too, not just practice - quitting early
+    // just means that pass's data doesn't get scored/saved.
     engine.exit();
     run = null;
     $('pauseOverlay').classList.remove('active');
     renderAll();
+  });
+
+  $('exitFullscreenBtn').addEventListener('click', () => {
+    // Leaves fullscreen but keeps the session paused (not ended) - "Resume
+    // round" continues windowed. Separate from End session on purpose.
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   });
 
   document.addEventListener('click', (e) => {
