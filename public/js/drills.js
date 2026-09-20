@@ -36,6 +36,15 @@ export class DrillEngine {
     this.queueIndex = -1;
     this.running = false;
     this.paused = false;
+    // True from run() until the queue finishes or exit()/stop() is called -
+    // covers get-ready countdowns too, not just an actively running block,
+    // so losing the mouse during "get ready" also surfaces the pause menu
+    // instead of leaving no way back to the main page short of a refresh.
+    this.sessionActive = false;
+    this.phase = 'idle'; // 'idle' | 'getready' | 'running' - drives what resuming from pause does
+    this.getReadyTimer = null;
+    this.pendingBlock = null;
+    this.getReadyCount = 0;
     this.yaw = 0;
     this.pitch = 0;
     this.targets = []; // { mesh, r } - r is the hit-test radius in world units
@@ -97,13 +106,13 @@ export class DrillEngine {
   _bindEvents() {
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === this.canvas;
-      if (!locked && this.running && !this.paused) {
+      if (!locked && this.sessionActive && !this.paused) {
         this._pause(this.windowBlurredRecently ? 'blur' : 'esc');
       }
     });
     window.addEventListener('blur', () => {
       this.windowBlurredRecently = true;
-      if (this.running && !this.paused) this._pause('blur');
+      if (this.sessionActive && !this.paused) this._pause('blur');
     });
     window.addEventListener('focus', () => {
       this.windowBlurredRecently = false;
@@ -199,6 +208,7 @@ export class DrillEngine {
     this.queue = queueBlocks;
     this.queueIndex = -1;
     this.results = [];
+    this.sessionActive = true;
     try {
       await this._requestFullscreenAndLock();
       this._next();
@@ -244,9 +254,17 @@ export class DrillEngine {
     if (this.paused) {
       this.paused = false;
       this.onPauseChange?.(false);
-      // Don't let the paused interval count as elapsed time on resume.
-      this.lastFrameTime = performance.now();
-      this._loop();
+      if (this.phase === 'getready') {
+        // Restart the 3-count fresh rather than trying to resume mid-tick -
+        // simpler, and losing at most a couple seconds of countdown is fine.
+        this.getReadyCount = 3;
+        this.el.getReadyNum.textContent = this.getReadyCount;
+        this._tickGetReady();
+      } else if (this.phase === 'running') {
+        // Don't let the paused interval count as elapsed time on resume.
+        this.lastFrameTime = performance.now();
+        this._loop();
+      }
     }
   }
 
@@ -257,36 +275,46 @@ export class DrillEngine {
       reason === 'blur' ? 'Paused because the window lost focus.' : 'Paused. Click to resume.';
     this.el.pauseOverlay.classList.add('active');
     if (this.rafId) cancelAnimationFrame(this.rafId);
+    if (this.getReadyTimer) {
+      clearTimeout(this.getReadyTimer);
+      this.getReadyTimer = null;
+    }
   }
 
-  async _next() {
+  _next() {
     this.queueIndex += 1;
     if (this.queueIndex >= this.queue.length) {
       this._finishQueue();
       return;
     }
-    const block = this.queue[this.queueIndex];
-    await this._showGetReady(block);
-    this._startBlock(block);
+    this._runGetReady(this.queue[this.queueIndex]);
   }
 
-  _showGetReady(block) {
-    return new Promise((resolve) => {
-      this.el.getReadyLabel.textContent = block.getReadyLabel;
-      this.el.getReady.classList.add('active');
-      let n = 3;
-      this.el.getReadyNum.textContent = n;
-      const tick = setInterval(() => {
-        n -= 1;
-        if (n <= 0) {
-          clearInterval(tick);
-          this.el.getReady.classList.remove('active');
-          resolve();
-          return;
-        }
-        this.el.getReadyNum.textContent = n;
-      }, 700);
-    });
+  /** A chained setTimeout instead of a Promise/setInterval, specifically so
+   * pausing partway through is just "stop scheduling the next tick" and
+   * resuming is "schedule it again" - no half-settled promise to worry about. */
+  _runGetReady(block) {
+    this.phase = 'getready';
+    this.pendingBlock = block;
+    this.el.getReadyLabel.textContent = block.getReadyLabel;
+    this.el.getReady.classList.add('active');
+    this.getReadyCount = 3;
+    this.el.getReadyNum.textContent = this.getReadyCount;
+    this._tickGetReady();
+  }
+
+  _tickGetReady() {
+    this.getReadyTimer = setTimeout(() => {
+      this.getReadyTimer = null;
+      this.getReadyCount -= 1;
+      if (this.getReadyCount <= 0) {
+        this.el.getReady.classList.remove('active');
+        this._startBlock(this.pendingBlock);
+        return;
+      }
+      this.el.getReadyNum.textContent = this.getReadyCount;
+      this._tickGetReady();
+    }, 700);
   }
 
   _startBlock(block) {
@@ -306,6 +334,7 @@ export class DrillEngine {
     this.camera.updateMatrixWorld(true);
     this.trackPhase = Math.random() * 1000;
     this._spawnForBlock(block);
+    this.phase = 'running';
     this.running = true;
     this.paused = false;
     this.lastFrameTime = performance.now();
@@ -445,23 +474,42 @@ export class DrillEngine {
   }
 
   _finishQueue() {
+    // Set false *before* releasing the lock below - exitPointerLock() fires
+    // a pointerlockchange event, and if sessionActive were still true that
+    // would immediately re-trigger _pause() right as we're wrapping up.
+    this.sessionActive = false;
+    this.phase = 'idle';
+    this.running = false;
     // Release the mouse so the results card is clickable, but stay fullscreen
     // until the user dismisses it via exit().
     if (document.exitPointerLock) document.exitPointerLock();
     this.onQueueComplete?.(this.results);
   }
 
-  exit() {
+  /** Common teardown for exit()/stop() - cancels anything that could still fire later and resurrect the drill after the caller thinks it's gone. */
+  _resetState() {
+    this.sessionActive = false;
+    this.phase = 'idle';
+    this.running = false;
+    this.paused = false;
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    this.rafId = null;
+    if (this.getReadyTimer) clearTimeout(this.getReadyTimer);
+    this.getReadyTimer = null;
+    this.el.getReady.classList.remove('active');
+    this.el.pauseOverlay.classList.remove('active');
     this._clearTargets();
+  }
+
+  exit() {
+    this._resetState();
     if (document.exitPointerLock) document.exitPointerLock();
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     this.overlay.classList.remove('active');
   }
 
   stop() {
-    this.running = false;
-    if (this.rafId) cancelAnimationFrame(this.rafId);
-    this._clearTargets();
+    this._resetState();
     if (document.exitPointerLock) document.exitPointerLock();
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     this.overlay.classList.remove('active');
