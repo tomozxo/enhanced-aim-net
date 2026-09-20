@@ -1,6 +1,13 @@
 import { ensureSession } from './session.js';
 import { getState, subscribe, updateSettings, setActiveTab, setResult, basisFor, isStale } from './state.js';
-import { baseSensForTab, estimateCm360, formatCm360, compensateAdsForHipfireChange } from './sensMath.js';
+import {
+  baseSensForTab,
+  estimateCm360,
+  formatCm360,
+  compensateAdsForHipfireChange,
+  calibrationFrom,
+  isCalibrated,
+} from './sensMath.js';
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine } from './drills.js';
 import { buildCandidates, buildQueue, scoreResults, narrowedSpread, INITIAL_SPREAD_PCT } from './calibration.js';
@@ -265,6 +272,14 @@ function bindSettingsFields() {
   bindAds1xMeasured();
 }
 
+/** Writes a measured cm/360 for one optic into the calibration snapshot
+ * (or clears it). Everything else derives from there. */
+function setCalibration(tab, cm360) {
+  const s = getState().settings;
+  const calib = { ...s.calib, [tab]: cm360 == null ? null : calibrationFrom(tab, cm360, s) };
+  updateSettings({ calib });
+}
+
 /** ADS·1x is nullable (empty = "use the estimate") and steps by 0.5, unlike
  * the other sidebar fields, so it gets its own binding instead of bindStepper. */
 function bindAds1xMeasured() {
@@ -275,17 +290,14 @@ function bindAds1xMeasured() {
   const step = 0.5;
 
   function commit(v) {
-    if (v == null) {
-      updateSettings({ measuredCm360_1x: null });
-      return;
-    }
-    updateSettings({ measuredCm360_1x: Math.max(1, Math.round(v * 10) / 10) });
+    setCalibration('ads1x', v == null ? null : Math.max(1, Math.round(v * 10) / 10));
   }
 
   function currentOrEstimate() {
     const raw = input.value.trim();
     if (raw) return Number(raw);
-    return estimateCm360('ads1x', { ...getState().settings, measuredCm360_1x: null });
+    const s = getState().settings;
+    return estimateCm360('ads1x', { ...s, calib: { ...s.calib, ads1x: null } });
   }
 
   up.addEventListener('click', () => commit(currentOrEstimate() + step));
@@ -314,11 +326,11 @@ function bindExpanders() {
 
   $('measuredHipfireInput').addEventListener('change', (e) => {
     const v = e.target.value.trim();
-    updateSettings({ measuredCm360_hipfire: v ? Number(v) : null });
+    setCalibration('hipfire', v ? Number(v) : null);
   });
   $('measuredAds25xInput').addEventListener('change', (e) => {
     const v = e.target.value.trim();
-    updateSettings({ measuredCm360_ads25x: v ? Number(v) : null });
+    setCalibration('ads25x', v ? Number(v) : null);
   });
 }
 
@@ -365,12 +377,12 @@ function renderSettingsInputs(state) {
   $('aspectRatio').value = s.aspectRatio;
   $('screenFill').value = s.screenFill;
   const ads1xInput = $('ads1xMeasuredInput');
-  ads1xInput.value = s.measuredCm360_1x ?? '';
-  const estimate = estimateCm360('ads1x', { ...s, measuredCm360_1x: null });
+  ads1xInput.value = s.calib?.ads1x?.cm360 ?? '';
+  const estimate = estimateCm360('ads1x', { ...s, calib: { ...s.calib, ads1x: null } });
   ads1xInput.placeholder = `Est. ${formatCm360(estimate)}`;
 
-  $('measuredHipfireInput').value = s.measuredCm360_hipfire ?? '';
-  $('measuredAds25xInput').value = s.measuredCm360_ads25x ?? '';
+  $('measuredHipfireInput').value = s.calib?.hipfire?.cm360 ?? '';
+  $('measuredAds25xInput').value = s.calib?.ads25x?.cm360 ?? '';
 }
 
 function renderTabsUI(state) {
@@ -391,6 +403,13 @@ function renderStats(state) {
   const sens = baseSensForTab(tab, s);
   $('statActiveSens').textContent = tab === 'hipfire' ? Math.round(sens * 10) / 10 : sens;
   $('statCm360').textContent = formatCm360(estimateCm360(tab, s));
+  // Make it obvious whether this number is anchored to a real measurement
+  // or is still just the model's guess.
+  const calibrated = isCalibrated(tab, s);
+  $('cm360Label').textContent = calibrated ? 'Measured cm/360°' : 'Estimated cm/360°';
+  $('cm360Label').title = calibrated
+    ? 'Derived from the cm/360 you measured in-game for this optic.'
+    : 'Model estimate - measure your real cm/360 under "Calibrate to your real sens" to make this exact.';
 
   const result = state.results[tab];
   if (result) {

@@ -4,6 +4,8 @@ import { estimateCm360, estimateCm360Axis } from './sensMath.js';
 const DRILL_LABELS = { flick: 'FLICK', targets: 'TARGETS', tracking: 'TRACKING' };
 const TARGET_DISTANCE = 22; // world units targets sit out in front of the camera
 const CAMERA_HEIGHT = 6; // "elevated in the air" - eye height above the floor grid
+const TRACK_YAW_RANGE = (22 * Math.PI) / 180; // how far the tracking target swings left/right
+const TRACK_PITCH_RANGE = (10 * Math.PI) / 180;
 
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -373,6 +375,9 @@ export class DrillEngine {
     const mesh = new THREE.Mesh(this.targetGeo, this._makeTargetMaterial());
     mesh.scale.setScalar(radius);
     mesh.position.copy(pos);
+    // Make it raycast-ready immediately rather than only after the next
+    // render() - a click can land before the renderer refreshes matrixWorld.
+    mesh.updateMatrixWorld();
     this.scene.add(mesh);
     return { mesh, r: radius, ndcX, ndcY };
   }
@@ -407,16 +412,34 @@ export class DrillEngine {
     return meshes.indexOf(hits[0].object);
   }
 
+  /** World-space direction for a yaw/pitch pair, where (0,0) is the
+   * direction the camera faces at the start of every block (-Z, since
+   * _startBlock recentres the view). */
+  _dirFromAngles(yaw, pitch) {
+    const cp = Math.cos(pitch);
+    return new THREE.Vector3(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
+  }
+
   _updateTracking(dtMs) {
     const t = this.targets[0];
     if (!t) return;
     this.trackPhase += dtMs / 1000;
-    const ndcX = Math.sin(this.trackPhase * 0.9) * 0.55 + Math.sin(this.trackPhase * 2.1) * 0.1;
-    const ndcY = Math.cos(this.trackPhase * 0.7) * 0.4 + Math.cos(this.trackPhase * 1.7) * 0.08;
 
-    const vec = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(this.camera);
-    const dir = vec.sub(this.camera.position).normalize();
-    t.mesh.position.copy(this.camera.position).add(dir.multiplyScalar(TARGET_DISTANCE));
+    // These angles are WORLD-space on purpose. Deriving the position from
+    // the current camera (unprojecting a screen coordinate) pinned the
+    // target to the screen instead of the world: turning the mouse carried
+    // the target along with the view, so it could never be tracked or
+    // missed. It has to move independently of where you're looking.
+    const yaw =
+      Math.sin(this.trackPhase * 0.9) * TRACK_YAW_RANGE + Math.sin(this.trackPhase * 2.1) * TRACK_YAW_RANGE * 0.18;
+    const pitch =
+      Math.cos(this.trackPhase * 0.7) * TRACK_PITCH_RANGE + Math.cos(this.trackPhase * 1.7) * TRACK_PITCH_RANGE * 0.18;
+
+    t.mesh.position.copy(this.camera.position).add(this._dirFromAngles(yaw, pitch).multiplyScalar(TARGET_DISTANCE));
+    // Raycasting reads matrixWorld, which the renderer only refreshes on its
+    // next render() - without this the on-target check would test where the
+    // target was last frame, not where it just moved to.
+    t.mesh.updateMatrixWorld();
 
     if (this._raycastHit() === 0) this.metrics.onTargetMs += dtMs;
   }

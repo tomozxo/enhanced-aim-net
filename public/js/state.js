@@ -12,9 +12,14 @@ const DEFAULTS = {
     fov: 87,
     aspectRatio: '16:9',
     screenFill: 'keep-aspect',
-    measuredCm360_hipfire: null,
-    measuredCm360_1x: null,
-    measuredCm360_ads25x: null,
+    // Per-optic real-world calibration: { cm360, sens, dpi, mult } captured
+    // at the moment it was measured, so the model can rescale it to other
+    // sens values instead of returning one frozen number.
+    calib: {
+      hipfire: null,
+      ads1x: null,
+      ads25x: null,
+    },
     accentColor: '#a50fec',
   },
   activeTab: 'hipfire', // hipfire | ads1x | ads25x
@@ -32,15 +37,42 @@ const DEFAULTS = {
   },
 };
 
+/** Older builds stored a bare measured cm/360 per optic with no record of
+ * what sens it was measured at. Carry those over by assuming they were
+ * measured at whatever sens is saved now - the best guess available, and
+ * still better than dropping the measurement. */
+function migrateLegacyMeasurements(settings) {
+  if (settings.calib && (settings.calib.hipfire || settings.calib.ads1x || settings.calib.ads25x)) return settings;
+  const calib = { hipfire: null, ads1x: null, ads25x: null, ...(settings.calib || {}) };
+  const legacy = [
+    ['hipfire', settings.measuredCm360_hipfire, settings.hipfireH],
+    ['ads1x', settings.measuredCm360_1x, settings.ads25x],
+    ['ads25x', settings.measuredCm360_ads25x, settings.ads25x],
+  ];
+  legacy.forEach(([tab, cm360, sens]) => {
+    if (cm360 > 0 && sens > 0 && settings.dpi > 0) {
+      calib[tab] = { cm360: Number(cm360), sens: Number(sens), dpi: Number(settings.dpi), mult: 1 };
+    }
+  });
+  delete settings.measuredCm360_hipfire;
+  delete settings.measuredCm360_1x;
+  delete settings.measuredCm360_ads25x;
+  return { ...settings, calib };
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return structuredClone(DEFAULTS);
     const parsed = JSON.parse(raw);
+    const settings = migrateLegacyMeasurements({
+      ...structuredClone(DEFAULTS.settings),
+      ...(parsed.settings || {}),
+    });
     return {
       ...structuredClone(DEFAULTS),
       ...parsed,
-      settings: { ...structuredClone(DEFAULTS.settings), ...(parsed.settings || {}) },
+      settings,
       results: { ...structuredClone(DEFAULTS.results), ...(parsed.results || {}) },
       resultBasis: { ...structuredClone(DEFAULTS.resultBasis), ...(parsed.resultBasis || {}) },
     };
@@ -104,9 +136,9 @@ export function basisFor(tab) {
     dpi: s.dpi,
     fov: s.fov,
     aspectRatio: s.aspectRatio,
-    measuredCm360_hipfire: s.measuredCm360_hipfire,
-    measuredCm360_1x: s.measuredCm360_1x,
-    measuredCm360_ads25x: s.measuredCm360_ads25x,
+    useCustomMultiplier: s.useCustomMultiplier,
+    customMultiplier: s.customMultiplier,
+    calib: s.calib,
   });
 }
 

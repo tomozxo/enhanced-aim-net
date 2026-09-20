@@ -1,18 +1,32 @@
-// Approximate sensitivity model. This is NOT Ubisoft's exact formula - Siege
-// doesn't publish one, and 1x optics apply an internal speed-up that isn't
-// exposed as a settings-menu number at all. Each tab has its own tuned
-// constant so the numbers move the right direction and land in a plausible
-// range; "Match mouse movement" lets the user override the 1x estimate with
-// a value they actually measured in-game.
+// Sensitivity model, in two modes:
+//
+// 1. Uncalibrated (default): a per-optic "yaw" constant (degrees of view
+//    rotation per mouse count at sens 1). These are educated guesses, NOT
+//    Ubisoft's real formula - Siege doesn't publish one. Treat them as a
+//    ballpark starting point, nothing more.
+//
+// 2. Calibrated: you measure your real in-game cm/360 once and enter it.
+//    That measurement is converted into a yaw constant for that optic, so
+//    every other sens value scales correctly off your real number - which
+//    is what makes the drill actually match the game, and what makes the
+//    candidates a calibration run tests (e.g. 42 / 50 / 58) genuinely feel
+//    different from each other.
+//
+// Storing the measurement as a constant rather than as a fixed cm/360 is
+// the important part: a fixed value would return the same number no matter
+// what sens it was asked about, which silently made all three calibration
+// candidates identical.
 
-const MODEL = {
-  hipfire: { const: 0.00714 },
-  ads1x: { const: 0.0003934 }, // tuned so 50 sens / 800 dpi -> ~58.1 cm/360
-  ads25x: { const: 0.000254 },
+const FALLBACK_YAW = {
+  hipfire: 0.00714,
+  ads1x: 0.0003934,
+  ads25x: 0.000254,
 };
 
-function customMultiplierFactor(settings) {
-  return settings.useCustomMultiplier ? settings.customMultiplier / 0.02 : 1;
+const DEFAULT_MULT_UNIT = 0.02; // R6's MouseSensitivityMultiplierUnit default
+
+export function customMultiplierFactor(settings) {
+  return settings.useCustomMultiplier ? settings.customMultiplier / DEFAULT_MULT_UNIT : 1;
 }
 
 export function baseSensForTab(tab, settings) {
@@ -20,29 +34,56 @@ export function baseSensForTab(tab, settings) {
   return settings.ads25x; // ads1x has no raw slider of its own; it borrows the 2.5x value as its input
 }
 
-function cm360FromSensValue(tab, sensValue, settings) {
-  const degPerCount = MODEL[tab].const * sensValue * customMultiplierFactor(settings);
-  const countsPer360 = 360 / degPerCount;
-  const inches = countsPer360 / settings.dpi;
-  return inches * 2.54;
+/** The sens value a cm/360 measurement for this optic corresponds to. A
+ * cm/360 is measured by turning horizontally, so hip-fire uses H, not the
+ * H/V average. */
+export function measuredSensForTab(tab, settings) {
+  return tab === 'hipfire' ? settings.hipfireH : settings.ads25x;
 }
 
-const MEASURED_KEY = { hipfire: 'measuredCm360_hipfire', ads1x: 'measuredCm360_1x', ads25x: 'measuredCm360_ads25x' };
+function calibFor(tab, settings) {
+  const c = settings.calib && settings.calib[tab];
+  if (c && c.cm360 > 0 && c.sens > 0 && c.dpi > 0) return c;
+  return null;
+}
+
+export function isCalibrated(tab, settings) {
+  return !!calibFor(tab, settings);
+}
+
+/** Degrees of view rotation per mouse count at sens 1 - derived from the
+ * user's own measurement when there is one, otherwise the fallback guess. */
+function yawFor(tab, settings) {
+  const c = calibFor(tab, settings);
+  if (!c) return FALLBACK_YAW[tab];
+  return (2.54 * 360) / (c.dpi * c.sens * (c.mult || 1) * c.cm360);
+}
+
+function cm360For(tab, sensValue, settings) {
+  const degPerCount = yawFor(tab, settings) * sensValue * customMultiplierFactor(settings);
+  if (!(degPerCount > 0) || !(settings.dpi > 0)) return NaN;
+  return ((360 / degPerCount) / settings.dpi) * 2.54;
+}
 
 export function estimateCm360(tab, settings) {
-  const measured = settings[MEASURED_KEY[tab]];
-  if (measured) return Number(measured);
-  const sensValue = baseSensForTab(tab, settings);
-  return cm360FromSensValue(tab, sensValue, settings);
+  return cm360For(tab, baseSensForTab(tab, settings), settings);
 }
 
 export function estimateCm360Axis(axis, settings) {
-  // hip-fire only: H and V can differ, so drills track them independently -
-  // but a measured override is a single real-world number, so it applies to
-  // both axes equally (there's no way to separately measure H vs V).
-  if (settings.measuredCm360_hipfire) return Number(settings.measuredCm360_hipfire);
+  // hip-fire only: H and V can differ, so drills rotate each axis at its own
+  // rate. Both share the same calibrated yaw - a measurement is one
+  // horizontal turn, there's no way to measure V separately.
   const sensValue = axis === 'h' ? settings.hipfireH : settings.hipfireV;
-  return cm360FromSensValue('hipfire', sensValue, settings);
+  return cm360For('hipfire', sensValue, settings);
+}
+
+/** Turns "I measured X cm/360 in-game" into the stored snapshot, pinned to
+ * the settings it was measured at so it can be rescaled later. */
+export function calibrationFrom(tab, cm360, settings) {
+  const value = Number(cm360);
+  const sens = measuredSensForTab(tab, settings);
+  if (!(value > 0) || !(sens > 0) || !(settings.dpi > 0)) return null;
+  return { cm360: value, sens, dpi: settings.dpi, mult: customMultiplierFactor(settings) };
 }
 
 /**

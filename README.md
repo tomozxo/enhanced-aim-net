@@ -176,15 +176,27 @@ Real-world feedback (people whose in-game feel didn't match the drill at
 identical settings) is expected here; there's no way to get this exactly
 right without access to Ubisoft's actual formula.
 
-The fix is the "Calibrate to your real sens" section in the sidebar: enter
-a cm/360° you've actually measured in-game (turn a fixed, known distance on
-your mousepad, e.g. with a ruler, and read the resulting rotation) for
-Hip-fire, 1× ADS, and/or 2.5× ADS, and the app uses that measured value
-instead of the estimate for that tab, sidestepping the model's constants
-entirely. ADS·1× specifically has *no* raw settings-menu number in real
-Siege at all (1× sights apply an internal speed-up Ubisoft doesn't expose),
-so measuring is the only way to get that one right - the sidebar shows
-"Est. X" as a placeholder there until you do.
+The fix is the "Calibrate to your real sens" section in the sidebar. In
+R6, line your crosshair up with a mark, drag across the pad until you've
+turned exactly one full 360° back onto it, and measure that distance with a
+ruler — that's your real cm/360. Enter it for Hip-fire, 1× ADS and/or
+2.5× ADS and that optic becomes exact.
+
+Importantly, the measurement is stored *with the sens/DPI it was taken at*
+and converted into a yaw constant, rather than being used as a fixed
+output. That matters for two reasons: changing your sens or DPI afterwards
+rescales correctly instead of still reporting the old measured number, and
+the candidate sensitivities a calibration run tests (e.g. 42 / 50 / 58)
+actually differ from each other. An earlier build stored the measurement as
+a frozen value, which silently made all three candidates feel identical and
+the resulting recommendation meaningless.
+
+The stat tile above the drills reads "Measured cm/360°" instead of
+"Estimated cm/360°" once an optic is calibrated, so it's obvious which
+numbers are real and which are still guesses. ADS·1× specifically has *no*
+raw settings-menu number in real Siege at all (1× sights apply an internal
+speed-up Ubisoft doesn't expose), so measuring is the only way to get that
+one exactly right.
 
 The drills themselves use the browser's Pointer Lock API (`movementX/Y`),
 which reports OS-processed pixel deltas, not raw HID mouse counts — this is

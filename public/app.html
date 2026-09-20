@@ -127,11 +127,13 @@
       <div class="expander">
         <button class="expander-toggle" id="calibrateToggle"><span class="chev">›</span> Calibrate to your real sens</button>
         <div class="expander-body" id="calibrateBody">
-          <p style="font-size:11px;color:var(--text-dim);margin:0 0 10px;line-height:1.5">
-            All three optics use an estimated model, not R6's real formula. If a drill
-            feels faster or slower than in-game, measure your actual cm/360° (turn a
-            fixed distance on your mousepad, count the in-game rotation) and enter it
-            here to override the estimate for that optic.
+          <p style="font-size:11px;color:var(--text-dim);margin:0 0 10px;line-height:1.55">
+            Out of the box these are estimates, not R6's real formula — so drills can feel
+            faster or slower than in-game. Fix it once, permanently: in R6, line your crosshair
+            up with a mark, drag your mouse across the pad until you've turned exactly one full
+            360° back to that mark, and measure the total distance you moved with a ruler.
+            Enter that number and this optic becomes exact — including when you change sens,
+            since it calibrates the formula rather than pinning one value.
           </p>
           <div class="sub-field">
             <span class="sub-field-label">Measured cm/360° for Hip-fire</span>
@@ -185,7 +187,7 @@
 
       <div class="statsbar">
         <div class="stat"><div class="stat-label">Active sensitivity</div><div class="stat-value" id="statActiveSens">4</div></div>
-        <div class="stat"><div class="stat-label">Estimated cm/360°</div><div class="stat-value" id="statCm360">—</div></div>
+        <div class="stat"><div class="stat-label" id="cm360Label">Estimated cm/360°</div><div class="stat-value" id="statCm360">—</div></div>
         <div class="stat"><div class="stat-label">Hit accuracy</div><div class="stat-value" id="statAccuracy">—</div></div>
         <div class="stat"><div class="stat-label">Targets hit</div><div class="stat-value" id="statTargets">—</div></div>
       </div>
