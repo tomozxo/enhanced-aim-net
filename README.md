@@ -278,8 +278,11 @@ keeps getting more reliable rather than just being re-rolled.
 ## Project layout
 
 ```
-server/         Express app: license activation/verify, admin key API, JSON file store
+server/         Express app: license activation/verify, admin key API, key storage
   cookies.js      Device-cookie helper (the license lock's identity source)
+  store.js        License keys: format, activation, device lock
+  store-pg.js     ...stored in Postgres/Supabase when DATABASE_URL is set
+  store-file.js   ...or in data/keys.json when it isn't
 public/         Static frontend (no build step)
   index.html    License activation screen
   app.html      The sensitivity tool itself (gated by a valid session)
@@ -294,7 +297,7 @@ public/         Static frontend (no build step)
     drills.js         Three.js first-person drill engine: pointer lock, fullscreen, pause/resume
     calibration.js    Candidate/queue building and scoring
     app.js            Wires it all together
-data/keys.json  License key store (created on first run; not committed)
+data/keys.json  License key store when DATABASE_URL is unset (created on first run; not committed)
 ```
 
 ## Known limitations / things to revisit before real money changes hands
@@ -302,9 +305,9 @@ data/keys.json  License key store (created on first run; not committed)
 - No payment integration — this only issues/validates keys, it doesn't sell
   them. Wire key creation into whatever you use to sell (Stripe webhook,
   Discord bot, manual) by calling `POST /api/admin/keys`.
-- The JSON file store is fine for tens to low thousands of keys on a single
-  server; it is not a database. Swap `server/store.js` for a real DB if you
-  outgrow it.
+- Without `DATABASE_URL`, keys live in `data/keys.json`, which is fine
+  locally but wiped on every deploy on Render's free tier. Set
+  `DATABASE_URL` (see DEPLOY.md, step 3b) for anything real.
 - No HTTPS/TLS is configured here — put this behind a reverse proxy (nginx,
   Caddy, Cloudflare) that terminates TLS before exposing it publicly.
   Device cookies and admin tokens sent over plain HTTP are not meaningfully

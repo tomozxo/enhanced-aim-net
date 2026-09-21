@@ -1,7 +1,7 @@
 {
   "name": "enhanced.aim.net",
   "version": "1.0.0",
-  "description": "Licensed Rainbow Six Siege sensitivity calibration tool with key/IP-locked access",
+  "description": "Licensed sensitivity calibration tool (Rainbow Six Siege, Valorant, CS2) with device-locked license keys",
   "main": "server/index.js",
   "type": "commonjs",
   "engines": {
@@ -15,6 +15,7 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.12.0"
   }
 }

@@ -59,15 +59,44 @@ Copy that key, go to your new URL, enter it on the activation screen - it
 drops you straight into `/admin.html`, same as locally. From there you can
 generate real keys to hand out.
 
-**This only happens once per fresh dataset.** If the free-tier disk gets
-wiped (redeploy, or Render spinning the service down after 15 minutes of
-inactivity and back up), the server treats it as a fresh boot and prints a
-**new** bootstrap key in the logs again - so check there if your old key
-stops working and nothing else looks wrong. Any keys you'd handed out
-before that point stop working too; there's no way around that on a
-non-persistent disk. If that becomes a real problem, the fix later is
-upgrading to Render's persistent disk add-on (a few dollars/month), not a
-code change.
+**Without a database this happens again and again.** Keys live in a file
+on Render's disk, and the free tier's disk is wiped on every redeploy and
+whenever Render spins the service down after 15 minutes of inactivity. Each
+time, every key stops working and a **new** bootstrap key appears in the
+logs. Step 3b fixes that for free.
+
+## 3b. Keep keys between deploys (Supabase, free)
+
+With `DATABASE_URL` set, keys are stored in a Postgres database instead of
+on Render's disk, so deploys, restarts and sleeping don't touch them. The
+table is created automatically on first start.
+
+1. Sign up at [supabase.com](https://supabase.com) and create a **New
+   project**. Pick any name. Let it generate a **database password** and
+   save that somewhere safe - a password of just letters and numbers avoids
+   having to escape special characters later. Choose the region closest to
+   your Render service's region.
+2. When the project is ready, click **Connect** at the top of the project
+   dashboard and copy the **Session pooler** connection string. It looks
+   like
+   `postgresql://postgres.abcdefgh:[YOUR-PASSWORD]@aws-0-eu-west-2.pooler.supabase.com:5432/postgres`.
+   Replace `[YOUR-PASSWORD]` (brackets included) with your database password.
+   Use the session pooler rather than the "direct connection": the direct
+   one is IPv6-only on Supabase's free plan, which Render can't reach.
+3. In Render: your service → **Environment** → **Add Environment Variable**.
+   Key `DATABASE_URL`, value the connection string from step 2. Save - Render
+   redeploys by itself.
+4. In **Logs**, look for `Key storage: Postgres (DATABASE_URL)`, then one
+   last bootstrap admin key (the new database starts empty). That admin key,
+   and every key you generate from now on, survives future deploys.
+
+In Supabase's **Table Editor** you'll see a `license_keys` table - handy
+for looking at keys directly. Row Level Security is switched on for it, so
+Supabase's public API can't read it; only this server can.
+
+Free Supabase projects pause after about a week with no activity. If that
+ever happens, logins fail until you click **Restore** in the Supabase
+dashboard. Nothing is deleted.
 
 ## 4. Optional: your own domain instead of onrender.com
 

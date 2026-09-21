@@ -19,3 +19,9 @@ services:
       # safer setting when that number isn't fixed/documented by the host.
       - key: TRUST_PROXY_HOPS
         value: "true"
+      # Where license keys are stored: a Postgres connection string (e.g.
+      # from Supabase). With it set, keys survive deploys, restarts and the
+      # free plan's sleep. sync: false means Render never overwrites it from
+      # this file - you paste it into the dashboard yourself, once.
+      - key: DATABASE_URL
+        sync: false

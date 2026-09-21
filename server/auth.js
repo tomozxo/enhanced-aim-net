@@ -15,23 +15,24 @@ const SESSION_TTL_SECONDS = 12 * 60 * 60; // 12h - short enough that a revoked/e
 // still makes sense keyed by IP regardless.
 const rateLimited = makeLimiter({ max: 8, windowMs: 5 * 60 * 1000 });
 
-// Turns any throw into a JSON 500 instead of an uncaught exception that
-// could kill the whole process (see server/index.js for the belt-and-braces
-// process-level version of the same idea).
+// Turns any throw or rejected promise into a JSON 500 instead of an uncaught
+// error that could kill the whole process (see server/index.js for the
+// belt-and-braces process-level version of the same idea). Handlers are
+// async now that keys can live in a database.
 function wrap(fn) {
   return (req, res) => {
-    try {
-      fn(req, res);
-    } catch (err) {
-      console.error(`[auth] ${req.method} ${req.originalUrl} failed:`, err);
-      res.status(500).json({ ok: false, message: `Server error: ${err.message}` });
-    }
+    Promise.resolve()
+      .then(() => fn(req, res))
+      .catch((err) => {
+        console.error(`[auth] ${req.method} ${req.originalUrl} failed:`, err);
+        if (!res.headersSent) res.status(500).json({ ok: false, message: `Server error: ${err.message}` });
+      });
   };
 }
 
 router.post(
   '/activate',
-  wrap((req, res) => {
+  wrap(async (req, res) => {
     const key = String(req.body?.key || '').trim().toUpperCase();
 
     if (!key) return res.status(400).json({ ok: false, message: 'Enter a license key.' });
@@ -41,7 +42,7 @@ router.post(
     }
 
     const deviceId = getOrCreateDeviceId(req, res);
-    const result = store.tryActivate(key, deviceId);
+    const result = await store.tryActivate(key, deviceId);
     if (!result.ok) {
       const status = result.code === 'not_found' ? 404 : 403;
       return res.status(status).json({ ok: false, message: result.message });
@@ -64,7 +65,7 @@ router.post(
 
 router.post(
   '/verify',
-  wrap((req, res) => {
+  wrap(async (req, res) => {
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return res.status(401).json({ ok: false, message: 'No session.' });
@@ -76,7 +77,7 @@ router.post(
       return res.status(401).json({ ok: false, message: 'Session expired. Re-activate your key.' });
     }
 
-    const record = store.findKey(payload.key);
+    const record = await store.findKey(payload.key);
     if (!record || record.status === 'revoked') {
       return res.status(401).json({ ok: false, message: 'This key is no longer valid.' });
     }
@@ -89,7 +90,7 @@ router.post(
       return res.status(401).json({ ok: false, message: 'This session is tied to a different browser/device.' });
     }
 
-    store.updateKey(record.key, { lastSeenAt: new Date().toISOString(), lastSeenDeviceId: deviceId });
+    await store.updateKey(record.key, { lastSeenAt: new Date().toISOString(), lastSeenDeviceId: deviceId });
     res.json({ ok: true, key: record.key, note: record.note, isAdmin: !!record.isAdmin });
   })
 );

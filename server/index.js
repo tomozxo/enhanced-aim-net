@@ -55,21 +55,50 @@ app.use(
   })
 );
 
-// First-run bootstrap: on a totally fresh data/keys.json (e.g. a brand new
-// deploy on a host with ephemeral storage, where any keys from a previous
-// run are gone), mint one admin key automatically so you're never locked
-// out - it only shows up once, right here in the logs.
-if (store.listKeys().length === 0) {
-  const record = store.createKey({ note: 'auto-bootstrapped on first run', isAdmin: true });
-  console.log('='.repeat(60));
-  console.log('No keys found - created a bootstrap ADMIN key:');
-  console.log(`  ${record.key}`);
-  console.log('Enter it on the site\'s activation screen to reach /admin.html.');
-  console.log('='.repeat(60));
+/** Sets up key storage, retrying for a while: a hosted database can take a
+ * few seconds to answer, e.g. a Supabase project waking up. */
+async function initStore() {
+  const attempts = 6;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      await store.init();
+      return true;
+    } catch (err) {
+      console.error(`[store] couldn't reach key storage (attempt ${i}/${attempts}): ${err.message}`);
+      if (i < attempts) await new Promise((r) => setTimeout(r, i * 2000));
+    }
+  }
+  return false;
 }
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`enhanced.aim.net running at http://localhost:${PORT}`);
-  console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
+async function start() {
+  console.log(`Key storage: ${store.backendName}`);
+  const ready = await initStore();
+
+  if (!ready) {
+    // Start anyway so the site itself loads; logins will fail with a clear
+    // "Server error" until the database is reachable. Check DATABASE_URL.
+    console.error('[store] KEY STORAGE IS UNAVAILABLE - activations and the admin panel will fail until it is fixed.');
+  } else if ((await store.listKeys()).length === 0) {
+    // First-run bootstrap: with no keys at all (a brand new database, or a
+    // wiped local file), mint one admin key so you're never locked out. With
+    // a database this only ever happens once; the key lives on after that.
+    const record = await store.createKey({ note: 'auto-bootstrapped on first run', isAdmin: true });
+    console.log('='.repeat(60));
+    console.log('No keys found - created a bootstrap ADMIN key:');
+    console.log(`  ${record.key}`);
+    console.log('Enter it on the site\'s activation screen to reach /admin.html.');
+    console.log('='.repeat(60));
+  }
+
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`enhanced.aim.net running at http://localhost:${PORT}`);
+    console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
+  });
+}
+
+start().catch((err) => {
+  console.error('[FATAL] Server failed to start:', err);
+  process.exit(1);
 });
