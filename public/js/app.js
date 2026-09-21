@@ -12,7 +12,15 @@ import {
 } from './sensMath.js';
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine } from './drills.js';
-import { buildCandidates, buildQueue, scoreResults, narrowedSpread, INITIAL_SPREAD_PCT } from './calibration.js';
+import {
+  buildCandidates,
+  buildQueue,
+  scoreResults,
+  planFineTune,
+  capPooledResults,
+  CONFIDENCE_TEXT,
+  INITIAL_SPREAD_PCT,
+} from './calibration.js';
 import {
   buildGameList,
   findGame,
@@ -54,6 +62,8 @@ async function main() {
     elements: {
       phaseLabel: $('drillPhaseLabel'),
       timer: $('drillTimer'),
+      score: $('drillScore'),
+      hitPop: $('drillHitPop'),
       getReady: $('getReady'),
       getReadyLabel: $('getReadyLabel'),
       getReadyNum: $('getReadyNum'),
@@ -76,7 +86,7 @@ async function main() {
     },
   });
 
-  let run = null; // { candidates, spreadPct, passCount, centeredOn, tab, isPractice }
+  let run = null; // { candidates, spreadPct, delta, centeredValue, passCount, centeredOn, carryOver, pooledPasses, tab, isPractice }
 
   function setDrillTabsHighlight(tab) {
     $('drillTabs').querySelectorAll('.tab').forEach((el) => {
@@ -84,39 +94,45 @@ async function main() {
     });
   }
 
-  function startCalibration({ recalibrate = false } = {}) {
+  /** A fresh calibration tests your current sens ±15%. A fine-tune pass
+   * centres on the last winner with half the spread; once that's down to ±1
+   * (the finest the in-game slider goes) it re-tests the same values and
+   * pools the rounds instead, so each extra pass still adds reliability. */
+  function startCalibration({ fineTune = false } = {}) {
     if (run) return;
     const tab = getState().activeTab;
     const settings = getState().settings;
     const prev = getState().results[tab];
+    const canFineTune = fineTune && prev && !isStale(tab);
 
-    let baseSens, spreadPct, passCount, centeredOn;
-    if (recalibrate && prev) {
-      baseSens = prev.best.sens;
-      spreadPct = narrowedSpread(prev.spreadPct);
-      passCount = (prev.passCount || 1) + 1;
-      centeredOn = 'previous-best';
+    let candidates, spreadPct, centeredValue, carryOver, pooledPasses;
+    if (canFineTune) {
+      ({ candidates, spreadPct, carryOver, pooledPasses } = planFineTune(prev));
+      centeredValue = prev.best.sens;
     } else {
-      baseSens = baseSensForTab(tab, settings);
+      centeredValue = Math.round(baseSensForTab(tab, settings));
       spreadPct = INITIAL_SPREAD_PCT;
-      passCount = 1;
-      centeredOn = 'base';
+      candidates = buildCandidates(centeredValue, spreadPct);
+      carryOver = [];
+      pooledPasses = 1;
     }
 
-    const candidates = buildCandidates(baseSens, spreadPct);
+    const passCount = canFineTune ? (prev.passCount || 1) + 1 : 1;
     run = {
       candidates,
       spreadPct,
       delta: candidates[0].delta,
-      centeredValue: baseSens,
+      centeredValue,
       passCount,
-      centeredOn,
+      centeredOn: canFineTune ? 'previous-best' : 'base',
+      carryOver,
+      pooledPasses,
       tab,
       isPractice: false,
     };
 
     setDrillTabsHighlight(tab);
-    $('drillStatus').textContent = recalibrate ? 'Fine-tuning…' : 'Calibrating…';
+    $('drillStatus').textContent = canFineTune ? `Fine-tuning · pass ${passCount}` : 'Calibrating…';
     engine.configure({ tab, settings });
     engine.run(buildQueue(candidates));
   }
@@ -152,31 +168,76 @@ async function main() {
     if (run.isPractice) {
       $('resultsTitle').textContent = 'Practice complete';
       $('resultsSub').textContent = 'No scoring in practice mode - just a feel check.';
+      $('resultsRec').hidden = true;
+      $('fineTuneBtn').hidden = true;
+      $('applyResultsBtn').hidden = true;
     } else {
-      const scored = scoreResults(run.candidates, results);
-      setResult(
-        run.tab,
-        {
-          ...scored,
-          spreadPct: run.spreadPct,
-          delta: run.delta,
-          centeredValue: run.centeredValue,
-          passCount: run.passCount,
-          centeredOn: run.centeredOn,
-        },
-        basisFor(run.tab)
-      );
-      $('resultsTitle').textContent = 'Calibration complete';
-      $('resultsSub').textContent = `Recommended sensitivity: ${scored.best.sens} (score ${scored.best.score}/100).`;
+      const pooled = capPooledResults([...run.carryOver, ...results]);
+      const scored = scoreResults(run.candidates, pooled);
+      const saved = {
+        ...scored,
+        spreadPct: run.spreadPct,
+        delta: run.delta,
+        centeredValue: run.centeredValue,
+        passCount: run.passCount,
+        centeredOn: run.centeredOn,
+        pooledPasses: run.pooledPasses,
+        rawResults: pooled,
+      };
+      setResult(run.tab, saved, basisFor(run.tab));
+      showCalibrationResults(saved, run.tab);
     }
     $('resultsOverlay').classList.add('active');
     run = null;
+  }
+
+  function showCalibrationResults(result, tab) {
+    const conf = CONFIDENCE_TEXT[result.confidence];
+    const values = result.candidates.map((c) => c.sens).join(' / ');
+    $('resultsTitle').textContent =
+      result.passCount > 1 ? `Fine-tune pass ${result.passCount - 1} complete` : 'Calibration complete';
+    $('resultsSub').textContent = `${TAB_LABELS[tab]} · tested ${values}${poolNote(result)}`;
+
+    $('resultsRec').hidden = false;
+    $('resultsRecValue').textContent = result.best.sens;
+    $('resultsConfidence').className = `badge ${CONFIDENCE_BADGE[result.confidence]}`;
+    $('resultsConfidence').textContent = conf.label;
+    $('resultsTableBody').innerHTML = comparisonRowsHtml(result);
+    $('resultsHint').textContent = fineTuneHint(result);
+
+    // Whichever action makes more sense right now gets the accent colour: a
+    // clear winner you're not already on is ready to apply; anything closer,
+    // or a winner that's already your setting, points at another pass.
+    const current = Math.round(baseSensForTab(tab, getState().settings));
+    const alreadySet = result.best.sens === current;
+    const readyToApply = result.confidence === 'clear' && !alreadySet;
+    $('fineTuneBtn').hidden = false;
+    $('fineTuneBtn').className = readyToApply ? 'plain-btn' : 'btn-accent';
+
+    const apply = $('applyResultsBtn');
+    apply.hidden = false;
+    apply.className = readyToApply ? 'btn-accent' : 'plain-btn';
+    apply.disabled = alreadySet;
+    apply.textContent = alreadySet ? `${current} is already set` : `Apply ${result.best.sens}`;
   }
 
   $('closeResultsBtn').addEventListener('click', () => {
     engine.exit();
     $('resultsOverlay').classList.remove('active');
     renderAll();
+  });
+
+  // Straight into the next, narrower pass without leaving fullscreen - the
+  // click itself is the user gesture pointer lock needs.
+  $('fineTuneBtn').addEventListener('click', () => {
+    $('resultsOverlay').classList.remove('active');
+    startCalibration({ fineTune: true });
+  });
+
+  $('applyResultsBtn').addEventListener('click', () => {
+    applyRecommendation();
+    $('applyResultsBtn').disabled = true;
+    $('applyResultsBtn').textContent = 'Applied ✓';
   });
 
   $('startCalibrationBtn').addEventListener('click', () => startCalibration());
@@ -200,7 +261,7 @@ async function main() {
 
   document.addEventListener('click', (e) => {
     if (e.target.id === 'applyRecBtn') applyRecommendation();
-    if (e.target.id === 'recalibrateBtn') startCalibration({ recalibrate: true });
+    if (e.target.id === 'fineTuneCardBtn') startCalibration({ fineTune: true });
   });
 
   $('clearComparisonBtn').addEventListener('click', () => {
@@ -352,6 +413,50 @@ function bindTabs() {
 }
 
 // ---------- Rendering ----------
+
+const CONFIDENCE_BADGE = { clear: 'ok', close: 'close', tie: 'retest' };
+
+const fmtPts = (v) => (v == null || !isFinite(v) ? '—' : String(Math.round(v)));
+const fmtPct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
+
+function poolNote(result) {
+  return result.pooledPasses > 1
+    ? ` · ${result.best.roundsPerDrill} rounds per drill, pooled over ${result.pooledPasses} passes`
+    : '';
+}
+
+function fineTuneHint(result) {
+  if (result.delta === 1) {
+    return (
+      `You're down to ±1, the finest step Siege's slider has. Fine-tuning again re-tests ` +
+      `these same values and pools the rounds, so the answer gets more reliable each pass.`
+    );
+  }
+  return `${CONFIDENCE_TEXT[result.confidence].hint} Next pass tests ±${Math.max(1, Math.round(result.best.sens * result.spreadPct * 0.5))} around ${result.best.sens}.`;
+}
+
+/** Table rows shared by the results screen and the comparison card. Matches
+ * the winner by sens rather than object identity, since results reloaded
+ * from localStorage are fresh copies. */
+function comparisonRowsHtml(result) {
+  const tag = result.centeredOn === 'previous-best' ? 'last best' : 'current';
+  return result.candidates
+    .map((c) => {
+      const cls = [c.isBase ? 'base' : '', c.sens === result.best.sens ? 'best' : ''].filter(Boolean).join(' ');
+      return `<tr class="${cls}">
+        <td>${c.sens}${c.isBase ? ` · ${tag}` : ''}</td>
+        <td>${fmtPts(c.flickPts)}</td>
+        <td>${fmtPts(c.targetsPts)}</td>
+        <td>${fmtPct(c.centredPct)}</td>
+        <td>${c.score}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+const SCORING_FOOTNOTE =
+  'Flick & Targets: bullseye points per second (centre hit 100, rim hit 50, miss −25). ' +
+  'Tracking: how centred you kept the crosshair on the dot. Each drill is a third of the score, relative to the best in that drill.';
 
 function renderAll() {
   const state = getState();
@@ -556,7 +661,7 @@ function renderStats(state) {
   const result = state.results[tab];
   if (result) {
     $('statAccuracy').textContent = result.best.accuracy != null ? `${Math.round(result.best.accuracy * 100)}%` : '—';
-    $('statTargets').textContent = result.best.totalHits ?? '—';
+    $('statTargets').textContent = fmtPct(result.best.precision);
   } else {
     $('statAccuracy').textContent = '—';
     $('statTargets').textContent = '—';
@@ -588,20 +693,24 @@ function renderRecommendation(state) {
     return;
   }
 
-  badge.style.display = 'none';
-  const baseSens = baseSensForTab(tab, state.settings);
-  const delta = result.best.sens - Math.round(baseSens);
-  const deltaText = result.best.isBase
-    ? 'Matches your current setting.'
-    : `${delta > 0 ? '+' : ''}${delta} from your current ${Math.round(baseSens)}.`;
-  const refinedText = result.passCount > 1 ? ` · refined ×${result.passCount - 1}` : '';
+  const conf = CONFIDENCE_TEXT[result.confidence] || CONFIDENCE_TEXT.close;
+  badge.style.display = 'inline-block';
+  badge.className = `badge ${CONFIDENCE_BADGE[result.confidence] || 'close'}`;
+  badge.textContent = conf.label.toUpperCase();
+
+  const current = Math.round(baseSensForTab(tab, state.settings));
+  const delta = result.best.sens - current;
+  const deltaText =
+    delta === 0 ? 'Matches your current setting.' : `${delta > 0 ? '+' : ''}${delta} from your current ${current}.`;
+  const refinedText = result.passCount > 1 ? ` · fine-tuned ×${result.passCount - 1}` : '';
 
   body.innerHTML = `
     <div class="rec-value">${result.best.sens}</div>
     <p class="rec-sub">${deltaText} Scored ${result.best.score}/100${refinedText}.</p>
+    <p class="rec-sub rec-hint">${fineTuneHint(result)}</p>
     <div class="rec-actions">
-      <button id="applyRecBtn" class="btn-accent">Apply to ${TAB_LABELS[tab]}</button>
-      <button id="recalibrateBtn" class="plain-btn">Recalibrate</button>
+      <button id="applyRecBtn" class="btn-accent"${delta === 0 ? ' disabled' : ''}>Apply to ${TAB_LABELS[tab]}</button>
+      <button id="fineTuneCardBtn" class="plain-btn">Fine-tune further</button>
     </div>
   `;
 }
@@ -619,29 +728,17 @@ function renderComparison(state) {
     tbody.innerHTML = preview
       .map(
         (c) => `<tr class="${c.isBase ? 'base' : ''}">
-          <td>${c.sens}${c.isBase ? ' · base' : ''}</td>
+          <td>${c.sens}${c.isBase ? ' · current' : ''}</td>
           <td>—</td><td>—</td><td>—</td><td>—</td>
         </tr>`
       )
       .join('');
-    footnote.textContent = `Pass 1 will test ±${preview[0].delta} around ${baseSens}. Score: flicking, targets, tracking weighted equally at 33% each, relative to the best in each drill.`;
+    footnote.textContent = `Pass 1 will test ${preview.map((c) => c.sens).join(' / ')}. ${SCORING_FOOTNOTE}`;
     return;
   }
 
-  tbody.innerHTML = result.candidates
-    .map((c) => {
-      const cls = [c.isBase ? 'base' : '', c === result.best ? 'best' : ''].filter(Boolean).join(' ');
-      return `<tr class="${cls}">
-        <td>${c.sens}${c.isBase ? ' · base' : ''}</td>
-        <td>${c.flickHitsPerSec.toFixed(2)}</td>
-        <td>${c.clearedPerSec.toFixed(2)}</td>
-        <td>${Math.round(c.onTargetPct * 100)}%</td>
-        <td>${c.score}</td>
-      </tr>`;
-    })
-    .join('');
-
-  footnote.textContent = `Pass ${result.passCount} tested ±${result.delta} around ${result.centeredValue}. Score: flicking, targets, tracking weighted equally at 33% each, relative to the best in each drill.`;
+  tbody.innerHTML = comparisonRowsHtml(result);
+  footnote.textContent = `Pass ${result.passCount} tested ${result.candidates.map((c) => c.sens).join(' / ')}${poolNote(result)}. ${SCORING_FOOTNOTE}`;
 }
 
 main();

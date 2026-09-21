@@ -309,6 +309,8 @@ a { color: inherit; }
 
 .rec-value { font-size: 30px; font-weight: 700; margin: 6px 0 2px; }
 .rec-sub { font-size: 12.5px; color: var(--text-sub); margin: 0 0 14px; }
+.rec-sub.rec-hint { font-size: 11.5px; color: var(--text-dim); line-height: 1.55; margin-top: -8px; }
+.btn-accent:disabled, .plain-btn:disabled { opacity: .5; cursor: default; filter: none; }
 .rec-actions { display: flex; gap: 8px; }
 
 table.comparison { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -396,6 +398,9 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 /* Whenever a modal (pause/results) needs real mouse interaction, bring the
    OS cursor back - "cursor: none" is only for actual aiming. */
 .drill-stage.show-cursor { cursor: auto; }
+/* ...and the crosshair goes away with it, rather than floating over the
+   results table or pause menu. */
+.drill-stage.show-cursor .drill-crosshair, .drill-stage.show-cursor .drill-hitpop { display: none; }
 /* Fixed at dead centre: in first-person mode the crosshair never moves, the
    camera rotates around it instead - the same as a real FPS reticle. */
 .drill-crosshair {
@@ -405,6 +410,23 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 }
 .drill-hud-tl { position: absolute; top: 14px; left: 18px; font-size: 11px; letter-spacing: .06em; color: #8a8a8a; text-transform: uppercase; }
 .drill-hud-tr { position: absolute; top: 14px; right: 18px; font-size: 15px; font-variant-numeric: tabular-nums; color: #e7e7e7; }
+.drill-hud-score {
+  position: absolute; top: 38px; right: 18px; font-size: 12px; letter-spacing: .02em;
+  color: #b9b9b9; font-variant-numeric: tabular-nums;
+}
+/* "+87" / "MISS -25" just under the crosshair on every shot, so it's obvious
+   in the moment that landing closer to the middle is worth more. */
+.drill-hitpop {
+  position: absolute; top: calc(50% + 16px); left: 50%; transform: translateX(-50%);
+  font-size: 13px; font-weight: 700; color: var(--target-fill); pointer-events: none;
+  opacity: 0; z-index: 3; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.drill-hitpop.miss { color: #e88b7e; }
+.drill-hitpop.show { animation: hitpop .6s ease-out forwards; }
+@keyframes hitpop {
+  0% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, 10px); }
+}
 .drill-footer {
   display: flex; justify-content: space-between; align-items: center; padding: 12px 20px;
   font-size: 11px; color: var(--text-dim);
@@ -435,9 +457,15 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
   position: absolute; inset: 0; background: #050505; display: none; align-items: center; justify-content: center; padding: 30px;
 }
 .results-overlay.active { display: flex; }
-.results-card { max-width: 480px; text-align: center; }
+.results-card { width: 100%; max-width: 520px; text-align: center; }
 .results-card h3 { font-size: 22px; margin: 0 0 8px; }
 .results-card p { color: var(--text-sub); font-size: 13px; margin: 0 0 20px; }
+.results-rec-value { font-size: 46px; font-weight: 700; color: var(--accent); line-height: 1; margin: 4px 0 10px; }
+.results-card .results-table { margin: 18px 0 0; text-align: left; }
+.results-card .results-hint { font-size: 12px; margin: 12px 0 20px; }
+.results-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.results-actions .btn-accent, .results-actions .plain-btn { min-width: 120px; }
+.badge.close { background: #3a311f; color: #e8c27e; }
 
 /* dev-only banner (see dev-bypass.js) */
 .dev-banner {

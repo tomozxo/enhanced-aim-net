@@ -211,11 +211,30 @@ One "Start calibration" run tests 3 candidate sensitivities (current value,
 and roughly ±15% either side, e.g. 50 → 42 / 50 / 58) across 3 drills
 (flicking, target-clearing, tracking), each repeated 3 rounds for
 consistency — 27 scored 7-second blocks plus a warm-up, about 4 minutes.
-"Recalibrate" on the recommendation card re-runs the same structure centered
-on the previous best result with a narrower spread, so repeated
-recalibration passes converge on a value rather than re-testing the same
-range. Losing window focus (alt-tab, clicking outside) auto-pauses a run
-and keeps progress; "Resume round" re-captures the mouse.
+Losing window focus (alt-tab, clicking outside) auto-pauses a run and
+keeps progress; "Resume round" re-captures the mouse.
+
+**Scoring is about precision, not just speed.** Targets are bullseyes, and
+where you hit matters:
+
+- Flick / Targets: a dead-centre hit is worth 100 points, a hit on the rim
+  50, and a miss costs 25. The drill score is points per second.
+- Tracking: every moment the crosshair is on the dot is weighted by how
+  close to the centre it is (dead centre = 100%, rim = 0%). A sens you can
+  hold steady in the middle beats one where you wobble around the edge.
+
+Each drill is a third of a candidate's score, relative to the best
+candidate in that drill. The winner gets a confidence label based on how
+far ahead of the runner-up it finished: *Clear winner* (8+ points), *Close
+call* (3-7) or *Too close to call* (under 3). Those thresholds are rules of
+thumb, not a statistical test.
+
+**Fine-tune further** (on the results screen and the recommendation card)
+runs another pass centred on the last winner with half the spread:
+±8 → ±4 → ±2 → ±1 for a sens of 50. Once it's down to ±1, the finest step
+Siege's slider has, further passes re-test the same three values and pool
+the rounds with the previous ones (up to 4 passes' worth), so the answer
+keeps getting more reliable rather than just being re-rolled.
 
 ## Project layout
 

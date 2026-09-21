@@ -131,20 +131,27 @@ export function clearResult(tab) {
   setResult(tab, null, null);
 }
 
-/** A compact fingerprint of everything that affects a tab's drill feel/estimate. */
+/** A compact fingerprint of everything that changes how a given sens value
+ * feels in the drills. The sens sliders themselves are deliberately left
+ * out: a calibration tests fixed values (e.g. 42 / 50 / 58), so moving your
+ * current sens - including applying the recommendation - doesn't make those
+ * results any less true. Including them used to mark results "retest
+ * required" the instant you applied them, and blocked fine-tuning. */
 export function basisFor(tab) {
   const s = state.settings;
   return JSON.stringify({
     tab,
-    hipfireH: s.hipfireH,
-    hipfireV: s.hipfireV,
-    ads25x: s.ads25x,
     dpi: s.dpi,
     fov: s.fov,
     aspectRatio: s.aspectRatio,
+    screenFill: s.screenFill,
     useCustomMultiplier: s.useCustomMultiplier,
     customMultiplier: s.customMultiplier,
     calib: s.calib,
+    // Bumped whenever scoring changes meaning, so results scored the old way
+    // show "retest required" instead of being compared against new ones.
+    // v2: bullseye precision scoring.
+    scoring: 2,
   });
 }
 

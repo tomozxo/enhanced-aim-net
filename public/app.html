@@ -189,7 +189,7 @@
         <div class="stat"><div class="stat-label">Active sensitivity</div><div class="stat-value" id="statActiveSens">4</div></div>
         <div class="stat"><div class="stat-label" id="cm360Label">Estimated cm/360°</div><div class="stat-value" id="statCm360">—</div></div>
         <div class="stat"><div class="stat-label">Hit accuracy</div><div class="stat-value" id="statAccuracy">—</div></div>
-        <div class="stat"><div class="stat-label">Targets hit</div><div class="stat-value" id="statTargets">—</div></div>
+        <div class="stat"><div class="stat-label" title="How close to the centre of the dot your hits landed, on average">Centre precision</div><div class="stat-value" id="statTargets">—</div></div>
       </div>
       <p class="model-note" id="modelNote">1× ADS uses an estimated R6 model. For a closer match, type this optic's measured in-game cm/360° directly into <button class="linklike" id="modelNoteLink">"ADS · 1x" in the sidebar</button>, then calibrate mouse input.</p>
 
@@ -228,7 +228,7 @@
             <span class="comparison-tag" id="comparisonTag">1× ADS</span>
           </div>
           <table class="comparison" id="comparisonTable">
-            <thead><tr><th>Sens</th><th>Flick hits/s</th><th>Cleared/s</th><th>On target</th><th>Score</th></tr></thead>
+            <thead><tr><th>Sens</th><th title="Bullseye points per second">Flick</th><th title="Bullseye points per second">Targets</th><th title="How centred you stayed on the dot">Tracking</th><th>Score</th></tr></thead>
             <tbody id="comparisonBody"><tr><td colspan="5" class="card-empty">No results yet.</td></tr></tbody>
           </table>
           <p class="comparison-footnote" id="comparisonFootnote">Run a calibration to populate this table. Score: flicking, targets, tracking weighted equally at 33% each, relative to the best in each drill.</p>
@@ -307,6 +307,8 @@
     <div class="drill-crosshair" aria-hidden="true"></div>
     <div class="drill-hud-tl" id="drillPhaseLabel">WARM-UP / FLICK</div>
     <div class="drill-hud-tr" id="drillTimer">7.0s</div>
+    <div class="drill-hud-score" id="drillScore"></div>
+    <div class="drill-hitpop" id="drillHitPop" aria-hidden="true"></div>
 
     <div class="getready" id="getReady">
       <div class="big" id="getReadyLabel">Test 1 of 3 · Flicking</div>
@@ -333,7 +335,20 @@
       <div class="results-card">
         <h3 id="resultsTitle">Calibration complete</h3>
         <p id="resultsSub">Here's how each candidate performed.</p>
-        <button class="btn-accent" id="closeResultsBtn">See results</button>
+        <div class="results-rec" id="resultsRec">
+          <div class="results-rec-value" id="resultsRecValue">—</div>
+          <span class="badge" id="resultsConfidence"></span>
+          <table class="comparison results-table">
+            <thead><tr><th>Sens</th><th>Flick</th><th>Targets</th><th>Tracking</th><th>Score</th></tr></thead>
+            <tbody id="resultsTableBody"></tbody>
+          </table>
+          <p class="results-hint" id="resultsHint"></p>
+        </div>
+        <div class="results-actions">
+          <button class="btn-accent" id="fineTuneBtn">Fine-tune further</button>
+          <button class="plain-btn" id="applyResultsBtn">Apply</button>
+          <button class="plain-btn" id="closeResultsBtn">Done</button>
+        </div>
       </div>
     </div>
   </div>

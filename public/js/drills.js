@@ -13,6 +13,20 @@ const SPAWN_PITCH_RANGE = (7 * Math.PI) / 180;
 const WALL_RADIUS = 46; // grid backdrop, comfortably behind the targets at 22
 const WALL_HEIGHT = 44;
 
+// Target radii in world units at TARGET_DISTANCE - roughly 1.7° / 1.35° /
+// 1.55° of angular radius. About a quarter smaller than they used to be, so
+// landing on one takes actual precision rather than just getting close.
+const FLICK_RADIUS = 0.64;
+const TARGETS_RADIUS = 0.52;
+const TRACKING_RADIUS = 0.6;
+
+// Bullseye scoring. A hit is worth more the closer to the centre it lands:
+// 100 dead centre, sliding down to 50 at the very edge. A miss costs 25, so
+// spraying clicks at the rim scores worse than taking a moment to aim.
+export const HIT_POINTS_CENTRE = 100;
+export const HIT_POINTS_EDGE = 50;
+export const MISS_PENALTY = 25;
+
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -34,7 +48,7 @@ export class DrillEngine {
     this.overlay = overlayEl;
     this.stage = stageEl;
     this.canvas = canvasEl;
-    this.el = elements; // { phaseLabel, timer, getReady, getReadyLabel, getReadyNum, pauseOverlay, pauseReason, resumeBtn }
+    this.el = elements; // { phaseLabel, timer, score, hitPop, getReady, getReadyLabel, getReadyNum, pauseOverlay, pauseReason, resumeBtn }
     this.onBlockComplete = onBlockComplete;
     this.onQueueComplete = onQueueComplete;
     this.onPauseChange = onPauseChange;
@@ -69,8 +83,8 @@ export class DrillEngine {
     this.el.resumeBtn.addEventListener('click', () => this._requestLock());
   }
 
-  // ---------- Three.js scene: a first-person view of a lit void with a
-  // floor grid receding to the horizon and shaded spheres to flick onto. ----------
+  // ---------- Three.js scene: a first-person view inside a gridded arena,
+  // with bullseye targets to flick onto and track. ----------
   _initScene() {
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -85,10 +99,9 @@ export class DrillEngine {
     this.camera.position.set(0, CAMERA_HEIGHT, 0);
     this.camera.rotation.order = 'YXZ';
 
-    // Targets are unlit (flat MeshBasicMaterial, see _makeTargetMaterial) so
-    // they read as a consistent bright color from every angle instead of
-    // having a dim "shadow" side that's harder to see - no scene lighting
-    // needed for that, the grid surfaces don't react to lights either.
+    // Targets are unlit sprites (see _rebuildTargetMaterial) so they read as
+    // a consistent bright colour from every angle - no scene lighting needed,
+    // the grid surfaces don't react to lights either.
 
     const floor = new THREE.GridHelper(400, 80, 0x4a2a5e, 0x241436);
     floor.position.y = 0;
@@ -102,16 +115,18 @@ export class DrillEngine {
       new THREE.MeshBasicMaterial({
         map: this._makeGridTexture(),
         side: THREE.BackSide,
-        transparent: true,
+        // Opaque on purpose. As a "transparent" material it was drawn after
+        // the targets, and each target sprite's see-through corners had already
+        // claimed that depth - leaving a dark square around every bullseye.
       })
     );
     wall.position.y = WALL_HEIGHT / 2 - 6;
     this.scene.add(wall);
 
-    this.targetGeo = new THREE.SphereGeometry(1, 24, 18);
-
-    this.raycaster = new THREE.Raycaster();
-    this.centerNDC = new THREE.Vector2(0, 0);
+    // Scratch vectors for the per-frame aim test, so tracking doesn't
+    // allocate two new vectors every frame.
+    this._fwd = new THREE.Vector3();
+    this._toTarget = new THREE.Vector3();
   }
 
   /** Procedural grid cell, tiled around the arena wall. */
@@ -134,14 +149,52 @@ export class DrillEngine {
     return tex;
   }
 
-  _makeTargetMaterial() {
-    // Flat/unlit on purpose - a shaded sphere has a dim side depending on
-    // light angle, which makes it harder to see exactly where "the target"
-    // is. Bright and flat from every angle is easier to read at a glance.
-    const fill = new THREE.Color(cssVar('--target-fill') || '#c837ff');
-    // fog:false keeps every target the exact same brightness regardless of
-    // distance - the backdrop fades away, the thing you're aiming at doesn't.
-    return new THREE.MeshBasicMaterial({ color: fill, fog: false });
+  /** A bullseye: bright purple disc with white rings and a white centre dot,
+   * so there's a visible "middle" to aim for and scoring by distance from
+   * the centre is something you can actually see. */
+  _makeBullseyeTexture() {
+    const size = 256;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const mid = size / 2;
+    const R = mid - 1;
+    const fill = cssVar('--target-fill') || '#c837ff';
+    const disc = (r, color) => {
+      ctx.beginPath();
+      ctx.arc(mid, mid, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    };
+    disc(R, fill);
+    disc(R * 0.7, '#ffffff');
+    disc(R * 0.62, fill);
+    disc(R * 0.36, '#ffffff');
+    disc(R * 0.28, fill);
+    disc(R * 0.1, '#ffffff');
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /** One shared material for every target in a run (rebuilt per run, so it
+   * reads --target-fill after the stylesheet has loaded). A sprite always
+   * faces the camera, so the bullseye never gets squashed into an ellipse
+   * when it's off to one side. Flat and unlit, and fog:false keeps it full
+   * brightness at any distance. */
+  _rebuildTargetMaterial() {
+    if (this.targetMaterial) {
+      this.targetMaterial.map?.dispose();
+      this.targetMaterial.dispose();
+    }
+    this.targetMaterial = new THREE.SpriteMaterial({
+      map: this._makeBullseyeTexture(),
+      fog: false,
+      transparent: true,
+      // Targets never need to hide anything behind them, so they don't write
+      // depth - that way their see-through corners can't block the backdrop.
+      depthWrite: false,
+    });
   }
 
   _bindEvents() {
@@ -258,6 +311,10 @@ export class DrillEngine {
     this.queueIndex = -1;
     this.results = [];
     this.sessionActive = true;
+    // A run can start straight from the results screen ("Fine-tune further"),
+    // which left the OS cursor showing - hide it again for aiming.
+    this.stage.classList.remove('show-cursor');
+    this._rebuildTargetMaterial();
     try {
       await this._requestFullscreenAndLock();
       this._next();
@@ -375,7 +432,17 @@ export class DrillEngine {
     this.blockElapsedMs = 0;
     this.el.phaseLabel.textContent = `${block.phaseLabel} / ${DRILL_LABELS[block.type]}`;
     this._clearTargets();
-    this.metrics = { hits: 0, clicks: 0, cleared: 0, onTargetMs: 0, spawned: 0 };
+    this.metrics = {
+      hits: 0,
+      clicks: 0,
+      cleared: 0,
+      spawned: 0,
+      points: 0, // bullseye points, flick + targets drills
+      precisionSum: 0, // sum over hits of (1 - distance from centre / radius)
+      onTargetMs: 0, // tracking: time the crosshair was anywhere on the dot
+      centredMs: 0, // tracking: that time weighted by how close to the centre
+    };
+    this._renderScore();
     // Recentre the view at the start of every block so a candidate never
     // inherits wherever the last block happened to leave the camera aimed.
     this.yaw = 0;
@@ -400,13 +467,13 @@ export class DrillEngine {
   _spawnForBlock(block) {
     this._clearTargets();
     if (block.type === 'flick') {
-      this.targets = [this._randomTarget(0.85)];
+      this.targets = [this._randomTarget(FLICK_RADIUS)];
       this.metrics.spawned = 1;
     } else if (block.type === 'targets') {
-      this.targets = this._spawnWave(5, 0.7);
+      this.targets = this._spawnWave(5, TARGETS_RADIUS);
       this.metrics.spawned = 5;
     } else if (block.type === 'tracking') {
-      this.targets = [this._targetAtAngles(0, 0, 0.8)];
+      this.targets = [this._targetAtAngles(0, 0, TRACKING_RADIUS)];
     }
   }
 
@@ -433,12 +500,10 @@ export class DrillEngine {
   _targetAtAngles(yaw, pitch, radius) {
     const pos = this.camera.position.clone().add(this._dirFromAngles(yaw, pitch).multiplyScalar(TARGET_DISTANCE));
 
-    const mesh = new THREE.Mesh(this.targetGeo, this._makeTargetMaterial());
-    mesh.scale.setScalar(radius);
+    // Sprite geometry is a unit quad, so the scale is the diameter.
+    const mesh = new THREE.Sprite(this.targetMaterial);
+    mesh.scale.set(radius * 2, radius * 2, 1);
     mesh.position.copy(pos);
-    // Make it raycast-ready immediately rather than only after the next
-    // render() - a click can land before the renderer refreshes matrixWorld.
-    mesh.updateMatrixWorld();
     this.scene.add(mesh);
     return { mesh, r: radius };
   }
@@ -447,30 +512,84 @@ export class DrillEngine {
     const block = this.currentBlock;
     if (!block || (block.type !== 'flick' && block.type !== 'targets')) return;
     this.metrics.clicks += 1;
-    const hitIdx = this._raycastHit();
-    if (hitIdx === -1) return;
+    const aimed = this._aimedTarget();
+    if (!aimed) {
+      this.metrics.points -= MISS_PENALTY;
+      this._showHitPop(null);
+      this._renderScore();
+      return;
+    }
+
+    const precision = 1 - aimed.offset; // 1 = dead centre, 0 = the rim
+    const pts = Math.round(HIT_POINTS_EDGE + (HIT_POINTS_CENTRE - HIT_POINTS_EDGE) * precision);
     this.metrics.hits += 1;
+    this.metrics.precisionSum += precision;
+    this.metrics.points += pts;
+    this._showHitPop(pts);
+    this._renderScore();
+
     if (block.type === 'flick') {
       this.scene.remove(this.targets[0].mesh);
-      this.targets = [this._randomTarget(0.85)];
+      this.targets = [this._randomTarget(FLICK_RADIUS)];
     } else {
-      this.scene.remove(this.targets[hitIdx].mesh);
-      this.targets.splice(hitIdx, 1);
+      this.scene.remove(this.targets[aimed.index].mesh);
+      this.targets.splice(aimed.index, 1);
       this.metrics.cleared += 1;
       if (this.targets.length === 0) {
-        this.targets = this._spawnWave(5, 0.7);
+        this.targets = this._spawnWave(5, TARGETS_RADIUS);
         this.metrics.spawned += 5;
       }
     }
   }
 
-  /** Raycasts from the crosshair (screen centre) into the scene, returns the index of the hit target in this.targets, or -1. */
-  _raycastHit() {
-    this.raycaster.setFromCamera(this.centerNDC, this.camera);
-    const meshes = this.targets.map((t) => t.mesh);
-    const hits = this.raycaster.intersectObjects(meshes, false);
-    if (!hits.length) return -1;
-    return meshes.indexOf(hits[0].object);
+  /** How far the crosshair is from a target's centre, as a fraction of its
+   * radius: 0 = dead centre, 1 = the rim, above 1 = off the target. The
+   * crosshair is the camera's forward ray, so this is just the perpendicular
+   * distance from the target's centre to that ray - the same test as
+   * raycasting a sphere, but it also says how close to the middle you were,
+   * which a plain hit/miss raycast can't. */
+  _offsetFor(target) {
+    this.camera.getWorldDirection(this._fwd);
+    this._toTarget.copy(target.mesh.position).sub(this.camera.position);
+    const along = this._toTarget.dot(this._fwd);
+    if (along <= 0) return Infinity; // behind you
+    const perp = Math.sqrt(Math.max(0, this._toTarget.lengthSq() - along * along));
+    return perp / target.r;
+  }
+
+  /** The target under the crosshair as { index, offset }, or null. If two
+   * overlap, the one you're closer to the middle of wins. */
+  _aimedTarget() {
+    let best = null;
+    this.targets.forEach((t, index) => {
+      const offset = this._offsetFor(t);
+      if (offset <= 1 && (!best || offset < best.offset)) best = { index, offset };
+    });
+    return best;
+  }
+
+  _showHitPop(pts) {
+    const el = this.el.hitPop;
+    if (!el) return;
+    el.textContent = pts == null ? `MISS −${MISS_PENALTY}` : `+${pts}`;
+    el.classList.toggle('miss', pts == null);
+    // Restart the fade animation even when shots land back to back.
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+  }
+
+  /** Live score under the timer, so the effect of aiming for the centre is
+   * visible while you play rather than only in the results. */
+  _renderScore() {
+    const el = this.el.score;
+    if (!el || !this.metrics || !this.currentBlock) return;
+    if (this.currentBlock.type === 'tracking') {
+      const pct = this.blockElapsedMs > 0 ? (this.metrics.centredMs / this.blockElapsedMs) * 100 : 0;
+      el.textContent = `Centred ${Math.round(pct)}%`;
+    } else {
+      el.textContent = `${this.metrics.points} pts`;
+    }
   }
 
   /** World-space direction for a yaw/pitch pair, where (0,0) is the
@@ -497,12 +616,18 @@ export class DrillEngine {
       Math.cos(this.trackPhase * 0.7) * TRACK_PITCH_RANGE + Math.cos(this.trackPhase * 1.7) * TRACK_PITCH_RANGE * 0.18;
 
     t.mesh.position.copy(this.camera.position).add(this._dirFromAngles(yaw, pitch).multiplyScalar(TARGET_DISTANCE));
-    // Raycasting reads matrixWorld, which the renderer only refreshes on its
-    // next render() - without this the on-target check would test where the
-    // target was last frame, not where it just moved to.
-    t.mesh.updateMatrixWorld();
 
-    if (this._raycastHit() === 0) this.metrics.onTargetMs += dtMs;
+    // Being anywhere on the dot counts as "on target", but the score that
+    // matters is how centred you were: each frame on the dot is weighted from
+    // 1 (crosshair dead in the middle) down to 0 (on the rim). A sens you can
+    // actually hold steady in the middle scores clearly better than one where
+    // you keep wobbling around the edge.
+    const aimed = this._aimedTarget();
+    if (aimed) {
+      this.metrics.onTargetMs += dtMs;
+      this.metrics.centredMs += dtMs * (1 - aimed.offset);
+    }
+    this._renderScore();
   }
 
   _loop() {
@@ -539,16 +664,25 @@ export class DrillEngine {
     this.running = false;
     const block = this.currentBlock;
     const elapsedSec = this.blockDurationMs / 1000;
+    const m = this.metrics;
+    const isShooting = block.type === 'flick' || block.type === 'targets';
+    const isTracking = block.type === 'tracking';
     const result = {
       type: block.type,
       candidateSens: block.candidateSens,
       scored: block.scored,
-      flickHitsPerSec: block.type === 'flick' ? this.metrics.hits / elapsedSec : null,
-      clearedPerSec: block.type === 'targets' ? this.metrics.cleared / elapsedSec : null,
-      onTargetPct: block.type === 'tracking' ? this.metrics.onTargetMs / this.blockDurationMs : null,
-      accuracy: this.metrics.clicks ? this.metrics.hits / this.metrics.clicks : null,
-      hits: this.metrics.hits,
-      clicks: this.metrics.clicks,
+      // Primary per-drill score: bullseye points per second (flick/targets),
+      // or how centred you stayed (tracking, 0-1).
+      pointsPerSec: isShooting ? Math.max(0, m.points) / elapsedSec : null,
+      centredPct: isTracking ? m.centredMs / this.blockDurationMs : null,
+      // Supporting detail.
+      flickHitsPerSec: block.type === 'flick' ? m.hits / elapsedSec : null,
+      clearedPerSec: block.type === 'targets' ? m.cleared / elapsedSec : null,
+      onTargetPct: isTracking ? m.onTargetMs / this.blockDurationMs : null,
+      precision: m.hits ? m.precisionSum / m.hits : null,
+      accuracy: m.clicks ? m.hits / m.clicks : null,
+      hits: m.hits,
+      clicks: m.clicks,
     };
     if (block.scored) this.results.push(result);
     this.onBlockComplete?.(result, this.queueIndex, this.queue.length);
