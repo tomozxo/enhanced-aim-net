@@ -400,7 +400,7 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 .drill-stage.show-cursor { cursor: auto; }
 /* ...and the crosshair goes away with it, rather than floating over the
    results table or pause menu. */
-.drill-stage.show-cursor .drill-crosshair, .drill-stage.show-cursor .drill-hitpop { display: none; }
+.drill-stage.show-cursor .drill-crosshair { display: none; }
 /* Fixed at dead centre: in first-person mode the crosshair never moves, the
    camera rotates around it instead - the same as a real FPS reticle. */
 .drill-crosshair {
@@ -410,23 +410,6 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 }
 .drill-hud-tl { position: absolute; top: 14px; left: 18px; font-size: 11px; letter-spacing: .06em; color: #8a8a8a; text-transform: uppercase; }
 .drill-hud-tr { position: absolute; top: 14px; right: 18px; font-size: 15px; font-variant-numeric: tabular-nums; color: #e7e7e7; }
-.drill-hud-score {
-  position: absolute; top: 38px; right: 18px; font-size: 12px; letter-spacing: .02em;
-  color: #b9b9b9; font-variant-numeric: tabular-nums;
-}
-/* "+87" / "MISS -25" just under the crosshair on every shot, so it's obvious
-   in the moment that landing closer to the middle is worth more. */
-.drill-hitpop {
-  position: absolute; top: calc(50% + 16px); left: 50%; transform: translateX(-50%);
-  font-size: 13px; font-weight: 700; color: var(--target-fill); pointer-events: none;
-  opacity: 0; z-index: 3; font-variant-numeric: tabular-nums; white-space: nowrap;
-}
-.drill-hitpop.miss { color: #e88b7e; }
-.drill-hitpop.show { animation: hitpop .6s ease-out forwards; }
-@keyframes hitpop {
-  0% { opacity: 1; transform: translate(-50%, 0); }
-  100% { opacity: 0; transform: translate(-50%, 10px); }
-}
 .drill-footer {
   display: flex; justify-content: space-between; align-items: center; padding: 12px 20px;
   font-size: 11px; color: var(--text-dim);

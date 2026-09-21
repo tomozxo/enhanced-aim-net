@@ -73,14 +73,14 @@ function sum(rows, field) {
 
 /**
  * Groups scored block results by candidate (averaging repeated rounds) and
- * gives each a 0-100 score. Every drill is scored on precision, not just
- * speed:
- *   - Flick / Targets: bullseye points per second. A dead-centre hit is worth
- *     100, a rim hit 50, a miss costs 25.
- *   - Tracking: how centred the crosshair stayed on the dot over the round
- *     (100% = dead centre the whole time, rim or off the dot = 0).
- * Each drill is normalised against the best candidate in that drill, and the
- * three are weighted equally.
+ * gives each a 0-100 score:
+ *   - Flick: hits per second.
+ *   - Targets: dots cleared per second.
+ *   - Tracking: share of the round the crosshair was on the dot.
+ * A hit anywhere on a target counts - the inner circle and the outer band
+ * are worth the same. "Inner hits" is kept as a stat to look at, and doesn't
+ * affect the score. Each drill is normalised against the best candidate in
+ * that drill, and the three are weighted equally.
  */
 export function scoreResults(candidates, results) {
   const byCandidate = candidates.map((c) => {
@@ -94,13 +94,10 @@ export function scoreResults(candidates, results) {
     return {
       sens: c.sens,
       isBase: c.isBase,
-      flickPts: avg(flicks, 'pointsPerSec'),
-      targetsPts: avg(targets, 'pointsPerSec'),
-      centredPct: avg(tracking, 'centredPct'),
+      flickHitsPerSec: avg(flicks, 'flickHitsPerSec'),
+      clearedPerSec: avg(targets, 'clearedPerSec'),
       onTargetPct: avg(tracking, 'onTargetPct'),
-      // Average closeness-to-centre across every hit, weighted by hits so a
-      // round with one lucky bullseye doesn't count as much as a full round.
-      precision: hits ? shots.reduce((s, r) => s + (r.precision || 0) * (r.hits || 0), 0) / hits : null,
+      innerHitPct: hits ? sum(shots, 'innerHits') / hits : null,
       accuracy: clicks ? hits / clicks : null,
       totalHits: hits,
       roundsPerDrill: Math.min(flicks.length, targets.length, tracking.length),
@@ -108,12 +105,12 @@ export function scoreResults(candidates, results) {
   });
 
   const maxOf = (field) => Math.max(...byCandidate.map((c) => c[field]), 0.0001);
-  const maxFlick = maxOf('flickPts');
-  const maxTargets = maxOf('targetsPts');
-  const maxCentred = maxOf('centredPct');
+  const maxFlick = maxOf('flickHitsPerSec');
+  const maxCleared = maxOf('clearedPerSec');
+  const maxTracking = maxOf('onTargetPct');
 
   byCandidate.forEach((c) => {
-    const n = c.flickPts / maxFlick + c.targetsPts / maxTargets + c.centredPct / maxCentred;
+    const n = c.flickHitsPerSec / maxFlick + c.clearedPerSec / maxCleared + c.onTargetPct / maxTracking;
     c.score = Math.round((n / 3) * 100);
   });
 

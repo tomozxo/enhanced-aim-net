@@ -214,17 +214,18 @@ consistency — 27 scored 7-second blocks plus a warm-up, about 4 minutes.
 Losing window focus (alt-tab, clicking outside) auto-pauses a run and
 keeps progress; "Resume round" re-captures the mouse.
 
-**Scoring is about precision, not just speed.** Targets are bullseyes, and
-where you hit matters:
+**Scoring.** Each target has one ring splitting it into an inner circle and
+an outer band. A hit anywhere on the target counts, inside or outside the
+ring:
 
-- Flick / Targets: a dead-centre hit is worth 100 points, a hit on the rim
-  50, and a miss costs 25. The drill score is points per second.
-- Tracking: every moment the crosshair is on the dot is weighted by how
-  close to the centre it is (dead centre = 100%, rim = 0%). A sens you can
-  hold steady in the middle beats one where you wobble around the edge.
+- Flick: hits per second.
+- Targets: dots cleared per second. There are always 5 up - popping one
+  brings a replacement in straight away, somewhere free in the same area.
+- Tracking: share of the round the crosshair was on the dot.
 
-Each drill is a third of a candidate's score, relative to the best
-candidate in that drill. The winner gets a confidence label based on how
+The share of hits that landed inside the ring is shown as "Inner hits" for
+reference only; it doesn't change the score. Each drill is a third of a
+candidate's score, relative to the best candidate in that drill. The winner gets a confidence label based on how
 far ahead of the runner-up it finished: *Clear winner* (8+ points), *Close
 call* (3-7) or *Too close to call* (under 3). Those thresholds are rules of
 thumb, not a statistical test.

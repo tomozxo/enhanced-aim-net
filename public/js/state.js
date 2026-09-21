@@ -150,8 +150,8 @@ export function basisFor(tab) {
     calib: s.calib,
     // Bumped whenever scoring changes meaning, so results scored the old way
     // show "retest required" instead of being compared against new ones.
-    // v2: bullseye precision scoring.
-    scoring: 2,
+    // v2: bullseye points scoring. v3: back to hit-based, ringed targets.
+    scoring: 3,
   });
 }
 

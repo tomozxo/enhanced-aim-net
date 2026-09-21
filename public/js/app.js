@@ -62,8 +62,6 @@ async function main() {
     elements: {
       phaseLabel: $('drillPhaseLabel'),
       timer: $('drillTimer'),
-      score: $('drillScore'),
-      hitPop: $('drillHitPop'),
       getReady: $('getReady'),
       getReadyLabel: $('getReadyLabel'),
       getReadyNum: $('getReadyNum'),
@@ -416,7 +414,7 @@ function bindTabs() {
 
 const CONFIDENCE_BADGE = { clear: 'ok', close: 'close', tie: 'retest' };
 
-const fmtPts = (v) => (v == null || !isFinite(v) ? '—' : String(Math.round(v)));
+const fmtRate = (v) => (v == null || !isFinite(v) ? '—' : `${v.toFixed(2)}/s`);
 const fmtPct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
 
 function poolNote(result) {
@@ -445,9 +443,9 @@ function comparisonRowsHtml(result) {
       const cls = [c.isBase ? 'base' : '', c.sens === result.best.sens ? 'best' : ''].filter(Boolean).join(' ');
       return `<tr class="${cls}">
         <td>${c.sens}${c.isBase ? ` · ${tag}` : ''}</td>
-        <td>${fmtPts(c.flickPts)}</td>
-        <td>${fmtPts(c.targetsPts)}</td>
-        <td>${fmtPct(c.centredPct)}</td>
+        <td>${fmtRate(c.flickHitsPerSec)}</td>
+        <td>${fmtRate(c.clearedPerSec)}</td>
+        <td>${fmtPct(c.onTargetPct)}</td>
         <td>${c.score}</td>
       </tr>`;
     })
@@ -455,8 +453,8 @@ function comparisonRowsHtml(result) {
 }
 
 const SCORING_FOOTNOTE =
-  'Flick & Targets: bullseye points per second (centre hit 100, rim hit 50, miss −25). ' +
-  'Tracking: how centred you kept the crosshair on the dot. Each drill is a third of the score, relative to the best in that drill.';
+  'Flick: hits per second. Targets: dots cleared per second. Tracking: time on the dot. ' +
+  'A hit anywhere on a target counts, inside or outside the ring. Each drill is a third of the score, relative to the best in that drill.';
 
 function renderAll() {
   const state = getState();
@@ -661,7 +659,7 @@ function renderStats(state) {
   const result = state.results[tab];
   if (result) {
     $('statAccuracy').textContent = result.best.accuracy != null ? `${Math.round(result.best.accuracy * 100)}%` : '—';
-    $('statTargets').textContent = fmtPct(result.best.precision);
+    $('statTargets').textContent = fmtPct(result.best.innerHitPct);
   } else {
     $('statAccuracy').textContent = '—';
     $('statTargets').textContent = '—';
