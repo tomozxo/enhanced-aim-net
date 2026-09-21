@@ -9,8 +9,11 @@
 // Every function is async (the database needs it), so callers await them.
 
 const crypto = require('crypto');
+const fingerprint = require('./fingerprint');
 
 const backend = process.env.DATABASE_URL ? require('./store-pg') : require('./store-file');
+
+const newSessionId = () => crypto.randomBytes(16).toString('base64url');
 
 function formatKey(raw) {
   // raw: 16 chars -> R6S-XXXX-XXXX-XXXX-XXXX
@@ -46,9 +49,13 @@ async function createKey({ note = '', expiresInDays = null, isAdmin = false } = 
       createdAt: new Date().toISOString(),
       expiresAt: expiresInDays ? new Date(Date.now() + expiresInDays * 86400000).toISOString() : null,
       lockedDeviceId: null,
+      lockedFingerprint: null,
+      currentSessionId: null,
       activatedAt: null,
       lastSeenAt: null,
       lastSeenDeviceId: null,
+      blockedAttempts: 0,
+      lastBlockedAt: null,
     };
     const saved = await backend.insertKey(record);
     if (saved) return saved;
@@ -66,47 +73,123 @@ function revokeKey(key) {
 }
 
 function unlockKey(key) {
-  // Clears the device lock so the key can be activated on a new
-  // browser/device, e.g. the buyer cleared cookies or got a new PC. Status
-  // stays 'active'.
-  return updateKey(key, { lockedDeviceId: null });
+  // Clears the browser lock, the hardware lock and any session, so the key
+  // can be activated fresh - e.g. the buyer got a new PC or cleared cookies.
+  // Status stays 'active'. The blocked-attempts count is kept as history.
+  return updateKey(key, { lockedDeviceId: null, lockedFingerprint: null, currentSessionId: null });
+}
+
+const MESSAGES = {
+  not_found: 'That key was not recognized.',
+  revoked: 'This key has been revoked.',
+  expired: 'This key has expired.',
+  device_mismatch:
+    "This key is locked to a different browser. If you've moved to a new browser or PC, ask whoever issued your key to reset it.",
+  hardware_mismatch:
+    "This key is locked to a different PC. If you've changed PCs or graphics cards, ask whoever issued your key to reset it.",
+  signed_out: 'This session has ended - your key was signed in somewhere else, or reset. Enter it again to continue.',
+};
+const fail = (code) => ({ ok: false, code, message: MESSAGES[code] });
+
+/** Why a key can't be used at all right now, or null if it's usable. */
+function unusableReason(record) {
+  if (!record) return 'not_found';
+  if (record.status === 'revoked') return 'revoked';
+  if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) return 'expired';
+  return null;
+}
+
+/** Counts an attempt to use a key from a browser or PC it isn't locked to -
+ * the main sign of a key being shared. Shown in the admin panel. */
+async function noteBlocked(record) {
+  await updateKey(record.key, {
+    blockedAttempts: (record.blockedAttempts || 0) + 1,
+    lastBlockedAt: new Date().toISOString(),
+  });
 }
 
 /**
- * Attempt to activate/verify a key against the requesting device (a
- * long-lived cookie identifying "this browser" - see server/cookies.js).
- * Returns { ok: true, record } or { ok: false, code, message }.
+ * Checks this browser (its device cookie) and machine (its hardware
+ * fingerprint) against a key that's already locked. Returns { ok: true, lock }
+ * with the hardware lock to save, or a failure - which is counted as a
+ * blocked attempt.
  */
-async function tryActivate(key, deviceId) {
-  let record = await findKey(key);
-  if (!record) return { ok: false, code: 'not_found', message: 'That key was not recognized.' };
-  if (record.status === 'revoked') return { ok: false, code: 'revoked', message: 'This key has been revoked.' };
-  if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
-    return { ok: false, code: 'expired', message: 'This key has expired.' };
+async function checkLocks(record, deviceId, fp) {
+  if (record.lockedDeviceId !== deviceId) {
+    await noteBlocked(record);
+    return fail('device_mismatch');
   }
+  const hw = fingerprint.check(record.lockedFingerprint, fp, { sameBrowser: true });
+  if (!hw.ok) {
+    await noteBlocked(record);
+    return fail('hardware_mismatch');
+  }
+  return { ok: true, lock: hw.lock };
+}
+
+/**
+ * Activates a key for the requesting browser and machine. The first
+ * activation locks the key to both; after that only the same browser on the
+ * same hardware can activate it. Every activation starts a new session and
+ * ends the previous one, so a key is only ever signed in in one place.
+ * `rawFp` is the hardware fingerprint the browser sent.
+ * Returns { ok: true, record, sessionId } or { ok: false, code, message }.
+ */
+async function tryActivate(key, deviceId, rawFp) {
+  const fp = fingerprint.fromClient(rawFp);
+  let record = await findKey(key);
+  const reason = unusableReason(record);
+  if (reason) return fail(reason);
 
   const now = new Date().toISOString();
+  const sessionId = newSessionId();
 
   if (!record.lockedDeviceId) {
-    const claimed = await backend.claimDevice(key, deviceId, now);
-    if (claimed) return { ok: true, record: claimed };
+    const lock = fingerprint.check(null, fp, { sameBrowser: true }).lock;
+    const claimed = await backend.claimDevice(key, { deviceId, lock, sessionId, nowIso: now });
+    if (claimed) return { ok: true, record: claimed, sessionId };
     // Someone else locked it (or it was revoked) between reading and
     // claiming - re-read and fall through to the normal checks below.
     record = await findKey(key);
-    if (!record) return { ok: false, code: 'not_found', message: 'That key was not recognized.' };
-    if (record.status === 'revoked') return { ok: false, code: 'revoked', message: 'This key has been revoked.' };
+    const again = unusableReason(record);
+    if (again) return fail(again);
   }
 
-  if (record.lockedDeviceId !== deviceId) {
-    return {
-      ok: false,
-      code: 'device_mismatch',
-      message:
-        'This key is already activated on a different browser/device. Ask the seller to reset it if you need to move it.',
-    };
+  const locks = await checkLocks(record, deviceId, fp);
+  if (!locks.ok) return locks;
+
+  const updated = await updateKey(key, {
+    lastSeenAt: now,
+    lastSeenDeviceId: deviceId,
+    lockedFingerprint: locks.lock,
+    currentSessionId: sessionId,
+  });
+  return { ok: true, record: updated, sessionId };
+}
+
+/**
+ * Checks an existing session. `rawFp` is the hardware fingerprint when the
+ * browser sent one (the regular check-in), or omitted for requests that
+ * can't carry it (loading the app's files) - those rely on the session and
+ * browser cookie, since a session only ever exists after a full check.
+ * Returns { ok: true, record } or { ok: false, code, message }.
+ */
+async function checkSession(key, sessionId, deviceId, rawFp) {
+  const record = await findKey(key);
+  const reason = unusableReason(record);
+  if (reason) return fail(reason);
+  if (!sessionId || record.currentSessionId !== sessionId) return fail('signed_out');
+  if (rawFp === undefined) {
+    return record.lockedDeviceId === deviceId ? { ok: true, record } : fail('device_mismatch');
   }
 
-  const updated = await updateKey(key, { lastSeenAt: now, lastSeenDeviceId: deviceId });
+  const locks = await checkLocks(record, deviceId, fingerprint.fromClient(rawFp));
+  if (!locks.ok) return locks;
+  const updated = await updateKey(record.key, {
+    lastSeenAt: new Date().toISOString(),
+    lastSeenDeviceId: deviceId,
+    lockedFingerprint: locks.lock,
+  });
   return { ok: true, record: updated };
 }
 
@@ -122,4 +205,5 @@ module.exports = {
   deleteKey,
   unlockKey,
   tryActivate,
+  checkSession,
 };

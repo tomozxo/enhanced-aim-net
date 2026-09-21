@@ -1,5 +1,11 @@
 (function () {
-  const TOKEN_KEY = 'r6sf_token';
+  // Sessions live in an HttpOnly cookie now (set by the server), so there's
+  // no token for this page to store - clear the one older versions kept.
+  try {
+    localStorage.removeItem('r6sf_token');
+  } catch {}
+
+  const fingerprint = () => (window.enhancedFingerprint ? window.enhancedFingerprint() : null);
 
   document.querySelectorAll('.mode-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -62,11 +68,10 @@
       const res = await fetch('/api/auth/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key }),
+        body: JSON.stringify({ key, fp: fingerprint() }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.message || 'Activation failed.');
-      localStorage.setItem(TOKEN_KEY, data.token);
       msg.textContent = data.isAdmin ? 'Admin key recognized. Loading panel...' : 'Activated. Loading...';
       msg.className = 'gate-msg ok';
       window.location.href = data.isAdmin ? '/admin.html' : '/app.html';
@@ -77,17 +82,18 @@
     }
   }
 
-  // Already have a live session? Skip straight to the tool.
+  // Already have a live session (cookie)? Skip straight to the tool. Not
+  // when we were just sent back here with a message - that session ended.
   (async function autoRedirect() {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) return;
+    if (bounceMsg) return;
     try {
       const res = await fetch('/api/auth/verify', {
-        headers: { Authorization: `Bearer ${token}` },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fp: fingerprint() }),
       });
       const data = await res.json();
       if (res.ok && data.ok) window.location.href = data.isAdmin ? '/admin.html' : '/app.html';
-      else localStorage.removeItem(TOKEN_KEY);
     } catch {
       /* server unreachable, let them try activating again */
     }

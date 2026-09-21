@@ -5,8 +5,9 @@ A licensed, key-gated web app for finding your mouse sensitivity in
 **CS2 / CS:GO**, picked from the game selector at the top of the page. It has
 fullscreen flick/target/tracking drills, a 3-candidate-x-3-round
 calibration pass, an iterative "fine-tune further" step, per-user license
-keys locked to the first browser/device that activates them (via a cookie,
-not your network), and a user-adjustable accent color + light/dark mode.
+keys locked to the browser and PC that first activates them (one session
+at a time, with the app itself only served to signed-in keys), and a
+user-adjustable accent color + light/dark mode.
 
 Just want a real public link to send people, instead of running this on
 your own machine? Skip to **[DEPLOY.md](DEPLOY.md)**.
@@ -133,44 +134,53 @@ thing to send me.
 
 ## How the license lock works
 
-- On first activation, the server sets a long-lived, random cookie
-  (`r6sf_device`, `server/cookies.js`) identifying "this browser" and
-  records it on the key. Every later activation/verify check compares the
-  incoming cookie against that stored value instead of an IP address.
-  There's no separate password — the key itself is the credential.
-- This replaced an earlier IP-based lock. IP-locking broke in two ordinary
-  situations: a buyer's ISP/mobile network reassigning their IP (locks them
-  out of a key that's genuinely still theirs), and - what actually forced
-  the change - Render's proxy not reporting a fully consistent IP for the
-  same visitor across requests, which intermittently locked people out of
-  their *own* freshly-activated key. A cookie doesn't have either problem:
-  it survives network changes entirely, since it isn't derived from the
-  network at all.
-- The cookie is `HttpOnly` (page JS can't read or tamper with it) and
-  `SameSite=Lax`, set for 10 years. What it does *not* survive: clearing
-  cookies, private/incognito windows (each one starts with an empty cookie
-  jar, so it looks like a new device every time), or switching to a
-  different browser on the same PC - each of those needs an admin "Unlock
-  device" the same way a changed IP used to.
-- Two people behind the same WiFi network are no longer a problem the way
-  they were under IP-locking (different browsers, different cookies) -
-  device-locking is arguably *stricter* against casual sharing than IP ever
-  was, since copying a specific cookie value between machines is a lot less
-  convenient than "we're on the same WiFi."
-- Sessions are JWTs valid for 12 hours, re-checked against the key store
-  (revoked/expired/device) on every reload and every 5 minutes. Revoking a
-  key in the admin panel kicks the user out within that window, not
-  instantly.
-- This is a client-side gate on top of a server-side check — solid against
-  casual key sharing, not proof against someone determined to read the
-  page's JS. There's no way to make a pure website fully tamper-proof;
-  that's inherent to running in someone else's browser, not a bug here.
+A key is hard to share because using it needs four things at once:
+
+- **The app itself is locked on the server.** `app.html` and its scripts
+  live in `private/`, not `public/`, and the server only sends them to a
+  signed-in session (`server/index.js`). Without a key you can't even
+  download the tool. Before this, all of it was public and the key check
+  only happened in the browser.
+- **The session is an HttpOnly cookie** (`r6sf_session`, see
+  `server/cookies.js`), so the page's scripts can't read it and there's no
+  token sitting in localStorage to copy.
+- **The key is locked to the browser and the PC.** The first activation
+  locks it to a random long-lived browser cookie (`r6sf_device`) *and* the
+  machine's hardware: graphics card, CPU cores, memory, screen and OS
+  (`public/js/fingerprint.js` reads them, `server/fingerprint.js` stores
+  hashes and compares them). A friend using the key fails the browser lock;
+  someone who copies their cookies to another PC fails the hardware lock.
+  Normal changes are tolerated: the graphics card has to match, but two of
+  the other four can change (a new monitor, display scaling, browser zoom),
+  and a laptop can register a second graphics chip from the same browser.
+- **One session at a time.** Every activation starts a new session and ends
+  the previous one, and the app checks in every minute with the hardware
+  fingerprint, so a session that's been replaced, reset, revoked or moved
+  to another PC ends within a minute.
+
+Every attempt to use a key from the wrong browser or PC is counted. The
+admin panel shows it as **Blocked attempts**, the clearest sign that a key
+is being shared, so you can revoke it.
+
+When a buyer legitimately changes PC, browser or clears their cookies, use
+**Reset lock** in the admin panel (or `node server/cli.js unlock <key>`).
+That signs them out wherever they are, and the next browser/PC to enter
+the key becomes its new home. The same applies to your own admin key: if
+you ever lock yourself out of it, sign in to `/admin.html` with the raw
+`ADMIN_TOKEN` and reset it.
+
+Limits worth knowing: a browser can't read a real hardware ID, so this is
+a strong deterrent rather than something unbreakable. Someone with the
+skills to fake the fingerprint *and* copy HttpOnly cookies could still get
+in, and a buyer who has loaded the tool can in principle save the scripts
+from their own browser. It stops casual sharing (giving a friend your key,
+passing the site around, exporting cookies) and makes the rest visible.
 
 ## Games
 
 Each game keeps its own settings, results and fine-tune history; mouse DPI,
 the accent colour and the sens converter are shared. Everything
-game-specific lives in [`public/js/games.js`](public/js/games.js).
+game-specific lives in [`private/js/games.js`](private/js/games.js).
 
 **Valorant and CS2 are exact.** Both games turn the camera a fixed number
 of degrees per mouse count, times your sens:
@@ -207,7 +217,7 @@ Siege is still the estimated model described below.
 
 Siege doesn't publish a cm/360° formula, so every optic's "Estimated
 cm/360°" and the drills' actual crosshair rotation speed come from an
-approximate model in [`public/js/sensMath.js`](public/js/sensMath.js), each
+approximate model in [`private/js/sensMath.js`](private/js/sensMath.js), each
 tab tuned with its own constant so the numbers move the right direction and
 land in a plausible range — not reverse-engineered from the game's code.
 Real-world feedback (people whose in-game feel didn't match the drill at
@@ -279,24 +289,33 @@ keeps getting more reliable rather than just being re-rolled.
 
 ```
 server/         Express app: license activation/verify, admin key API, key storage
-  cookies.js      Device-cookie helper (the license lock's identity source)
-  store.js        License keys: format, activation, device lock
+  index.js        Startup, and the lock on private/ (only signed-in sessions get the app)
+  auth.js         /api/auth: activate, check-in (verify), logout
+  admin.js        /api/admin: key management (admin key session or raw ADMIN_TOKEN)
+  session.js      Signed-in sessions: HttpOnly cookie, one session per key
+  fingerprint.js  Hardware lock: compares a PC's hashed GPU/CPU/memory/screen/OS
+  cookies.js      Browser (device) and session cookies
+  store.js        License keys: format, activation, browser + hardware lock
   store-pg.js     ...stored in Postgres/Supabase when DATABASE_URL is set
   store-file.js   ...or in data/keys.json when it isn't
-public/         Static frontend (no build step)
+public/         Anyone can load these (no build step)
   index.html    License activation screen
-  app.html      The sensitivity tool itself (gated by a valid session)
-  admin.html    Key management panel (gated by ADMIN_TOKEN)
+  admin.html    Key management panel (needs an admin key or ADMIN_TOKEN)
   js/
-    session.js      Verifies/refreshes the license session on app.html
+    fingerprint.js   Reads the PC's hardware details for the lock
+    auth-gate.js     The activation screen
+    session.js       The app's check-in (on open and every minute)
+    theme.js         Accent color picker + light/dark mode
+private/        The tool itself - served only to a signed-in session
+  app.html      The sensitivity tool
+  js/
     state.js         App settings + calibration results, persisted to localStorage
-    games.js          Per-game sens formulas, FOV, resolutions (R6 / Valorant / CS2)
-    sensMath.js       The approximate R6 sensitivity/cm-360 model
-    sensConvert.js    Game-to-game sens converter (yaw constants per game)
-    theme.js          Accent color picker + light/dark mode
-    drills.js         Three.js first-person drill engine: pointer lock, fullscreen, pause/resume
-    calibration.js    Candidate/queue building and scoring
-    app.js            Wires it all together
+    games.js         Per-game sens formulas, FOV, resolutions (R6 / Valorant / CS2)
+    sensMath.js      The approximate R6 sensitivity/cm-360 model
+    sensConvert.js   Game-to-game sens converter (yaw constants per game)
+    drills.js        Three.js first-person drill engine: pointer lock, fullscreen, pause/resume
+    calibration.js   Candidate/queue building and scoring
+    app.js           Wires it all together
 data/keys.json  License key store when DATABASE_URL is unset (created on first run; not committed)
 ```
 

@@ -76,10 +76,10 @@ module.exports = {
     return db.keys.length < before;
   },
 
-  /** Locks an unlocked, non-revoked key to this device. Returns the updated
-   * record, or null if it was already locked (or revoked) by the time we got
-   * here. */
-  async claimDevice(key, deviceId, nowIso) {
+  /** Locks an unlocked, non-revoked key to this browser and machine and
+   * starts its session. Returns the updated record, or null if it was
+   * already locked (or revoked) by the time we got here. */
+  async claimDevice(key, { deviceId, lock, sessionId, nowIso }) {
     const db = readAll();
     const idx = db.keys.findIndex((k) => k.key === key);
     if (idx === -1) return null;
@@ -89,6 +89,8 @@ module.exports = {
       ...rec,
       status: 'active',
       lockedDeviceId: deviceId,
+      lockedFingerprint: lock,
+      currentSessionId: sessionId,
       activatedAt: rec.activatedAt || nowIso,
       lastSeenAt: nowIso,
       lastSeenDeviceId: deviceId,

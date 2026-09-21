@@ -1,10 +1,12 @@
 require('dotenv').config();
+const fs = require('fs');
 const path = require('path');
 const express = require('express');
 
 const authRoutes = require('./auth');
 const adminRoutes = require('./admin');
 const store = require('./store');
+const session = require('./session');
 
 if (!process.env.JWT_SECRET || !process.env.ADMIN_TOKEN) {
   console.error(
@@ -47,10 +49,71 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 
+// ---------- Static files ----------
+// public/  the key screen, admin panel shell, styles - anyone can load these.
+// private/ the app itself (app.html and its scripts). Only handed out to a
+//          signed-in session from the browser its key is locked to. These
+//          used to sit in public/, so anyone could download the whole tool
+//          without a key.
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const PRIVATE_DIR = path.join(__dirname, '..', 'private');
+
+/** Every file under a folder, as lower-case URL paths ("/js/app.js"). */
+function listFiles(dir, prefix = '') {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory()
+      ? listFiles(path.join(dir, entry.name), `${prefix}/${entry.name}`)
+      : [`${prefix}/${entry.name}`.toLowerCase()]
+  );
+}
+const PRIVATE_FILES = new Set(listFiles(PRIVATE_DIR));
+
+/** The file a request is asking for, normalised the same way the static
+ * file server does it (decoded, "." and ".." resolved), in lower case. A
+ * path this misses still can't reach a private file: those aren't in
+ * public/, so the only way to them is through the check below. */
+function requestedFile(req) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(req.path);
+  } catch {
+    return null;
+  }
+  const parts = [];
+  for (const seg of decoded.split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') parts.pop();
+    else parts.push(seg);
+  }
+  return `/${parts.join('/')}`.toLowerCase();
+}
+
 // no-cache so a browser tab never serves a stale JS/CSS file after an
-// update - avoids "I updated it but it still does the old broken thing"
+// update - avoids "I updated it but it still does the old broken thing".
+// Private files are also marked "private" so no shared cache keeps a copy.
+const servePrivate = express.static(PRIVATE_DIR, {
+  index: false,
+  setHeaders: (res) => res.setHeader('Cache-Control', 'private, no-cache'),
+});
+
+app.use(async (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const file = requestedFile(req);
+  if (!file || !PRIVATE_FILES.has(file)) return next();
+  try {
+    const check = await session.checkForFiles(req);
+    if (check.ok) return servePrivate(req, res, next);
+    if (file.endsWith('.html')) return res.redirect(302, '/');
+    return res.status(401).type('text/plain').send('Sign in with your license key to load this.');
+  } catch (err) {
+    console.error(`[static] session check for ${req.path} failed:`, err);
+    if (!res.headersSent) res.status(500).type('text/plain').send('Server error.');
+  }
+});
+
 app.use(
-  express.static(path.join(__dirname, '..', 'public'), {
+  express.static(PUBLIC_DIR, {
     setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
   })
 );

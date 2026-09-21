@@ -45,6 +45,8 @@
   .status-pill.unused { background: rgba(255,255,255,0.08); color: var(--text-sub); }
   .status-pill.active { background: #1f3a24; color: #6fcf7c; }
   .status-pill.revoked { background: #3a1f1f; color: #e57373; }
+  /* A key someone has tried to use from another browser/PC - likely shared. */
+  .blocked-flag { color: #e8a07e; font-weight: 600; cursor: help; }
 
   .row-actions { display: flex; gap: 6px; }
   .row-actions button { padding: 6px 11px; font-size: 11px; }
@@ -92,7 +94,8 @@
     <h1>License keys</h1>
   </div>
   <p style="color:var(--text-sub);font-size:13px;margin:-14px 0 22px">
-    Generate, list, unlock and revoke keys. Each key locks itself to the first browser/device that activates it (via a cookie, not your network).
+    Generate, list, reset and revoke keys. Each key locks itself to the browser and PC that first activates it, and can only be signed in in one place at a time.
+    <b>Blocked attempts</b> counts tries to use a key from any other browser or PC &mdash; the main sign it's been shared.
   </p>
 
   <div class="card" id="whoamiCard" style="margin-bottom:20px">
@@ -127,7 +130,7 @@
     <div style="overflow-x:auto">
       <table class="admin-table" id="keysTable">
         <thead>
-          <tr><th>Key</th><th>Status</th><th>Note</th><th>Admin</th><th>Locked device</th><th>Last seen</th><th>Expires</th><th>Actions</th></tr>
+          <tr><th>Key</th><th>Status</th><th>Note</th><th>Admin</th><th>Locked to</th><th title="Tries to use this key from another browser or PC">Blocked attempts</th><th>Last seen</th><th>Expires</th><th>Actions</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -135,7 +138,10 @@
   </div>
 </div>
 
+<script src="js/fingerprint.js"></script>
 <script>
+// Only set when signing in with the raw ADMIN_TOKEN. An admin key's session
+// is an HttpOnly cookie the browser sends by itself.
 let token = '';
 
 const gate = document.getElementById('gate');
@@ -161,7 +167,7 @@ async function api(path, opts = {}) {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(opts.headers || {}),
     },
   });
@@ -176,22 +182,24 @@ async function tryEnter() {
   gateMsg.textContent = 'Checking...';
   gateMsg.className = 'gate-msg';
   try {
-    let candidate = raw;
     if (/^R6S-/i.test(raw)) {
+      // An admin key signs in like any key (same browser + PC lock); the
+      // session comes back as a cookie.
       const res = await fetch('/api/auth/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: raw }),
+        body: JSON.stringify({ key: raw, fp: window.enhancedFingerprint ? window.enhancedFingerprint() : null }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.message || 'That key did not activate.');
       if (!data.isAdmin) throw new Error('That key works, but it is not an admin key.');
-      candidate = data.token;
-      try { localStorage.setItem('r6sf_token', data.token); } catch {}
+      token = '';
+      await api('/api/admin/keys');
+    } else {
+      token = raw;
+      await api('/api/admin/keys');
+      sessionStorage.setItem('r6sf_admin_token', token);
     }
-    token = candidate;
-    await api('/api/admin/keys');
-    sessionStorage.setItem('r6sf_admin_token', token);
     gate.style.display = 'none';
     panel.style.display = '';
     loadKeys();
@@ -203,6 +211,17 @@ async function tryEnter() {
 }
 
 async function trySavedSession() {
+  // 1) An admin key already signed in on this browser (session cookie).
+  token = '';
+  try {
+    await api('/api/admin/keys');
+    panel.style.display = '';
+    loadKeys();
+    loadWhoami();
+    return;
+  } catch {}
+
+  // 2) The raw ADMIN_TOKEN, if it was entered earlier in this tab.
   const savedAdmin = sessionStorage.getItem('r6sf_admin_token');
   if (savedAdmin) {
     token = savedAdmin;
@@ -212,21 +231,9 @@ async function trySavedSession() {
       loadKeys();
       loadWhoami();
       return;
-    } catch {}
-  }
-
-  let shared = '';
-  try { shared = localStorage.getItem('r6sf_token') || ''; } catch {}
-  if (shared) {
-    token = shared;
-    try {
-      await api('/api/admin/keys');
-      sessionStorage.setItem('r6sf_admin_token', token);
-      panel.style.display = '';
-      loadKeys();
-      loadWhoami();
-      return;
-    } catch {}
+    } catch {
+      token = '';
+    }
   }
 
   gate.style.display = 'flex';
@@ -258,6 +265,22 @@ function fmt(iso) {
   return new Date(iso).toLocaleString();
 }
 
+// Notes are typed in by hand, so never insert them as HTML.
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function lockText(k) {
+  if (!k.lockedDeviceId) return '—';
+  if (!k.hardwareLocked) return 'Browser'; // activated before hardware locking; locks fully on next sign-in
+  return k.gpuCount > 1 ? 'Browser + PC (2 GPUs)' : 'Browser + PC';
+}
+
+function blockedText(k) {
+  if (!k.blockedAttempts) return '0';
+  return `<span class="blocked-flag" title="Last one: ${esc(fmt(k.lastBlockedAt))}">${k.blockedAttempts} ⚠</span>`;
+}
+
 async function loadKeys() {
   const { keys } = await api('/api/admin/keys');
   const tbody = document.querySelector('#keysTable tbody');
@@ -270,13 +293,14 @@ async function loadKeys() {
       tr.innerHTML = `
         <td><code class="key-code">${k.key}</code></td>
         <td><span class="status-pill ${k.status}">${k.status}</span></td>
-        <td>${k.note || ''}</td>
+        <td>${esc(k.note)}</td>
         <td>${k.isAdmin ? '✓' : ''}</td>
-        <td>${k.lockedDeviceId ? `<code class="key-code">${k.lockedDeviceId.slice(0, 10)}…</code>` : '—'}</td>
+        <td>${lockText(k)}</td>
+        <td>${blockedText(k)}</td>
         <td>${fmt(k.lastSeenAt)}</td>
         <td>${k.expiresAt ? fmt(k.expiresAt) : 'never'}</td>
         <td class="row-actions">
-          <button class="btn-small" data-act="unlock" data-key="${k.key}" ${!k.lockedDeviceId ? 'disabled' : ''}>Unlock device</button>
+          <button class="btn-small" data-act="unlock" data-key="${k.key}" ${!k.lockedDeviceId ? 'disabled' : ''} title="Lets the key be activated on a new browser/PC">Reset lock</button>
           <button class="btn-small danger" data-act="revoke" data-key="${k.key}" ${k.status === 'revoked' ? 'disabled' : ''}>Revoke</button>
           <button class="btn-small danger" data-act="delete" data-key="${k.key}">Delete</button>
         </td>
@@ -290,7 +314,10 @@ document.querySelector('#keysTable tbody').addEventListener('click', async (e) =
   if (!btn) return;
   const { act, key } = btn.dataset;
   try {
-    if (act === 'unlock') await api(`/api/admin/keys/${key}/unlock`, { method: 'POST' });
+    if (act === 'unlock') {
+      if (!confirm(`Reset the lock on ${key}? It signs out wherever it's in use, and the next browser/PC to enter it becomes its new home.`)) return;
+      await api(`/api/admin/keys/${key}/unlock`, { method: 'POST' });
+    }
     if (act === 'revoke') {
       if (!confirm(`Revoke ${key}? This immediately locks out anyone using it.`)) return;
       await api(`/api/admin/keys/${key}/revoke`, { method: 'POST' });

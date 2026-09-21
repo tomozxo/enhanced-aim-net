@@ -15,10 +15,26 @@ const COLUMNS = {
   createdAt: 'created_at',
   expiresAt: 'expires_at',
   lockedDeviceId: 'locked_device_id',
+  lockedFingerprint: 'locked_fingerprint',
+  currentSessionId: 'current_session_id',
   activatedAt: 'activated_at',
   lastSeenAt: 'last_seen_at',
   lastSeenDeviceId: 'last_seen_device_id',
+  blockedAttempts: 'blocked_attempts',
+  lastBlockedAt: 'last_blocked_at',
 };
+
+// The hardware lock is an object in the app but stored as JSON text.
+const toDb = (field, value) => (field === 'lockedFingerprint' && value != null ? JSON.stringify(value) : value);
+
+function parseJson(text) {
+  if (text == null) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 
 /** Hosted databases like Supabase only accept encrypted connections; a
  * Postgres on this machine usually doesn't offer encryption at all. The
@@ -65,16 +81,22 @@ function fromRow(r) {
     createdAt: iso(r.created_at),
     expiresAt: iso(r.expires_at),
     lockedDeviceId: r.locked_device_id,
+    lockedFingerprint: parseJson(r.locked_fingerprint),
+    currentSessionId: r.current_session_id,
     activatedAt: iso(r.activated_at),
     lastSeenAt: iso(r.last_seen_at),
     lastSeenDeviceId: r.last_seen_device_id,
+    blockedAttempts: r.blocked_attempts || 0,
+    lastBlockedAt: iso(r.last_blocked_at),
   };
 }
 
 module.exports = {
   name: 'Postgres (DATABASE_URL) - keys survive deploys and restarts',
 
-  /** Creates the table the first time, and is a no-op after that. Row Level
+  /** Creates the table the first time, and is a no-op after that. Columns
+   * added since the table was first made are added to an existing table
+   * here too, so upgrading never needs a manual step in Supabase. Row Level
    * Security is switched on with no policies, which blocks Supabase's
    * public REST API from reading or writing keys - only this server, which
    * connects as the table's owner, can. */
@@ -92,6 +114,12 @@ module.exports = {
         last_seen_at        TIMESTAMPTZ,
         last_seen_device_id TEXT
       )`);
+    await pool.query(`
+      ALTER TABLE license_keys
+        ADD COLUMN IF NOT EXISTS locked_fingerprint TEXT,
+        ADD COLUMN IF NOT EXISTS current_session_id TEXT,
+        ADD COLUMN IF NOT EXISTS blocked_attempts   INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS last_blocked_at    TIMESTAMPTZ`);
     await pool.query('ALTER TABLE license_keys ENABLE ROW LEVEL SECURITY');
   },
 
@@ -123,7 +151,7 @@ module.exports = {
     const sets = fields.map((f, i) => `${COLUMNS[f]} = $${i + 2}`).join(', ');
     const { rows } = await pool.query(`UPDATE license_keys SET ${sets} WHERE key = $1 RETURNING *`, [
       key,
-      ...fields.map((f) => patch[f]),
+      ...fields.map((f) => toDb(f, patch[f])),
     ]);
     return fromRow(rows[0]);
   },
@@ -133,21 +161,24 @@ module.exports = {
     return rowCount > 0;
   },
 
-  /** Locks an unlocked, non-revoked key to this device in a single
-   * statement, so two browsers activating the same fresh key at the same
-   * moment can't both win - the second one's WHERE no longer matches.
-   * Returns the updated record, or null if it was already taken. */
-  async claimDevice(key, deviceId, nowIso) {
+  /** Locks an unlocked, non-revoked key to this browser and machine and
+   * starts its session, in a single statement - so two browsers activating
+   * the same fresh key at the same moment can't both win; the second one's
+   * WHERE no longer matches. Returns the updated record, or null if it was
+   * already taken. */
+  async claimDevice(key, { deviceId, lock, sessionId, nowIso }) {
     const { rows } = await pool.query(
       `UPDATE license_keys
           SET status = 'active',
               locked_device_id = $2,
-              activated_at = COALESCE(activated_at, $3::timestamptz),
-              last_seen_at = $3::timestamptz,
+              locked_fingerprint = $3,
+              current_session_id = $4,
+              activated_at = COALESCE(activated_at, $5::timestamptz),
+              last_seen_at = $5::timestamptz,
               last_seen_device_id = $2
         WHERE key = $1 AND locked_device_id IS NULL AND status <> 'revoked'
         RETURNING *`,
-      [key, deviceId, nowIso]
+      [key, deviceId, JSON.stringify(lock), sessionId, nowIso]
     );
     return fromRow(rows[0]);
   },

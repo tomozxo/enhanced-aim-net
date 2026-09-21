@@ -1,6 +1,6 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const store = require('./store');
+const session = require('./session');
 const { makeLimiter } = require('./rateLimit');
 
 const router = express.Router();
@@ -19,37 +19,21 @@ async function requireAdmin(req, res, next) {
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
 
-    if (token) {
-      // Plan A: the raw ADMIN_TOKEN from .env - always works, handy for scripts.
-      if (process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN) {
-        req.adminContext = { viaRawToken: true };
-        return next();
-      }
+    // Plan A: the raw ADMIN_TOKEN from .env - always works, handy for scripts,
+    // and the way back in if you ever lock your admin key to an old PC.
+    if (token && process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN) {
+      req.adminContext = { viaRawToken: true };
+      return next();
+    }
 
-      // Plan B: a normal license session whose key is flagged as an admin key.
-      // Deliberately NOT checking lockedDeviceId here (unlike the regular
-      // customer key flow in auth.js) - for a customer key, device-locking is
-      // the point (stops casual sharing); for the site owner's own admin
-      // session it's just a way to lock yourself out of your own panel if you
-      // ever use a different browser, which isn't worth the tradeoff here.
-      // isAdmin + not-revoked + not-expired is still required.
-      let payload = null;
-      try {
-        payload = jwt.verify(token, process.env.JWT_SECRET);
-      } catch {
-        /* not a valid session token either - falls through to the 401 below */
-      }
-      if (payload) {
-        const record = await store.findKey(payload.key);
-        const stillValid =
-          record &&
-          record.isAdmin &&
-          record.status !== 'revoked' &&
-          (!record.expiresAt || new Date(record.expiresAt).getTime() >= Date.now());
-        if (stillValid) {
-          req.adminContext = { key: record.key, note: record.note, lockedDeviceId: record.lockedDeviceId };
-          return next();
-        }
+    // Plan B: the signed-in session cookie of an admin key. Same rules as
+    // any key - the current session, from the browser it's locked to.
+    const check = await session.checkForFiles(req);
+    if (check.ok) {
+      const record = await store.findKey(check.key);
+      if (record && record.isAdmin) {
+        req.adminContext = { key: record.key, note: record.note, lockedDeviceId: record.lockedDeviceId };
+        return next();
       }
     }
 
@@ -91,9 +75,20 @@ router.get(
 router.get(
   '/keys',
   wrap(async (req, res) => {
-    res.json({ ok: true, keys: await store.listKeys() });
+    res.json({ ok: true, keys: (await store.listKeys()).map(forPanel) });
   })
 );
+
+/** What the panel shows for a key. The session ID and hardware hashes stay
+ * on the server; the panel only needs to know whether a lock is in place. */
+function forPanel(k) {
+  const { currentSessionId, lockedFingerprint, ...rest } = k;
+  return {
+    ...rest,
+    hardwareLocked: !!lockedFingerprint,
+    gpuCount: lockedFingerprint && Array.isArray(lockedFingerprint.gpus) ? lockedFingerprint.gpus.length : 0,
+  };
+}
 
 router.post(
   '/keys',
@@ -104,7 +99,7 @@ router.post(
       expiresInDays: expiresInDays ? Number(expiresInDays) : null,
       isAdmin: !!isAdmin,
     });
-    res.json({ ok: true, key: record });
+    res.json({ ok: true, key: forPanel(record) });
   })
 );
 
@@ -113,7 +108,7 @@ router.post(
   wrap(async (req, res) => {
     const updated = await store.revokeKey(req.params.key.toUpperCase());
     if (!updated) return res.status(404).json({ ok: false, message: 'Key not found.' });
-    res.json({ ok: true, key: updated });
+    res.json({ ok: true, key: forPanel(updated) });
   })
 );
 
@@ -122,7 +117,7 @@ router.post(
   wrap(async (req, res) => {
     const updated = await store.unlockKey(req.params.key.toUpperCase());
     if (!updated) return res.status(404).json({ ok: false, message: 'Key not found.' });
-    res.json({ ok: true, key: updated });
+    res.json({ ok: true, key: forPanel(updated) });
   })
 );
 
