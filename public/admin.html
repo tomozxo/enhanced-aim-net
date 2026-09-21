@@ -17,7 +17,7 @@
   /* Admin-only bits not already covered by styles.css (plain text/number
      inputs and the key table) - built from the same CSS variables so they
      stay in sync with the site's theme and accent color automatically. */
-  .admin-page { max-width: 1000px; margin: 0 auto; padding: 28px 32px 60px; }
+  .admin-page { max-width: 1440px; margin: 0 auto; padding: 28px 32px 60px; }
   .field-grid { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
   .field-grid > div { flex: 1; min-width: 180px; }
   .field-grid label { display: block; font-size: 11.5px; color: var(--text-dim); margin-bottom: 6px; }
@@ -34,10 +34,33 @@
   table.admin-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   table.admin-table th {
     text-align: left; color: var(--text-dim); font-weight: 500; font-size: 10.5px;
-    text-transform: uppercase; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--border);
+    text-transform: uppercase; letter-spacing: .04em; padding: 8px; border-bottom: 1px solid var(--border);
   }
-  table.admin-table td { padding: 10px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+  table.admin-table td { padding: 10px 8px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
   table.admin-table tr:last-child td { border-bottom: none; }
+  /* Notes can be any length, so they wrap instead of widening the table. */
+  table.admin-table td.note-cell { white-space: normal; overflow-wrap: anywhere; min-width: 90px; }
+  table.admin-table td.actions-cell { width: 1%; }
+
+  /* Narrower windows: each key becomes its own card instead of a table
+     that would need scrolling sideways. */
+  @media (max-width: 1180px) {
+    table.admin-table thead { display: none; }
+    table.admin-table, table.admin-table tbody, table.admin-table tr, table.admin-table td { display: block; width: 100%; }
+    table.admin-table tr { border: 1px solid var(--border); border-radius: 10px; padding: 4px 14px; margin-bottom: 10px; }
+    table.admin-table td, table.admin-table td.note-cell {
+      display: flex; justify-content: space-between; align-items: center; gap: 16px;
+      padding: 8px 0; white-space: normal; text-align: right;
+    }
+    table.admin-table td::before {
+      content: attr(data-label); color: var(--text-dim); font-size: 10.5px;
+      text-transform: uppercase; letter-spacing: .04em; text-align: left; flex: none;
+    }
+    table.admin-table td.actions-cell { width: 100%; border-bottom: none; justify-content: flex-end; }
+    table.admin-table td.actions-cell::before { content: none; }
+    table.admin-table tr:last-child td { border-bottom: 1px solid var(--border-soft); }
+    table.admin-table tr td.actions-cell { border-bottom: none; }
+  }
   code.key-code { background: rgba(255,255,255,0.06); padding: 3px 7px; border-radius: 5px; font-size: 12px; }
   :root[data-theme="light"] code.key-code { background: rgba(0,0,0,0.06); }
 
@@ -49,7 +72,7 @@
   .blocked-flag { color: #e8a07e; font-weight: 600; cursor: help; }
 
   .row-actions { display: flex; gap: 6px; }
-  .row-actions button { padding: 6px 11px; font-size: 11px; }
+  .row-actions button { padding: 5px 9px; font-size: 11px; white-space: nowrap; }
   .btn-small { border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 7px; cursor: pointer; }
   .btn-small.danger { background: #3a1f1f; border-color: #4a2626; color: #e88b7e; }
   .btn-small:disabled { opacity: .4; cursor: not-allowed; }
@@ -127,7 +150,7 @@
       <h3 style="margin:0;font-size:15px;font-weight:600">All keys</h3>
       <button id="refreshBtn" class="plain-btn">Refresh</button>
     </div>
-    <div style="overflow-x:auto">
+    <div>
       <table class="admin-table" id="keysTable">
         <thead>
           <tr><th>Key</th><th>Status</th><th>Note</th><th>Admin</th><th>Locked to</th><th title="Tries to use this key from another browser or PC">Blocked attempts</th><th>Last seen</th><th>Expires</th><th>Actions</th></tr>
@@ -260,9 +283,10 @@ async function loadWhoami() {
 document.getElementById('unlockBtn').addEventListener('click', tryEnter);
 document.getElementById('adminToken').addEventListener('keydown', (e) => { if (e.key === 'Enter') tryEnter(); });
 
+// Short dates ("21 Sep, 9:53 pm") keep the table narrow enough to fit.
 function fmt(iso) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString();
+  return new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
 // Notes are typed in by hand, so never insert them as HTML.
@@ -290,19 +314,23 @@ async function loadKeys() {
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .forEach((k) => {
       const tr = document.createElement('tr');
+      // data-label is what each value is called when a narrow window shows
+      // the keys as cards instead of a table.
       tr.innerHTML = `
-        <td><code class="key-code">${k.key}</code></td>
-        <td><span class="status-pill ${k.status}">${k.status}</span></td>
-        <td>${esc(k.note)}</td>
-        <td>${k.isAdmin ? '✓' : ''}</td>
-        <td>${lockText(k)}</td>
-        <td>${blockedText(k)}</td>
-        <td>${fmt(k.lastSeenAt)}</td>
-        <td>${k.expiresAt ? fmt(k.expiresAt) : 'never'}</td>
-        <td class="row-actions">
-          <button class="btn-small" data-act="unlock" data-key="${k.key}" ${!k.lockedDeviceId ? 'disabled' : ''} title="Lets the key be activated on a new browser/PC">Reset lock</button>
-          <button class="btn-small danger" data-act="revoke" data-key="${k.key}" ${k.status === 'revoked' ? 'disabled' : ''}>Revoke</button>
-          <button class="btn-small danger" data-act="delete" data-key="${k.key}">Delete</button>
+        <td data-label="Key"><code class="key-code">${k.key}</code></td>
+        <td data-label="Status"><span class="status-pill ${k.status}">${k.status}</span></td>
+        <td data-label="Note" class="note-cell">${esc(k.note) || '—'}</td>
+        <td data-label="Admin">${k.isAdmin ? '✓' : ''}</td>
+        <td data-label="Locked to">${lockText(k)}</td>
+        <td data-label="Blocked attempts">${blockedText(k)}</td>
+        <td data-label="Last seen">${fmt(k.lastSeenAt)}</td>
+        <td data-label="Expires">${k.expiresAt ? fmt(k.expiresAt) : 'never'}</td>
+        <td class="actions-cell">
+          <div class="row-actions">
+            <button class="btn-small" data-act="unlock" data-key="${k.key}" ${!k.lockedDeviceId ? 'disabled' : ''} title="Lets the key be activated on a new browser/PC">Reset lock</button>
+            <button class="btn-small danger" data-act="revoke" data-key="${k.key}" ${k.status === 'revoked' ? 'disabled' : ''}>Revoke</button>
+            <button class="btn-small danger" data-act="delete" data-key="${k.key}">Delete</button>
+          </div>
         </td>
       `;
       tbody.appendChild(tr);

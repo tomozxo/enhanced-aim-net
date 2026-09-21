@@ -9,8 +9,8 @@ const TRACK_PITCH_RANGE = (7 * Math.PI) / 180;
 // drill is a horizontal flick exercise and never walks you into the floor.
 const SPAWN_YAW_SPREAD = (30 * Math.PI) / 180;
 const SPAWN_PITCH_RANGE = (7 * Math.PI) / 180;
-const WALL_RADIUS = 46; // grid backdrop, comfortably behind the targets at 22
-const WALL_HEIGHT = 44;
+const WALL_RADIUS = 46; // the grid room around you, comfortably behind the targets at 22
+const WALL_HEIGHT = 48; // floor at 0, ceiling at 48 - tall enough that the ceiling only shows at the top edge
 
 // Target radii in world units at TARGET_DISTANCE - roughly 1.7° / 1.35° /
 // 1.55° of angular radius. About a quarter smaller than they used to be, so
@@ -106,25 +106,31 @@ export class DrillEngine {
     // a consistent bright colour from every angle - no scene lighting needed,
     // the grid surfaces don't react to lights either.
 
-    const floor = new THREE.GridHelper(400, 80, 0x4a2a5e, 0x241436);
-    floor.position.y = 0;
-    this.scene.add(floor);
-
-    // A grid wall wrapping the whole arena, so there's always a backdrop
-    // behind a target instead of pitch black - a bright dot against a
-    // textured surface is far easier to pick out than one floating in a void.
+    // An enclosed room: floor, wall and ceiling all in the same purple grid,
+    // so wherever you look there's grid behind the targets - never a black
+    // band. (The floor used to be a near-black void with thin grid lines, and
+    // above the wall there was open black sky, which read as black bars
+    // across the bottom and top of the screen.)
+    // All three are opaque on purpose. As "transparent" materials they'd be
+    // drawn after the targets, and each target sprite's see-through corners
+    // would already have claimed that depth - leaving a dark square around
+    // every target.
     const wall = new THREE.Mesh(
       new THREE.CylinderGeometry(WALL_RADIUS, WALL_RADIUS, WALL_HEIGHT, 72, 1, true),
-      new THREE.MeshBasicMaterial({
-        map: this._makeGridTexture(),
-        side: THREE.BackSide,
-        // Opaque on purpose. As a "transparent" material it was drawn after
-        // the targets, and each target sprite's see-through corners had already
-        // claimed that depth - leaving a dark square around every target.
-      })
+      new THREE.MeshBasicMaterial({ map: this._makeGridTexture(26, 7), side: THREE.BackSide })
     );
-    wall.position.y = WALL_HEIGHT / 2 - 6;
+    wall.position.y = WALL_HEIGHT / 2;
     this.scene.add(wall);
+
+    const capGeometry = new THREE.CircleGeometry(WALL_RADIUS, 72);
+    const capMaterial = new THREE.MeshBasicMaterial({ map: this._makeGridTexture(8, 8), side: THREE.DoubleSide });
+    const floor = new THREE.Mesh(capGeometry, capMaterial);
+    floor.rotation.x = -Math.PI / 2;
+    this.scene.add(floor);
+    const ceiling = new THREE.Mesh(capGeometry, capMaterial);
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.y = WALL_HEIGHT;
+    this.scene.add(ceiling);
 
     // Scratch vectors for the per-frame aim test, so tracking doesn't
     // allocate two new vectors every frame.
@@ -132,8 +138,10 @@ export class DrillEngine {
     this._toTarget = new THREE.Vector3();
   }
 
-  /** Procedural grid cell, tiled around the arena wall. */
-  _makeGridTexture() {
+  /** Procedural grid cell, tiled `repeatX` x `repeatY` times across a
+   * surface - chosen per surface so the cells come out about the same size
+   * on the wall, floor and ceiling. */
+  _makeGridTexture(repeatX, repeatY) {
     const size = 128;
     const c = document.createElement('canvas');
     c.width = c.height = size;
@@ -148,7 +156,7 @@ export class DrillEngine {
     tex.wrapT = THREE.RepeatWrapping;
     // Fewer, larger cells: tiling them too finely just blurs the lines into
     // a flat wash of colour at distance instead of reading as a grid.
-    tex.repeat.set(26, 6);
+    tex.repeat.set(repeatX, repeatY);
     return tex;
   }
 
