@@ -238,16 +238,54 @@
 
       <div class="card" id="convertCard" style="margin-top:20px">
         <div class="card-header">
-          <h3>Your sensitivity in other games</h3>
-          <span class="comparison-tag" id="convertTag">1× ADS</span>
+          <h3>Sensitivity converter</h3>
+          <span class="comparison-tag">Same feel in any game</span>
         </div>
-        <p style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 12px">
-          Same cm/360° (your R6 sens above), converted using each game's known sensitivity scaling. Same DPI assumed.
+        <p class="convert-intro">
+          Enter the sens you already use in one game and get the matching sens for another.
+          Both end up at the same cm/360° — the same physical mouse distance for a full turn.
         </p>
+
+        <div class="convert-grid">
+          <div class="convert-side">
+            <span class="convert-lbl">From</span>
+            <div class="select-wrap"><select id="convertFromGame"></select></div>
+            <div class="convert-pair">
+              <label><span class="convert-mini" id="convertFromSensLbl">Sensitivity</span>
+                <input type="number" id="convertFromSens" step="any" min="0" /></label>
+              <label><span class="convert-mini">DPI</span>
+                <input type="number" id="convertFromDpi" step="50" min="1" /></label>
+            </div>
+          </div>
+
+          <button class="convert-swap" id="convertSwapBtn" title="Swap the two games">⇄</button>
+
+          <div class="convert-side">
+            <span class="convert-lbl">To</span>
+            <div class="select-wrap"><select id="convertToGame"></select></div>
+            <div class="convert-pair">
+              <label><span class="convert-mini" id="convertToSensLbl">Sensitivity</span>
+                <output class="convert-out" id="convertResult">—</output></label>
+              <label><span class="convert-mini">DPI</span>
+                <input type="number" id="convertToDpi" step="50" min="1" /></label>
+            </div>
+          </div>
+        </div>
+
+        <p class="convert-cm" id="convertCm"></p>
+        <p class="convert-warn" id="convertWarn" hidden></p>
+
         <table class="comparison" id="convertTable">
-          <thead><tr><th>Game</th><th>Sensitivity</th></tr></thead>
+          <thead><tr><th>Same feel in every other game</th><th>Sensitivity</th></tr></thead>
           <tbody id="convertBody"></tbody>
         </table>
+        <p class="comparison-footnote">
+          Conversions use each game's yaw constant (degrees turned per mouse count at sens 1).
+          Siege's own numbers come from this tool's model, so they're a rough guess until you
+          calibrate that optic in the sidebar — every other game here is exact.
+          Fortnite, Destiny&nbsp;2, Battlefield and PUBG aren't listed because their sliders
+          aren't a flat multiplier; use the cm/360° option for those.
+        </p>
       </div>
     </main>
   </div>

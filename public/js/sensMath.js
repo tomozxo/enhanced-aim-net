@@ -53,14 +53,14 @@ export function isCalibrated(tab, settings) {
 
 /** Degrees of view rotation per mouse count at sens 1 - derived from the
  * user's own measurement when there is one, otherwise the fallback guess. */
-function yawFor(tab, settings) {
+export function yawForTab(tab, settings) {
   const c = calibFor(tab, settings);
   if (!c) return FALLBACK_YAW[tab];
   return (2.54 * 360) / (c.dpi * c.sens * (c.mult || 1) * c.cm360);
 }
 
 function cm360For(tab, sensValue, settings) {
-  const degPerCount = yawFor(tab, settings) * sensValue * customMultiplierFactor(settings);
+  const degPerCount = yawForTab(tab, settings) * sensValue * customMultiplierFactor(settings);
   if (!(degPerCount > 0) || !(settings.dpi > 0)) return NaN;
   return ((360 / degPerCount) / settings.dpi) * 2.54;
 }

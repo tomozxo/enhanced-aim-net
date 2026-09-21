@@ -9,6 +9,10 @@
   --text: #f2f2f2;
   --text-sub: #9a9a9a;
   --text-dim: #6b6b6b;
+  --input-bg: #0d0d0d;
+  --warn-bg: #2e2113;
+  --warn-border: #4a3620;
+  --warn-text: #e8b57e;
   --target-fill: #c837ff;
   --radius: 12px;
 }
@@ -24,6 +28,10 @@
   --text: #17171a;
   --text-sub: #5c5c60;
   --text-dim: #8d8d90;
+  --input-bg: #ffffff;
+  --warn-bg: #fdf3e3;
+  --warn-border: #ecd9b4;
+  --warn-text: #8a5a1a;
 }
 
 * { box-sizing: border-box; }
@@ -167,7 +175,7 @@ a { color: inherit; }
 .select-wrap { position: relative; }
 .select-wrap select {
   appearance: none;
-  background: #0d0d0d;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 12.5px;
@@ -195,7 +203,7 @@ a { color: inherit; }
 
 .sub-field { padding: 8px 0 4px; }
 .sub-field input[type="number"] {
-  width: 100%; background: #0c0c0c; border: 1px solid var(--border); color: var(--text);
+  width: 100%; background: var(--input-bg); border: 1px solid var(--border); color: var(--text);
   padding: 7px 10px; border-radius: 6px; font-size: 12.5px;
 }
 .sub-field input:disabled { opacity: 0.4; }
@@ -311,6 +319,66 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 .comparison-tag { font-size: 10.5px; color: var(--text-dim); }
 .comparison-footnote { font-size: 11px; color: var(--text-dim); margin: 12px 0 0; line-height: 1.6; }
 .clear-link { background: none; border: none; color: var(--text-sub); font-size: 11.5px; text-decoration: underline; cursor: pointer; padding: 6px 0 0; }
+
+/* ---------- Sensitivity converter ---------- */
+.convert-intro { font-size: 11.5px; color: var(--text-dim); margin: -4px 0 16px; line-height: 1.6; max-width: 62ch; }
+
+.convert-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+  gap: 14px;
+}
+@media (max-width: 720px) {
+  .convert-grid { grid-template-columns: 1fr; }
+  .convert-swap { justify-self: start; transform: rotate(90deg); }
+}
+
+.convert-side {
+  background: var(--panel-2, #0c0c0c);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 13px 13px;
+}
+.convert-lbl {
+  display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-dim); margin-bottom: 7px;
+}
+.convert-side .select-wrap select { width: 100%; }
+
+.convert-pair { display: grid; grid-template-columns: 1fr 88px; gap: 10px; margin-top: 10px; }
+.convert-pair label { display: block; }
+.convert-mini { display: block; font-size: 10.5px; color: var(--text-dim); margin-bottom: 4px; }
+.convert-pair input {
+  width: 100%; background: var(--input-bg); border: 1px solid var(--border); color: var(--text);
+  padding: 7px 9px; border-radius: 6px; font-size: 13.5px;
+}
+.convert-pair input:focus { outline: none; border-color: var(--accent); }
+.convert-pair input:disabled { opacity: .4; cursor: not-allowed; }
+
+.convert-out {
+  display: flex; align-items: center; height: 34px; padding: 0 9px; border-radius: 6px;
+  border: 1px solid transparent; background: transparent;
+  font-size: 22px; font-weight: 700; color: var(--accent); line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.convert-swap {
+  align-self: center; margin-top: 26px;
+  width: 30px; height: 30px; flex: none;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 50%;
+  color: var(--text-sub); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.convert-swap:hover { color: var(--text); border-color: var(--accent); }
+
+.convert-cm { font-size: 11.5px; color: var(--text-sub); margin: 12px 0 0; }
+.convert-cm b { color: var(--text); font-weight: 600; }
+.convert-warn {
+  font-size: 11.5px; line-height: 1.6; margin: 8px 0 0;
+  color: var(--warn-text); background: var(--warn-bg); border: 1px solid var(--warn-border);
+  border-radius: 6px; padding: 8px 10px;
+}
+#convertCard table.comparison { margin-top: 16px; }
 
 /* ---------- Fullscreen drill overlay ---------- */
 .drill-overlay {

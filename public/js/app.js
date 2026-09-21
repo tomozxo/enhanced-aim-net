@@ -7,11 +7,21 @@ import {
   compensateAdsForHipfireChange,
   calibrationFrom,
   isCalibrated,
+  yawForTab,
+  customMultiplierFactor,
 } from './sensMath.js';
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine } from './drills.js';
 import { buildCandidates, buildQueue, scoreResults, narrowedSpread, INITIAL_SPREAD_PCT } from './calibration.js';
-import { CONVERT_GAMES, sensForGame, formatSens } from './sensConvert.js';
+import {
+  buildGameList,
+  findGame,
+  toCm360,
+  fromCm360,
+  formatSens,
+  rangeWarning,
+  CM360_ID,
+} from './sensConvert.js';
 
 const TAB_LABELS = { hipfire: 'Hip-fire', ads1x: '1× ADS', ads25x: '2.5× ADS' };
 
@@ -28,6 +38,7 @@ async function main() {
   bindSettingsFields();
   bindExpanders();
   bindTabs();
+  bindConvert();
   initThemePicker({
     getAccent: () => getState().settings.accentColor,
     onChange: (hex) => {
@@ -352,15 +363,146 @@ function renderAll() {
   renderConvert(state);
 }
 
+// ---------- Sensitivity converter ----------
+
+/** Siege's three optics as yaw constants, so they can sit in the converter's
+ * game list alongside Valorant/CS/etc. The custom-multiplier factor is folded
+ * in here because it scales every optic the same way. */
+function r6YawMap(settings) {
+  const mult = customMultiplierFactor(settings);
+  return {
+    hipfire: yawForTab('hipfire', settings) * mult,
+    ads1x: yawForTab('ads1x', settings) * mult,
+    ads25x: yawForTab('ads25x', settings) * mult,
+  };
+}
+
+function convertList() {
+  return buildGameList(r6YawMap(getState().settings));
+}
+
+/** The converter's own fields default to whatever the user already has set
+ * up above, so the card is showing something meaningful before it's touched. */
+function convertValues(state) {
+  const s = state.settings;
+  const c = s.convert || {};
+  const from = c.from || 'r6_hipfire';
+  const fallbackSens =
+    from === 'r6_hipfire' ? s.hipfireH : from === 'r6_ads1x' || from === 'r6_ads25x' ? s.ads25x : 1;
+  return {
+    from,
+    to: c.to || 'valorant',
+    sens: c.sens === undefined ? fallbackSens : c.sens,
+    fromDpi: c.fromDpi === undefined ? s.dpi : c.fromDpi,
+    toDpi: c.toDpi === undefined ? s.dpi : c.toDpi,
+  };
+}
+
+function patchConvert(patch) {
+  const current = convertValues(getState());
+  updateSettings({ convert: { ...current, ...patch } });
+}
+
+function fillGameSelect(el, list, selectedId) {
+  el.innerHTML = list
+    .map((g) => `<option value="${g.id}">${g.name}</option>`)
+    .join('');
+  el.value = selectedId;
+}
+
+function bindConvert() {
+  const list = convertList();
+  const v = convertValues(getState());
+  fillGameSelect($('convertFromGame'), list, v.from);
+  fillGameSelect($('convertToGame'), list, v.to);
+
+  $('convertFromGame').addEventListener('change', (e) => patchConvert({ from: e.target.value }));
+  $('convertToGame').addEventListener('change', (e) => patchConvert({ to: e.target.value }));
+  $('convertFromSens').addEventListener('input', (e) => patchConvert({ sens: numOrNull(e.target.value) }));
+  $('convertFromDpi').addEventListener('input', (e) => patchConvert({ fromDpi: numOrNull(e.target.value) }));
+  $('convertToDpi').addEventListener('input', (e) => patchConvert({ toDpi: numOrNull(e.target.value) }));
+
+  // Swapping carries the *result* back into the input box, so flipping
+  // direction twice round-trips to where you started instead of silently
+  // reinterpreting the old number as the other game's sens.
+  $('convertSwapBtn').addEventListener('click', () => {
+    const cur = convertValues(getState());
+    const games = convertList();
+    const cm = toCm360(findGame(games, cur.from), cur.sens, cur.fromDpi);
+    const toGame = findGame(games, cur.to);
+    const swappedSens = fromCm360(toGame, cm, cur.toDpi);
+    patchConvert({
+      from: cur.to,
+      to: cur.from,
+      fromDpi: cur.toDpi,
+      toDpi: cur.fromDpi,
+      sens: isFinite(swappedSens) && swappedSens > 0 ? roundTo(swappedSens, toGame) : cur.sens,
+    });
+  });
+}
+
+function numOrNull(raw) {
+  const n = Number(raw);
+  return raw === '' || !isFinite(n) ? null : n;
+}
+
+function roundTo(sens, game) {
+  const d = game && game.decimals != null ? game.decimals : 3;
+  return Number(sens.toFixed(d));
+}
+
 function renderConvert(state) {
-  const tab = state.activeTab;
-  $('convertTag').textContent = TAB_LABELS[tab];
-  const cm360 = estimateCm360(tab, state.settings);
-  const dpi = state.settings.dpi;
-  $('convertBody').innerHTML = CONVERT_GAMES.map((g) => {
-    const sens = sensForGame(cm360, dpi, g.yaw);
-    return `<tr><td>${g.name}</td><td>${formatSens(sens)}</td></tr>`;
-  }).join('');
+  const games = convertList();
+  const v = convertValues(state);
+  const fromGame = findGame(games, v.from);
+  const toGame = findGame(games, v.to);
+
+  // Selects are rebuilt rather than just re-selected: the R6 entries' names
+  // are static, but the list is cheap and this keeps it correct if it grows.
+  if ($('convertFromGame').options.length !== games.length) {
+    fillGameSelect($('convertFromGame'), games, v.from);
+    fillGameSelect($('convertToGame'), games, v.to);
+  } else {
+    $('convertFromGame').value = v.from;
+    $('convertToGame').value = v.to;
+  }
+
+  const fromIsCm = fromGame && fromGame.id === CM360_ID;
+  const toIsCm = toGame && toGame.id === CM360_ID;
+  $('convertFromSensLbl').textContent = fromIsCm ? 'cm/360°' : 'Sensitivity';
+  $('convertToSensLbl').textContent = toIsCm ? 'cm/360°' : 'Sensitivity';
+  // cm/360 is a DPI-independent figure, so the DPI box on that side has
+  // nothing to do - grey it out rather than implying it matters.
+  $('convertFromDpi').disabled = !!fromIsCm;
+  $('convertToDpi').disabled = !!toIsCm;
+
+  if (document.activeElement !== $('convertFromSens')) $('convertFromSens').value = v.sens ?? '';
+  if (document.activeElement !== $('convertFromDpi')) $('convertFromDpi').value = v.fromDpi ?? '';
+  if (document.activeElement !== $('convertToDpi')) $('convertToDpi').value = v.toDpi ?? '';
+
+  const cm360 = toCm360(fromGame, v.sens, v.fromDpi);
+  const result = fromCm360(toGame, cm360, v.toDpi);
+  $('convertResult').textContent = formatSens(result, toGame ? toGame.decimals : 3);
+
+  $('convertCm').innerHTML =
+    isFinite(cm360) && cm360 > 0
+      ? `Both work out to <b>${cm360.toFixed(1)} cm/360°</b>${
+          v.fromDpi !== v.toDpi && !fromIsCm && !toIsCm ? ' — DPI difference accounted for.' : '.'
+        }`
+      : 'Enter a sensitivity to convert.';
+
+  const warn = rangeWarning(toGame, result);
+  $('convertWarn').hidden = !warn;
+  $('convertWarn').textContent = warn;
+
+  const others = games.filter((g) => g.id !== v.from && g.id !== CM360_ID);
+  $('convertBody').innerHTML = others
+    .map((g) => {
+      const s = fromCm360(g, cm360, v.toDpi);
+      const best = g.id === v.to ? ' class="best"' : '';
+      return `<tr${best}><td>${g.name}</td><td>${formatSens(s, g.decimals)}</td></tr>`;
+    })
+    .join('');
 }
 
 function renderSettingsInputs(state) {

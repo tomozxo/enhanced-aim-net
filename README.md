@@ -230,6 +230,7 @@ public/         Static frontend (no build step)
     session.js      Verifies/refreshes the license session on app.html
     state.js         App settings + calibration results, persisted to localStorage
     sensMath.js       The approximate sensitivity/cm-360 model
+    sensConvert.js    Game-to-game sens converter (yaw constants per game)
     theme.js          Accent color picker + light/dark mode
     drills.js         Three.js first-person drill engine: pointer lock, fullscreen, pause/resume
     calibration.js    Candidate/queue building and scoring

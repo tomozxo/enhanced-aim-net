@@ -21,6 +21,12 @@ const DEFAULTS = {
       ads25x: null,
     },
     accentColor: '#a50fec',
+    // Sensitivity converter panel. The sens/DPI keys are deliberately absent
+    // rather than null: absent means "never touched", which seeds the fields
+    // from the main settings above, while an explicit null means the user
+    // emptied the box and it should stay empty. Deliberately not part of
+    // basisFor(): converting a number doesn't change the drills.
+    convert: { from: 'r6_hipfire', to: 'valorant' },
   },
   activeTab: 'hipfire', // hipfire | ads1x | ads25x
   // Per-tab calibration results. null until a calibration run finishes.
