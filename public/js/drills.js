@@ -1,5 +1,4 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { estimateCm360, estimateCm360Axis } from './sensMath.js';
 
 const DRILL_LABELS = { flick: 'FLICK', targets: 'TARGETS', tracking: 'TRACKING' };
 const TARGET_DISTANCE = 22; // world units targets sit out in front of the camera
@@ -38,11 +37,6 @@ function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-function parseAspect(ratioStr) {
-  const [w, h] = ratioStr.split(':').map(Number);
-  return w / h;
-}
-
 function rand(min, max) {
   return min + Math.random() * (max - min);
 }
@@ -51,7 +45,7 @@ const HALF_PI = Math.PI / 2;
 const PITCH_LIMIT = HALF_PI - 0.01;
 
 export class DrillEngine {
-  constructor({ overlayEl, stageEl, canvasEl, elements, onBlockComplete, onQueueComplete, onPauseChange, onStartError }) {
+  constructor({ overlayEl, stageEl, canvasEl, elements, onBlockComplete, onQueueComplete, onPauseChange, onStartError, onRawInputChange }) {
     this.overlay = overlayEl;
     this.stage = stageEl;
     this.canvas = canvasEl;
@@ -60,6 +54,8 @@ export class DrillEngine {
     this.onQueueComplete = onQueueComplete;
     this.onPauseChange = onPauseChange;
     this.onStartError = onStartError;
+    this.onRawInputChange = onRawInputChange;
+    this.rawInput = null; // true = raw mouse counts, false = OS-adjusted, null = not captured yet
 
     this.queue = [];
     this.queueIndex = -1;
@@ -229,19 +225,22 @@ export class DrillEngine {
     window.addEventListener('resize', () => this._resizeCanvas());
   }
 
+  /** { game, tab, settings } - `game` is an entry from games.js, which owns
+   * the game-specific parts: how a sens value becomes rotation, and what the
+   * camera looks like. */
   configure(sensSettings) {
-    this.sensSettings = sensSettings; // { tab, settings }
+    this.sensSettings = sensSettings;
   }
 
   _resizeCanvas() {
     if (!this.sensSettings) return; // window can resize before the first configure()/run()
     const stageRect = this.stage.getBoundingClientRect();
-    const { screenFill, aspectRatio, fov } = this.sensSettings.settings;
-    const selected = parseAspect(aspectRatio);
+    const { game, settings } = this.sensSettings;
+    const { aspect: selected, vFovDeg, stretch, renderSize } = game.view(settings);
 
     let w = stageRect.width;
     let h = stageRect.height;
-    if (screenFill === 'keep-aspect') {
+    if (!stretch) {
       // Letterbox/pillarbox: the canvas itself takes the selected shape.
       if (w / h > selected) {
         w = h * selected;
@@ -260,42 +259,38 @@ export class DrillEngine {
     this.cw = w;
     this.ch = h;
 
-    this.renderer.setSize(w, h, false);
+    if (renderSize) {
+      // Render at the chosen in-game resolution and let the browser scale it
+      // to the canvas, the same way the GPU scales a stretched or black-bars
+      // res up to your monitor - so 1280x960 stretched is as soft as in-game.
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(renderSize.w, renderSize.h, false);
+    } else {
+      this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      this.renderer.setSize(w, h, false);
+    }
     // Always frame using the SELECTED in-game aspect, never the window's.
-    // Previously this used the canvas shape, which meant "stretch to fill"
-    // rendered an undistorted native image and the setting did nothing.
+    // Using the canvas shape would render an undistorted native image even
+    // when stretched, and the setting would do nothing.
     this.camera.aspect = selected;
-    // Horizontal FOV setting -> the vertical FOV Three.js wants.
-    const hFovRad = (Math.max(60, Math.min(110, fov)) * Math.PI) / 180;
-    const vFovRad = 2 * Math.atan(Math.tan(hFovRad / 2) / selected);
-    this.camera.fov = (vFovRad * 180) / Math.PI;
+    this.camera.fov = vFovDeg;
     this.camera.updateProjectionMatrix();
   }
 
-  /** Swaps in the block's candidate sens value (hip-fire H/V or the ADS value) on top of the live settings, so each calibration block actually tests that candidate rather than whatever's live in the sidebar. */
+  /** Swaps in the block's candidate sens value on top of the live settings, so each calibration block actually tests that candidate rather than whatever's live in the sidebar. */
   _effectiveSettings() {
-    const base = this.sensSettings.settings;
+    const { game, tab, settings } = this.sensSettings;
     const sens = this.currentCandidateSens;
-    if (sens == null) return base;
-    if (this.sensSettings.tab === 'hipfire') return { ...base, hipfireH: sens, hipfireV: sens };
-    return { ...base, ads25x: sens };
+    return sens == null ? settings : game.withCandidate(settings, tab, sens);
   }
 
-  /** Degrees of camera rotation per raw mouse-movement unit, straight from the cm/360 model - no screen-pixel conversion needed since we're rotating a real camera now. */
+  /** Radians of camera rotation per mouse count, from the game's own formula
+   * (games.js). With raw input, one mouse count is one unit of movementX, so
+   * this turns the camera exactly as far as the game would. */
   _rotationScale() {
-    const tab = this.sensSettings.tab;
-    const settings = this._effectiveSettings();
-    const dpi = settings.dpi;
-    const degPerPxFor = (cm360) => (360 * 2.54) / (cm360 * dpi);
-
-    if (tab === 'hipfire') {
-      const cmH = estimateCm360Axis('h', settings);
-      const cmV = estimateCm360Axis('v', settings);
-      return { x: degPerPxFor(cmH) * (Math.PI / 180), y: degPerPxFor(cmV) * (Math.PI / 180) };
-    }
-    const cm = estimateCm360(tab, settings);
-    const s = degPerPxFor(cm) * (Math.PI / 180);
-    return { x: s, y: s };
+    const { game, tab } = this.sensSettings;
+    const d = game.degPerCount(tab, this._effectiveSettings());
+    return { x: d.x * (Math.PI / 180), y: d.y * (Math.PI / 180) };
   }
 
   _applyMovement(mx, my) {
@@ -350,17 +345,56 @@ export class DrillEngine {
     await this._requestLock();
   }
 
-  async _requestLock() {
-    this.el.pauseOverlay.classList.remove('active');
+  /**
+   * Captures the mouse with raw input (`unadjustedMovement`): mouse counts
+   * straight from the device, with no Windows pointer speed or "Enhance
+   * pointer precision" applied - which is what Valorant and CS2 read too.
+   * Only when the browser doesn't support raw input at all (Firefox, Safari)
+   * does it fall back to a normal lock, and it reports that so the page can
+   * warn about it.
+   *
+   * Any other refusal - most often Chrome's "you only just left the lock"
+   * cooldown after pressing Esc - used to fall back too, which quietly turned
+   * off raw input for the rest of the session after a pause. Now it just
+   * reports failure and the pause screen stays up to click again.
+   */
+  async _lockPointer() {
     try {
       await this.canvas.requestPointerLock({ unadjustedMovement: true });
+      this._setRawInput(true);
+      return true;
     } catch (err) {
-      // Some browsers reject the unadjustedMovement option entirely - retry plain.
-      try {
-        await this.canvas.requestPointerLock();
-      } catch (err2) {
-        console.warn('[DrillEngine] pointer lock unavailable, mouse movement will not register:', err2);
+      if (err && err.name === 'NotSupportedError') {
+        try {
+          await this.canvas.requestPointerLock();
+          this._setRawInput(false);
+          return true;
+        } catch (err2) {
+          console.warn('[DrillEngine] pointer lock unavailable:', err2);
+          return false;
+        }
       }
+      console.warn('[DrillEngine] pointer lock refused, click to try again:', err);
+      return false;
+    }
+  }
+
+  _setRawInput(raw) {
+    if (this.rawInput === raw) return;
+    this.rawInput = raw;
+    this.onRawInputChange?.(raw);
+  }
+
+  async _requestLock() {
+    this.el.pauseOverlay.classList.remove('active');
+    const locked = await this._lockPointer();
+    if (!locked) {
+      // Without the mouse captured nothing registers, so running on would
+      // just waste the round. Stay (or go back to being) paused.
+      if (this.sessionActive) {
+        this._pause('nolock');
+      }
+      return;
     }
     if (this.paused) {
       this.paused = false;
@@ -385,7 +419,11 @@ export class DrillEngine {
     this.stage.classList.add('show-cursor');
     this.onPauseChange?.(true);
     this.el.pauseReason.textContent =
-      reason === 'blur' ? 'Paused because the window lost focus.' : 'Paused. Click to resume.';
+      reason === 'blur'
+        ? 'Paused because the window lost focus.'
+        : reason === 'nolock'
+          ? "Your mouse wasn't captured. Click to try again."
+          : 'Paused. Click to resume.';
     this.el.pauseOverlay.classList.add('active');
     if (this.rafId) cancelAnimationFrame(this.rafId);
     if (this.getReadyTimer) {
@@ -413,7 +451,9 @@ export class DrillEngine {
     this.el.getReady.classList.add('active');
     this.getReadyCount = 3;
     this.el.getReadyNum.textContent = this.getReadyCount;
-    this._tickGetReady();
+    // If the mouse couldn't be captured at the start, this runs while paused;
+    // the countdown starts once they click back in (see _requestLock).
+    if (!this.paused) this._tickGetReady();
   }
 
   _tickGetReady() {

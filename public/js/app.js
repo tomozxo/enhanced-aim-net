@@ -1,7 +1,27 @@
 import { ensureSession } from './session.js';
-import { getState, subscribe, updateSettings, setActiveTab, setResult, basisFor, isStale } from './state.js';
 import {
-  baseSensForTab,
+  getState,
+  subscribe,
+  updateSettings,
+  updateGameSettings,
+  getGameSettings,
+  setGame,
+  setActiveTab,
+  setResult,
+  basisFor,
+  isStale,
+} from './state.js';
+import {
+  GAMES,
+  GAME_ORDER,
+  getGame,
+  quantizeSens,
+  formatSens as formatGameSens,
+  tabLabel,
+  hFovFromV,
+  parseResolution,
+} from './games.js';
+import {
   estimateCm360,
   formatCm360,
   compensateAdsForHipfireChange,
@@ -31,9 +51,21 @@ import {
   CM360_ID,
 } from './sensConvert.js';
 
-const TAB_LABELS = { hipfire: 'Hip-fire', ads1x: '1× ADS', ads25x: '2.5× ADS' };
-
 const $ = (id) => document.getElementById(id);
+
+/** The game the page is currently calibrating for (an entry from games.js). */
+const currentGame = () => getGame(getState().game);
+
+/** What to call the thing being calibrated: Siege's optic ("2.5× ADS"), or
+ * just the game for the ones with a single sens ("Valorant"). */
+function scopeLabel(game, tab) {
+  return game.tabs.length > 1 ? tabLabel(game, tab) : game.short;
+}
+
+/** The sens currently set for this tab, rounded to what the game accepts. */
+function currentSens(game, tab, settings) {
+  return quantizeSens(game, game.baseSens(tab, settings));
+}
 
 async function main() {
   const session = await ensureSession();
@@ -43,7 +75,9 @@ async function main() {
   applyAccent(getState().settings.accentColor);
   initModeToggle();
 
+  bindGamePicker();
   bindSettingsFields();
+  bindSimpleGameFields();
   bindExpanders();
   bindTabs();
   bindConvert();
@@ -82,6 +116,16 @@ async function main() {
         `Couldn't start the drill: ${err?.message || err}\n\nOpen the browser console (F12) for the full error if this keeps happening.`
       );
     },
+    // Raw input is what makes the drill's sens match the game's 1:1, so say
+    // clearly when the browser can't provide it.
+    onRawInputChange: (raw) => {
+      const note = $('rawInputNote');
+      note.hidden = false;
+      note.className = raw ? 'raw-input ok' : 'raw-input warn';
+      note.textContent = raw
+        ? 'Raw mouse input'
+        : 'No raw input in this browser - Windows mouse settings are affecting the drill. Use Chrome or Edge for exact sens.';
+    },
   });
 
   let run = null; // { candidates, spreadPct, delta, centeredValue, passCount, centeredOn, carryOver, pooledPasses, tab, isPractice }
@@ -93,11 +137,13 @@ async function main() {
   }
 
   /** A fresh calibration tests your current sens ±15%. A fine-tune pass
-   * centres on the last winner with half the spread; once that's down to ±1
-   * (the finest the in-game slider goes) it re-tests the same values and
-   * pools the rounds instead, so each extra pass still adds reliability. */
+   * centres on the last winner with half the spread; once that's at the
+   * game's finest step (±1 on Siege's sliders, ±2% for Valorant/CS2) it
+   * re-tests the same values and pools the rounds instead, so each extra
+   * pass still adds reliability. */
   function startCalibration({ fineTune = false } = {}) {
     if (run) return;
+    const game = currentGame();
     const tab = getState().activeTab;
     const settings = getState().settings;
     const prev = getState().results[tab];
@@ -105,12 +151,12 @@ async function main() {
 
     let candidates, spreadPct, centeredValue, carryOver, pooledPasses;
     if (canFineTune) {
-      ({ candidates, spreadPct, carryOver, pooledPasses } = planFineTune(prev));
+      ({ candidates, spreadPct, carryOver, pooledPasses } = planFineTune(prev, game.rules));
       centeredValue = prev.best.sens;
     } else {
-      centeredValue = Math.round(baseSensForTab(tab, settings));
+      centeredValue = currentSens(game, tab, settings);
       spreadPct = INITIAL_SPREAD_PCT;
-      candidates = buildCandidates(centeredValue, spreadPct);
+      candidates = buildCandidates(centeredValue, spreadPct, game.rules);
       carryOver = [];
       pooledPasses = 1;
     }
@@ -123,6 +169,7 @@ async function main() {
       centeredValue,
       passCount,
       centeredOn: canFineTune ? 'previous-best' : 'base',
+      atFinestStep: candidates[0].finest,
       carryOver,
       pooledPasses,
       tab,
@@ -131,7 +178,7 @@ async function main() {
 
     setDrillTabsHighlight(tab);
     $('drillStatus').textContent = canFineTune ? `Fine-tuning · pass ${passCount}` : 'Calibrating…';
-    engine.configure({ tab, settings });
+    engine.configure({ game, tab, settings });
     engine.run(buildQueue(candidates));
   }
 
@@ -148,7 +195,7 @@ async function main() {
 
     setDrillTabsHighlight(tab);
     $('drillStatus').textContent = freeform ? 'Free practice' : 'Practice';
-    engine.configure({ tab, settings });
+    engine.configure({ game: currentGame(), tab, settings });
     engine.run([
       {
         type,
@@ -179,6 +226,7 @@ async function main() {
         centeredValue: run.centeredValue,
         passCount: run.passCount,
         centeredOn: run.centeredOn,
+        atFinestStep: run.atFinestStep,
         pooledPasses: run.pooledPasses,
         rawResults: pooled,
       };
@@ -190,23 +238,25 @@ async function main() {
   }
 
   function showCalibrationResults(result, tab) {
+    const game = currentGame();
+    const fmt = (v) => formatGameSens(game, v);
     const conf = CONFIDENCE_TEXT[result.confidence];
-    const values = result.candidates.map((c) => c.sens).join(' / ');
+    const values = result.candidates.map((c) => fmt(c.sens)).join(' / ');
     $('resultsTitle').textContent =
       result.passCount > 1 ? `Fine-tune pass ${result.passCount - 1} complete` : 'Calibration complete';
-    $('resultsSub').textContent = `${TAB_LABELS[tab]} · tested ${values}${poolNote(result)}`;
+    $('resultsSub').textContent = `${scopeLabel(game, tab)} · tested ${values}${poolNote(result)}`;
 
     $('resultsRec').hidden = false;
-    $('resultsRecValue').textContent = result.best.sens;
+    $('resultsRecValue').textContent = fmt(result.best.sens);
     $('resultsConfidence').className = `badge ${CONFIDENCE_BADGE[result.confidence]}`;
     $('resultsConfidence').textContent = conf.label;
-    $('resultsTableBody').innerHTML = comparisonRowsHtml(result);
-    $('resultsHint').textContent = fineTuneHint(result);
+    $('resultsTableBody').innerHTML = comparisonRowsHtml(result, game);
+    $('resultsHint').textContent = fineTuneHint(result, game);
 
     // Whichever action makes more sense right now gets the accent colour: a
     // clear winner you're not already on is ready to apply; anything closer,
     // or a winner that's already your setting, points at another pass.
-    const current = Math.round(baseSensForTab(tab, getState().settings));
+    const current = currentSens(game, tab, getState().settings);
     const alreadySet = result.best.sens === current;
     const readyToApply = result.confidence === 'clear' && !alreadySet;
     $('fineTuneBtn').hidden = false;
@@ -216,7 +266,7 @@ async function main() {
     apply.hidden = false;
     apply.className = readyToApply ? 'btn-accent' : 'plain-btn';
     apply.disabled = alreadySet;
-    apply.textContent = alreadySet ? `${current} is already set` : `Apply ${result.best.sens}`;
+    apply.textContent = alreadySet ? `${fmt(current)} is already set` : `Apply ${fmt(result.best.sens)}`;
   }
 
   $('closeResultsBtn').addEventListener('click', () => {
@@ -275,12 +325,124 @@ function applyRecommendation() {
   const tab = getState().activeTab;
   const result = getState().results[tab];
   if (!result) return;
-  const sens = result.best.sens;
-  if (tab === 'hipfire') {
-    updateSettings({ hipfireH: sens, hipfireV: sens });
-  } else {
-    updateSettings({ ads25x: sens });
-  }
+  updateSettings(currentGame().applySens(tab, result.best.sens));
+}
+
+// ---------- Game picker ----------
+
+function bindGamePicker() {
+  $('gamePicker').innerHTML =
+    '<span class="game-picker-label">Game</span>' +
+    GAME_ORDER.map((id) => {
+      const g = GAMES[id];
+      return `<button class="game-option" role="tab" data-game="${id}">${g.name}<span class="game-option-tag">${
+        g.exact ? 'exact sens' : 'estimated sens'
+      }</span></button>`;
+    }).join('');
+  $('gamePicker').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-game]');
+    if (btn) setGame(btn.dataset.game);
+  });
+}
+
+// ---------- Valorant / CS2 sidebar fields ----------
+// These games have one sens and a resolution, so their fields are built from
+// the game's definition rather than written out per game in the HTML.
+
+let builtSimpleGame = null;
+
+function buildSimpleGameFields(game) {
+  builtSimpleGame = game.id;
+  $('simpleSensFields').innerHTML = `
+    <div class="field-row">
+      <div class="field-label">Sensitivity<small>${game.sensLabel}</small></div>
+      <div class="stepper stepper-wide" data-simple-field="sens">
+        <input type="number" step="any" min="${game.rules.min}" max="${game.rules.max}" inputmode="decimal" id="simpleSensInput" />
+        <div class="stepper-arrows"><button type="button" data-dir="1">▲</button><button type="button" data-dir="-1">▼</button></div>
+      </div>
+    </div>`;
+
+  const resOptions = game.resolutions
+    .map((r) => {
+      const { w, h } = parseResolution(r.value);
+      return `<option value="${r.value}">${w} × ${h} (${r.aspect})</option>`;
+    })
+    .join('');
+  $('simpleViewFields').innerHTML = `
+    <div class="field-row">
+      <div class="field-label">Field of view<small>${game.fovNote}</small></div>
+      <div class="field-static" id="simpleFovText">—</div>
+    </div>
+    <div class="field-row">
+      <div class="field-label">Resolution</div>
+      <div class="select-wrap"><select id="simpleResolution">${resOptions}</select></div>
+    </div>
+    <div class="fill-hint">If the resolution doesn't match your monitor</div>
+    <div class="field-row" style="padding-top:6px;border-bottom:none">
+      <div class="select-wrap" style="width:100%">
+        <select id="simpleDisplayMode" style="width:100%">
+          <option value="stretch">Stretched (fills the screen)</option>
+          <option value="black-bars">Black bars</option>
+        </select>
+      </div>
+    </div>
+    <p class="sidebar-note">Sens here is <b>exact</b>: the drill turns ${game.yaw}° per mouse count at sens 1, the
+      same as ${game.short}, so the same mouse movement turns you the same distance.</p>`;
+}
+
+function bindSimpleGameFields() {
+  const commitSens = (v) => {
+    const game = currentGame();
+    if (!isFinite(v) || v <= 0) return renderAll(); // put the saved value back
+    updateGameSettings(game.id, { sens: quantizeSens(game, v) });
+  };
+  $('simpleSensFields').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-dir]');
+    if (!btn) return;
+    const game = currentGame();
+    const cur = Number($('simpleSensInput').value) || game.defaults.sens;
+    commitSens(cur + Number(btn.dataset.dir) * game.arrowStep);
+  });
+  $('simpleSensFields').addEventListener('change', (e) => {
+    if (e.target.id === 'simpleSensInput') commitSens(Number(e.target.value));
+  });
+  $('simpleViewFields').addEventListener('change', (e) => {
+    const id = currentGame().id;
+    if (e.target.id === 'simpleResolution') updateGameSettings(id, { resolution: e.target.value });
+    if (e.target.id === 'simpleDisplayMode') updateGameSettings(id, { displayMode: e.target.value });
+  });
+}
+
+function renderSimpleGameFields(game, s) {
+  if (game.id === 'r6') return;
+  if (builtSimpleGame !== game.id) buildSimpleGameFields(game);
+  const input = $('simpleSensInput');
+  if (document.activeElement !== input) input.value = formatGameSens(game, s.sens);
+  $('simpleResolution').value = s.resolution;
+  $('simpleDisplayMode').value = s.displayMode;
+  const view = game.view(s);
+  const hFov = hFovFromV(view.vFovDeg, view.aspect);
+  $('simpleFovText').textContent = `${Number(hFov.toFixed(1))}° wide`;
+}
+
+/** Shows the selected game's parts of the page and hides the others. */
+function renderGameChrome(state) {
+  const game = getGame(state.game);
+  $('gamePicker')
+    .querySelectorAll('[data-game]')
+    .forEach((b) => {
+      const on = b.dataset.game === game.id;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  document.querySelectorAll('[data-game-only]').forEach((el) => {
+    el.hidden = !el.dataset.gameOnly.split(' ').includes(game.id);
+  });
+  $('sidebarTitle').textContent = `Your ${game.short} settings`;
+  $('calibrationHint').textContent = `27 × 7-second blocks + warm-up · about 4 minutes${
+    game.tabs.length > 1 ? ' per optic' : ''
+  } · runs fullscreen`;
+  renderSimpleGameFields(game, state.settings);
 }
 
 // ---------- Settings field bindings ----------
@@ -303,18 +465,25 @@ function bindStepper(field, { step = 1, min = 1, max = 100, decimals = 0 } = {})
   input.addEventListener('change', () => commit(Number(input.value) || min));
 }
 
+// The Siege fields below always read and write Siege's own settings
+// (updateGameSettings('r6', ...)), not "whichever game is selected" - so
+// they can never end up writing Siege values into another game.
+const updateR6 = (patch) => updateGameSettings('r6', patch);
+
 function applyFieldChange(field, value) {
-  if (field === 'hipfireH' || field === 'hipfireV') {
-    const s = getState().settings;
+  if (field === 'dpi') {
+    updateSettings({ dpi: value }); // shared by every game
+  } else if (field === 'hipfireH' || field === 'hipfireV') {
+    const s = getGameSettings('r6');
     const oldAvg = (s.hipfireH + s.hipfireV) / 2;
     const patch = { [field]: value };
     const newAvg = field === 'hipfireH' ? (value + s.hipfireV) / 2 : (s.hipfireH + value) / 2;
     if (s.keepAdsSpeed) {
       patch.ads25x = compensateAdsForHipfireChange(oldAvg, newAvg, s.ads25x);
     }
-    updateSettings(patch);
+    updateR6(patch);
   } else {
-    updateSettings({ [field]: value });
+    updateR6({ [field]: value });
   }
 }
 
@@ -325,29 +494,29 @@ function bindSettingsFields() {
   bindStepper('dpi', { step: 50, min: 100, max: 26000 });
   bindStepper('fov', { step: 1, min: 60, max: 110 });
 
-  $('keepAdsSpeed').addEventListener('change', (e) => updateSettings({ keepAdsSpeed: e.target.checked }));
+  $('keepAdsSpeed').addEventListener('change', (e) => updateR6({ keepAdsSpeed: e.target.checked }));
 
   $('useCustomMultiplier').addEventListener('change', (e) => {
-    updateSettings({ useCustomMultiplier: e.target.checked });
+    updateR6({ useCustomMultiplier: e.target.checked });
     $('customMultiplier').disabled = !e.target.checked;
   });
 
   $('customMultiplier').addEventListener('change', (e) => {
-    updateSettings({ customMultiplier: Number(e.target.value) || 0.02 });
+    updateR6({ customMultiplier: Number(e.target.value) || 0.02 });
   });
 
-  $('aspectRatio').addEventListener('change', (e) => updateSettings({ aspectRatio: e.target.value }));
-  $('screenFill').addEventListener('change', (e) => updateSettings({ screenFill: e.target.value }));
+  $('aspectRatio').addEventListener('change', (e) => updateR6({ aspectRatio: e.target.value }));
+  $('screenFill').addEventListener('change', (e) => updateR6({ screenFill: e.target.value }));
 
   bindAds1xMeasured();
 }
 
-/** Writes a measured cm/360 for one optic into the calibration snapshot
- * (or clears it). Everything else derives from there. */
+/** Writes a measured cm/360 for one Siege optic into the calibration
+ * snapshot (or clears it). Everything else derives from there. */
 function setCalibration(tab, cm360) {
-  const s = getState().settings;
+  const s = getGameSettings('r6');
   const calib = { ...s.calib, [tab]: cm360 == null ? null : calibrationFrom(tab, cm360, s) };
-  updateSettings({ calib });
+  updateR6({ calib });
 }
 
 /** ADS·1x is nullable (empty = "use the estimate") and steps by 0.5, unlike
@@ -366,7 +535,7 @@ function bindAds1xMeasured() {
   function currentOrEstimate() {
     const raw = input.value.trim();
     if (raw) return Number(raw);
-    const s = getState().settings;
+    const s = getGameSettings('r6');
     return estimateCm360('ads1x', { ...s, calib: { ...s.calib, ads1x: null } });
   }
 
@@ -405,8 +574,10 @@ function bindExpanders() {
 }
 
 function bindTabs() {
-  $('mainTabs').querySelectorAll('.tab').forEach((btn) => {
-    btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
+  // Delegated: the tab buttons are rebuilt whenever the game changes.
+  $('mainTabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tab]');
+    if (btn) setActiveTab(btn.dataset.tab);
   });
 }
 
@@ -423,26 +594,35 @@ function poolNote(result) {
     : '';
 }
 
-function fineTuneHint(result) {
-  if (result.delta === 1) {
+function fineTuneHint(result, game) {
+  const finest = result.atFinestStep ?? result.candidates?.[0]?.finest ?? result.delta <= game.rules.step;
+  if (finest) {
+    const step =
+      game.rules.decimals === 0
+        ? `±1, the finest step ${game.short}'s slider has`
+        : `±${Math.round(game.rules.minSpreadPct * 100)}%, about the smallest change you can feel`;
     return (
-      `You're down to ±1, the finest step Siege's slider has. Fine-tuning again re-tests ` +
-      `these same values and pools the rounds, so the answer gets more reliable each pass.`
+      `You're down to ${step}. Fine-tuning again re-tests these same values and pools ` +
+      `the rounds, so the answer gets more reliable each pass.`
     );
   }
-  return `${CONFIDENCE_TEXT[result.confidence].hint} Next pass tests ±${Math.max(1, Math.round(result.best.sens * result.spreadPct * 0.5))} around ${result.best.sens}.`;
+  const next = buildCandidates(result.best.sens, result.spreadPct * 0.5, game.rules)[0].delta;
+  return `${CONFIDENCE_TEXT[result.confidence].hint} Next pass tests ±${formatGameSens(game, next)} around ${formatGameSens(
+    game,
+    result.best.sens
+  )}.`;
 }
 
 /** Table rows shared by the results screen and the comparison card. Matches
  * the winner by sens rather than object identity, since results reloaded
  * from localStorage are fresh copies. */
-function comparisonRowsHtml(result) {
+function comparisonRowsHtml(result, game) {
   const tag = result.centeredOn === 'previous-best' ? 'last best' : 'current';
   return result.candidates
     .map((c) => {
       const cls = [c.isBase ? 'base' : '', c.sens === result.best.sens ? 'best' : ''].filter(Boolean).join(' ');
       return `<tr class="${cls}">
-        <td>${c.sens}${c.isBase ? ` · ${tag}` : ''}</td>
+        <td>${formatGameSens(game, c.sens)}${c.isBase ? ` · ${tag}` : ''}</td>
         <td>${fmtRate(c.flickHitsPerSec)}</td>
         <td>${fmtRate(c.clearedPerSec)}</td>
         <td>${fmtPct(c.onTargetPct)}</td>
@@ -458,6 +638,7 @@ const SCORING_FOOTNOTE =
 
 function renderAll() {
   const state = getState();
+  renderGameChrome(state);
   renderSettingsInputs(state);
   renderTabsUI(state);
   renderStats(state);
@@ -481,17 +662,26 @@ function r6YawMap(settings) {
 }
 
 function convertList() {
-  return buildGameList(r6YawMap(getState().settings));
+  return buildGameList(r6YawMap(getGameSettings('r6')));
 }
 
 /** The converter's own fields default to whatever the user already has set
- * up above, so the card is showing something meaningful before it's touched. */
+ * up above, so the card is showing something meaningful before it's touched.
+ * Siege's entries always read Siege's settings, and Valorant/CS2 read the
+ * sens saved for them here, whichever game is selected. */
 function convertValues(state) {
   const s = state.settings;
+  const r6 = getGameSettings('r6');
   const c = s.convert || {};
   const from = c.from || 'r6_hipfire';
   const fallbackSens =
-    from === 'r6_hipfire' ? s.hipfireH : from === 'r6_ads1x' || from === 'r6_ads25x' ? s.ads25x : 1;
+    from === 'r6_hipfire'
+      ? r6.hipfireH
+      : from === 'r6_ads1x' || from === 'r6_ads25x'
+        ? r6.ads25x
+        : GAMES[from]
+          ? getGameSettings(from).sens
+          : 1;
   return {
     from,
     to: c.to || 'valorant',
@@ -608,8 +798,10 @@ function renderConvert(state) {
     .join('');
 }
 
+/** The Siege sidebar always shows Siege's settings (it's hidden while
+ * another game is selected, but stays correct underneath). */
 function renderSettingsInputs(state) {
-  const s = state.settings;
+  const s = getGameSettings('r6');
   document.querySelector('.stepper[data-field="hipfireH"] input').value = s.hipfireH;
   document.querySelector('.stepper[data-field="hipfireV"] input').value = s.hipfireV;
   document.querySelector('.stepper[data-field="ads25x"] input').value = s.ads25x;
@@ -630,31 +822,50 @@ function renderSettingsInputs(state) {
   $('measuredAds25xInput').value = s.calib?.ads25x?.cm360 ?? '';
 }
 
+let builtTabsFor = null;
+
 function renderTabsUI(state) {
+  const game = getGame(state.game);
+  if (builtTabsFor !== game.id) {
+    builtTabsFor = game.id;
+    $('mainTabs').innerHTML = game.tabs
+      .map((t) => `<button class="tab" data-tab="${t.id}">${t.label}</button>`)
+      .join('');
+    $('drillTabs').innerHTML = game.tabs.map((t) => `<span class="tab" data-tab="${t.id}">${t.label}</span>`).join('');
+  }
   $('mainTabs').querySelectorAll('.tab').forEach((el) => {
     el.classList.toggle('active', el.dataset.tab === state.activeTab);
   });
-  $('comparisonTag').textContent = TAB_LABELS[state.activeTab];
-  $('modelNote').style.display = state.activeTab === 'ads1x' ? '' : 'none';
+  $('comparisonTag').textContent = scopeLabel(game, state.activeTab);
+  $('modelNote').style.display = game.id === 'r6' && state.activeTab === 'ads1x' ? '' : 'none';
 
-  const result = state.results[state.activeTab];
-  const spread = result ? result.spreadPct : INITIAL_SPREAD_PCT;
-  $('refineSub').textContent = `We test your current setting and approximately ${Math.round(spread * 100)}% either side.`;
+  // "Start calibration" is always a fresh ±15% pass - the narrower passes are
+  // what "Fine-tune further" does - so this doesn't depend on past results.
+  $('refineSub').textContent =
+    `We test your current setting and about ${Math.round(INITIAL_SPREAD_PCT * 100)}% either side, ` +
+    `then "Fine-tune further" narrows it down.`;
 }
 
 function renderStats(state) {
+  const game = getGame(state.game);
   const tab = state.activeTab;
   const s = state.settings;
-  const sens = baseSensForTab(tab, s);
-  $('statActiveSens').textContent = tab === 'hipfire' ? Math.round(sens * 10) / 10 : sens;
-  $('statCm360').textContent = formatCm360(estimateCm360(tab, s));
-  // Make it obvious whether this number is anchored to a real measurement
-  // or is still just the model's guess.
-  const calibrated = isCalibrated(tab, s);
-  $('cm360Label').textContent = calibrated ? 'Measured cm/360°' : 'Estimated cm/360°';
-  $('cm360Label').title = calibrated
-    ? 'Derived from the cm/360 you measured in-game for this optic.'
-    : 'Model estimate - measure your real cm/360 under "Calibrate to your real sens" to make this exact.';
+  const sens = game.baseSens(tab, s);
+  $('statActiveSens').textContent =
+    game.id === 'r6' ? (tab === 'hipfire' ? Math.round(sens * 10) / 10 : sens) : formatGameSens(game, sens);
+  $('statCm360').textContent = formatCm360(game.cm360(tab, s));
+  // Make it obvious whether this number is exact, anchored to a real
+  // measurement, or still just the model's guess.
+  if (game.exact) {
+    $('cm360Label').textContent = 'cm/360°';
+    $('cm360Label').title = `Exact: ${game.short}'s own formula at your sens and DPI.`;
+  } else {
+    const calibrated = isCalibrated(tab, s);
+    $('cm360Label').textContent = calibrated ? 'Measured cm/360°' : 'Estimated cm/360°';
+    $('cm360Label').title = calibrated
+      ? 'Derived from the cm/360 you measured in-game for this optic.'
+      : 'Model estimate - measure your real cm/360 under "Calibrate to your real sens" to make this exact.';
+  }
 
   const result = state.results[tab];
   if (result) {
@@ -696,24 +907,30 @@ function renderRecommendation(state) {
   badge.className = `badge ${CONFIDENCE_BADGE[result.confidence] || 'close'}`;
   badge.textContent = conf.label.toUpperCase();
 
-  const current = Math.round(baseSensForTab(tab, state.settings));
+  const game = getGame(state.game);
+  const fmt = (v) => formatGameSens(game, v);
+  const current = currentSens(game, tab, state.settings);
+  const same = result.best.sens === current;
   const delta = result.best.sens - current;
-  const deltaText =
-    delta === 0 ? 'Matches your current setting.' : `${delta > 0 ? '+' : ''}${delta} from your current ${current}.`;
+  const deltaText = same
+    ? 'Matches your current setting.'
+    : `${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))} from your current ${fmt(current)}.`;
   const refinedText = result.passCount > 1 ? ` · fine-tuned ×${result.passCount - 1}` : '';
 
   body.innerHTML = `
-    <div class="rec-value">${result.best.sens}</div>
+    <div class="rec-value">${fmt(result.best.sens)}</div>
     <p class="rec-sub">${deltaText} Scored ${result.best.score}/100${refinedText}.</p>
-    <p class="rec-sub rec-hint">${fineTuneHint(result)}</p>
+    <p class="rec-sub rec-hint">${fineTuneHint(result, game)}</p>
     <div class="rec-actions">
-      <button id="applyRecBtn" class="btn-accent"${delta === 0 ? ' disabled' : ''}>Apply to ${TAB_LABELS[tab]}</button>
+      <button id="applyRecBtn" class="btn-accent"${same ? ' disabled' : ''}>Apply to ${scopeLabel(game, tab)}</button>
       <button id="fineTuneCardBtn" class="plain-btn">Fine-tune further</button>
     </div>
   `;
 }
 
 function renderComparison(state) {
+  const game = getGame(state.game);
+  const fmtList = (cands) => cands.map((c) => formatGameSens(game, c.sens)).join(' / ');
   const tab = state.activeTab;
   const result = state.results[tab];
   const tbody = $('comparisonBody');
@@ -721,22 +938,21 @@ function renderComparison(state) {
 
   if (!result) {
     // Preview which sensitivities a fresh run would test, before any data exists.
-    const baseSens = baseSensForTab(tab, state.settings);
-    const preview = buildCandidates(baseSens, INITIAL_SPREAD_PCT);
+    const preview = buildCandidates(currentSens(game, tab, state.settings), INITIAL_SPREAD_PCT, game.rules);
     tbody.innerHTML = preview
       .map(
         (c) => `<tr class="${c.isBase ? 'base' : ''}">
-          <td>${c.sens}${c.isBase ? ' · current' : ''}</td>
+          <td>${formatGameSens(game, c.sens)}${c.isBase ? ' · current' : ''}</td>
           <td>—</td><td>—</td><td>—</td><td>—</td>
         </tr>`
       )
       .join('');
-    footnote.textContent = `Pass 1 will test ${preview.map((c) => c.sens).join(' / ')}. ${SCORING_FOOTNOTE}`;
+    footnote.textContent = `Pass 1 will test ${fmtList(preview)}. ${SCORING_FOOTNOTE}`;
     return;
   }
 
-  tbody.innerHTML = comparisonRowsHtml(result);
-  footnote.textContent = `Pass ${result.passCount} tested ${result.candidates.map((c) => c.sens).join(' / ')}${poolNote(result)}. ${SCORING_FOOTNOTE}`;
+  tbody.innerHTML = comparisonRowsHtml(result, game);
+  footnote.textContent = `Pass ${result.passCount} tested ${fmtList(result.candidates)}${poolNote(result)}. ${SCORING_FOOTNOTE}`;
 }
 
 main();

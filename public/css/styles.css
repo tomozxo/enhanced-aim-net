@@ -124,6 +124,34 @@ a { color: inherit; }
 .steps .step.active { color: var(--text); }
 .steps .step.done { color: var(--text-sub); }
 
+/* ---------- Game picker ---------- */
+.game-picker { display: flex; align-items: center; gap: 8px; margin: -6px 0 22px; flex-wrap: wrap; }
+.game-picker-label {
+  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); margin-right: 4px;
+}
+.game-option {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  background: var(--panel); border: 1px solid var(--border); color: var(--text-sub);
+  font-size: 13px; font-weight: 600; padding: 9px 16px; border-radius: 9px; cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.game-option:hover { color: var(--text); border-color: var(--text-dim); }
+.game-option.active { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
+.game-option-tag { font-size: 10px; font-weight: 500; color: var(--text-dim); letter-spacing: .02em; }
+.game-option.active .game-option-tag { color: var(--text-sub); }
+
+/* Read-only value in a sidebar row, e.g. a game's locked FOV. */
+.field-static { font-size: 13.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+/* Valorant/CS2 sens takes up to 3 decimals, so its box is wider. */
+.stepper.stepper-wide input { width: 64px; }
+.sidebar-note { font-size: 11px; color: var(--text-dim); line-height: 1.55; margin: 10px 0 2px; }
+.sidebar-note b { color: var(--text-sub); font-weight: 600; }
+
+/* Drill footer: whether the mouse is being read raw. */
+.raw-input { font-size: 11px; color: var(--text-dim); }
+.raw-input.ok::before { content: "● "; color: #6fcf7c; }
+.raw-input.warn { color: var(--warn-text); }
+
 .layout { display: grid; grid-template-columns: 290px 1fr; gap: 24px; align-items: start; }
 @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
 
@@ -385,16 +413,25 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 /* ---------- Fullscreen drill overlay ---------- */
 .drill-overlay {
   position: fixed; inset: 0; background: #000; z-index: 1000; display: none;
-  flex-direction: column;
 }
-.drill-overlay.active { display: flex; }
+.drill-overlay.active { display: block; }
+/* The stage fills the whole overlay - in fullscreen, the whole monitor - the
+   same as the game does. The top bar and footer float over it. They used to
+   sit above and below it, which made the drill area wider than the monitor
+   (about 2:1 on a 16:9 screen), so even a native 1920x1080 came out
+   stretched. */
+.drill-topbar, .drill-footer {
+  position: absolute; left: 0; right: 0; z-index: 6; pointer-events: none;
+  display: flex; justify-content: space-between; align-items: center;
+}
 .drill-topbar {
-  display: flex; justify-content: space-between; align-items: center; padding: 14px 20px;
+  top: 0; padding: 14px 20px;
+  background: linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,0));
 }
 .drill-tabs { display: flex; gap: 6px; background: #101010; border: 1px solid var(--border); border-radius: 9px; padding: 4px; }
 .drill-tabs .tab { font-size: 12px; padding: 6px 12px; }
 .drill-status { font-size: 12.5px; color: var(--text-dim); }
-.drill-stage { flex: 1; position: relative; overflow: hidden; cursor: none; }
+.drill-stage { position: absolute; inset: 0; overflow: hidden; cursor: none; }
 /* Whenever a modal (pause/results) needs real mouse interaction, bring the
    OS cursor back - "cursor: none" is only for actual aiming. */
 .drill-stage.show-cursor { cursor: auto; }
@@ -408,11 +445,11 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
   transform: translate(-50%, -50%); pointer-events: none; z-index: 3;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Cg stroke='%23f2f2f2' stroke-width='1.4' stroke-linecap='square'%3E%3Cline x1='0' y1='10' x2='7' y2='10'/%3E%3Cline x1='13' y1='10' x2='20' y2='10'/%3E%3Cline x1='10' y1='0' x2='10' y2='7'/%3E%3Cline x1='10' y1='13' x2='10' y2='20'/%3E%3C/g%3E%3C/svg%3E");
 }
-.drill-hud-tl { position: absolute; top: 14px; left: 18px; font-size: 11px; letter-spacing: .06em; color: #8a8a8a; text-transform: uppercase; }
-.drill-hud-tr { position: absolute; top: 14px; right: 18px; font-size: 15px; font-variant-numeric: tabular-nums; color: #e7e7e7; }
+.drill-hud-tl { position: absolute; top: 66px; left: 20px; font-size: 11px; letter-spacing: .06em; color: #8a8a8a; text-transform: uppercase; }
+.drill-hud-tr { position: absolute; top: 66px; right: 20px; font-size: 15px; font-variant-numeric: tabular-nums; color: #e7e7e7; }
 .drill-footer {
-  display: flex; justify-content: space-between; align-items: center; padding: 12px 20px;
-  font-size: 11px; color: var(--text-dim);
+  bottom: 0; padding: 12px 20px; font-size: 11px; color: var(--text-dim);
+  background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.55));
 }
 
 .pause-overlay {

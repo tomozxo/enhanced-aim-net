@@ -40,10 +40,18 @@
     </div>
   </header>
 
+  <!-- Which game this page is calibrating for. Each game keeps its own
+       settings and results; buttons are filled in from games.js. -->
+  <div class="game-picker" id="gamePicker" role="tablist" aria-label="Game to calibrate for"></div>
+
   <div class="layout">
     <aside class="sidebar">
-      <div class="sidebar-header"><h2>Your R6 settings</h2><span class="sidebar-tag">01 / SETUP</span></div>
+      <div class="sidebar-header"><h2 id="sidebarTitle">Your R6 settings</h2><span class="sidebar-tag">01 / SETUP</span></div>
 
+      <!-- Valorant / CS2 sensitivity, rendered by app.js -->
+      <div data-game-only="valorant cs2" id="simpleSensFields" hidden></div>
+
+      <div data-game-only="r6">
       <div class="field-row">
         <div class="field-label">Hip-fire H</div>
         <div class="stepper" data-field="hipfireH">
@@ -85,7 +93,9 @@
         <span class="sub-field-label">MouseSensitivityMultiplierUnit</span>
         <input type="number" step="0.001" value="0.02" id="customMultiplier" disabled />
       </div>
+      </div>
 
+      <!-- Shared by every game: it's the same mouse. -->
       <div class="field-row">
         <div class="field-label">Mouse DPI</div>
         <div class="stepper" data-field="dpi">
@@ -93,6 +103,11 @@
           <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
         </div>
       </div>
+
+      <!-- Valorant / CS2 field of view, resolution and stretch, rendered by app.js -->
+      <div data-game-only="valorant cs2" id="simpleViewFields" hidden></div>
+
+      <div data-game-only="r6">
       <div class="field-row">
         <div class="field-label">In-game FOV</div>
         <div class="stepper" data-field="fov">
@@ -144,6 +159,7 @@
             <input type="number" id="measuredAds25xInput" placeholder="e.g. 90.0" step="0.1" min="1" />
           </div>
         </div>
+      </div>
       </div>
 
       <div class="expander">
@@ -353,6 +369,7 @@
 
   <div class="drill-footer">
     <div class="kbd-hint"><span class="kbd">LMB</span> Shoot in flick &amp; targets drills</div>
+    <div class="raw-input" id="rawInputNote" hidden></div>
     <div class="kbd-hint"><span class="kbd">ESC</span> Pause · release mouse</div>
   </div>
 </div>

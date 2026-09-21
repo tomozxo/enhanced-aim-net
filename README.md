@@ -1,11 +1,12 @@
-# enhanced.aim.net — R6 sensitivity calibration tool
+# enhanced.aim.net — sensitivity calibration tool
 
-A licensed, key-gated web app for finding a Rainbow Six Siege mouse
-sensitivity: hip-fire, 1× ADS and 2.5× ADS, with fullscreen flick/target/tracking
-drills, a 3-candidate-x-3-round calibration pass, an iterative "recalibrate"
-fine-tune step, per-user license keys locked to the first browser/device
-that activates them (via a cookie, not your network), and a user-adjustable
-accent color + light/dark mode.
+A licensed, key-gated web app for finding your mouse sensitivity in
+**Rainbow Six Siege** (hip-fire, 1× ADS and 2.5× ADS), **Valorant** or
+**CS2 / CS:GO**, picked from the game selector at the top of the page. It has
+fullscreen flick/target/tracking drills, a 3-candidate-x-3-round
+calibration pass, an iterative "fine-tune further" step, per-user license
+keys locked to the first browser/device that activates them (via a cookie,
+not your network), and a user-adjustable accent color + light/dark mode.
 
 Just want a real public link to send people, instead of running this on
 your own machine? Skip to **[DEPLOY.md](DEPLOY.md)**.
@@ -165,7 +166,44 @@ thing to send me.
   page's JS. There's no way to make a pure website fully tamper-proof;
   that's inherent to running in someone else's browser, not a bug here.
 
-## About the sensitivity numbers
+## Games
+
+Each game keeps its own settings, results and fine-tune history; mouse DPI,
+the accent colour and the sens converter are shared. Everything
+game-specific lives in [`public/js/games.js`](public/js/games.js).
+
+**Valorant and CS2 are exact.** Both games turn the camera a fixed number
+of degrees per mouse count, times your sens:
+
+| Game | Degrees per count at sens 1 | Field of view |
+| --- | --- | --- |
+| Valorant | 0.07 | Locked: 70.53° vertical, which is 103° wide on 16:9 and 86.6° on 4:3 |
+| CS2 / CS:GO | 0.022 (default `m_yaw` / `m_pitch`) | Fixed: 90° wide on 4:3 (73.74° vertical), 106.26° on 16:9 |
+
+The drill uses the same numbers, so the same mouse movement turns you
+exactly as far as it does in-game. For example, Valorant 0.4 at 800 DPI is
+40.82 cm per 360°, and CS2 1.0 at 800 DPI is 51.95 cm.
+
+Both games also let you pick your in-game **resolution** (native 16:9 ones
+plus the usual stretched-res picks like 1280×960, 1440×1080, 1024×768 and
+1280×1024) and whether a non-native one is **stretched** or shown with
+**black bars**. The drill renders at that resolution and scales it to the
+screen the same way, so 4:3 stretched looks as wide and as soft as it does
+in-game. The drill fills the whole screen for this; the top bar and hints
+float over it.
+
+**Raw input.** "Exact" relies on the browser giving raw mouse counts
+(`unadjustedMovement`), which Chrome and Edge do: no Windows pointer speed
+or "Enhance pointer precision" applied, the same as the games. Firefox and
+Safari don't support it, so the drill footer warns you when you're on one
+of them. If the browser refuses to capture the mouse for any other reason,
+such as Chrome's short cooldown after pressing Esc, the drill stays paused
+until you click back in. It no longer quietly falls back to accelerated
+input for the rest of the session.
+
+Siege is still the estimated model described below.
+
+## About the sensitivity numbers (Rainbow Six Siege)
 
 Siege doesn't publish a cm/360° formula, so every optic's "Estimated
 cm/360°" and the drills' actual crosshair rotation speed come from an
@@ -249,7 +287,8 @@ public/         Static frontend (no build step)
   js/
     session.js      Verifies/refreshes the license session on app.html
     state.js         App settings + calibration results, persisted to localStorage
-    sensMath.js       The approximate sensitivity/cm-360 model
+    games.js          Per-game sens formulas, FOV, resolutions (R6 / Valorant / CS2)
+    sensMath.js       The approximate R6 sensitivity/cm-360 model
     sensConvert.js    Game-to-game sens converter (yaw constants per game)
     theme.js          Accent color picker + light/dark mode
     drills.js         Three.js first-person drill engine: pointer lock, fullscreen, pause/resume
