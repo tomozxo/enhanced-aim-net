@@ -14,14 +14,15 @@ const rateLimited = makeLimiter({ max: 8, windowMs: 5 * 60 * 1000 });
 
 // Turns any throw or rejected promise into a JSON 500 instead of an uncaught
 // error that could kill the whole process (see server/index.js for the
-// belt-and-braces process-level version of the same idea).
+// belt-and-braces process-level version of the same idea). The details go
+// to the server log only - never back to the browser.
 function wrap(fn) {
   return (req, res) => {
     Promise.resolve()
       .then(() => fn(req, res))
       .catch((err) => {
         console.error(`[auth] ${req.method} ${req.originalUrl} failed:`, err);
-        if (!res.headersSent) res.status(500).json({ ok: false, message: `Server error: ${err.message}` });
+        if (!res.headersSent) res.status(500).json({ ok: false, message: 'Server error. Try again in a moment.' });
       });
   };
 }

@@ -44,7 +44,41 @@ if (trustProxySetting === 'true') {
   if (trustHops > 0) app.set('trust proxy', trustHops);
 }
 
-app.use(express.json());
+// ---------- Security headers (every response) ----------
+// Content-Security-Policy tells the browser what it may load: scripts only
+// from this site and the CDN three.js comes from, nothing inline - so even
+// if someone got text onto a page, the browser wouldn't run it as code.
+// frame-ancestors / X-Frame-Options stop other sites putting the admin
+// panel (or anything else) in an invisible frame to trick clicks.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' https://cdn.jsdelivr.net",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+app.disable('x-powered-by'); // don't advertise what the server runs on
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    // Browsers remember to only ever use HTTPS for this site.
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  }
+  next();
+});
+
+app.use(express.json({ limit: '20kb' }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);

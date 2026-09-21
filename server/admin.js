@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const store = require('./store');
 const session = require('./session');
@@ -5,15 +6,42 @@ const { makeLimiter } = require('./rateLimit');
 
 const router = express.Router();
 
-// Caps FAILED auth attempts per IP so ADMIN_TOKEN (or a guessed admin
-// session) can't be brute-forced. Only failures count - a legitimate signed
-// in admin clicking around the panel never touches this, no matter how many
-// requests that generates.
-const rateLimited = makeLimiter({ max: 15, windowMs: 5 * 60 * 1000 });
+// Caps FAILED admin sign-ins so ADMIN_TOKEN (or a guessed admin session)
+// can't be brute-forced. Only failures count - a signed-in admin clicking
+// around the panel never touches these, however many requests that makes.
+// Two limits: per IP, and across everyone. An IP can be faked (a request
+// can claim any address), so the site-wide one is the one that can't be
+// dodged; it only ever turns away requests that were already going to fail.
+const WINDOW_MS = 5 * 60 * 1000;
+const rateLimitedIp = makeLimiter({ max: 15, windowMs: WINDOW_MS });
+const rateLimitedAll = makeLimiter({ max: 100, windowMs: WINDOW_MS });
+
+/** Compares a submitted token with ADMIN_TOKEN in constant time, so response
+ * timing can't reveal how much of a guess was right. Hashing first makes
+ * both sides the same length, which timingSafeEqual needs. */
+function isAdminToken(candidate) {
+  const real = process.env.ADMIN_TOKEN;
+  if (!candidate || !real) return false;
+  const a = crypto.createHash('sha256').update(String(candidate)).digest();
+  const b = crypto.createHash('sha256').update(String(real)).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+/** The PC's hardware fingerprint, sent by the admin panel with every
+ * request (base64 JSON in X-Enhanced-Fp). */
+function fingerprintFrom(req) {
+  const header = req.headers['x-enhanced-fp'];
+  if (typeof header !== 'string' || !header || header.length > 4000) return null;
+  try {
+    return JSON.parse(Buffer.from(header, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
 
 // Express 4 doesn't catch errors from async middleware, so this one catches
-// its own: a database hiccup comes back as a 500 saying so, rather than
-// being mistaken for a bad token (and counted against the rate limit).
+// its own: a database hiccup comes back as a 500, rather than being mistaken
+// for a bad token (and counted against the rate limit).
 async function requireAdmin(req, res, next) {
   try {
     const auth = req.headers.authorization || '';
@@ -21,30 +49,30 @@ async function requireAdmin(req, res, next) {
 
     // Plan A: the raw ADMIN_TOKEN from .env - always works, handy for scripts,
     // and the way back in if you ever lock your admin key to an old PC.
-    if (token && process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN) {
+    if (token && isAdminToken(token)) {
       req.adminContext = { viaRawToken: true };
       return next();
     }
 
-    // Plan B: the signed-in session cookie of an admin key. Same rules as
-    // any key - the current session, from the browser it's locked to.
-    const check = await session.checkForFiles(req);
-    if (check.ok) {
-      const record = await store.findKey(check.key);
-      if (record && record.isAdmin) {
-        req.adminContext = { key: record.key, note: record.note, lockedDeviceId: record.lockedDeviceId };
-        return next();
-      }
+    // Plan B: an admin key's signed-in session - with the full check every
+    // time, hardware included. So admin cookies copied off the owner's PC
+    // don't work anywhere else, even for a moment.
+    const check = await session.check(req, fingerprintFrom(req));
+    if (check.ok && check.record.isAdmin) {
+      const r = check.record;
+      req.adminContext = { key: r.key, note: r.note, lockedDeviceId: r.lockedDeviceId };
+      return next();
     }
 
     // Only reject paths land here - this is what actually gets rate-limited.
-    if (rateLimited(req.ip)) {
+    // Both counters are bumped on every failure (| rather than ||).
+    if (rateLimitedIp(req.ip) | rateLimitedAll('all')) {
       return res.status(429).json({ ok: false, message: 'Too many attempts. Try again in a few minutes.' });
     }
     return res.status(401).json({ ok: false, message: 'Invalid admin token.' });
   } catch (err) {
     console.error(`[admin] auth check for ${req.method} ${req.originalUrl} failed:`, err);
-    if (!res.headersSent) res.status(500).json({ ok: false, message: `Server error: ${err.message}` });
+    if (!res.headersSent) res.status(500).json({ ok: false, message: 'Server error. Try again in a moment.' });
   }
 }
 
@@ -53,14 +81,15 @@ router.use(requireAdmin);
 // Catches anything a handler throws or rejects with and turns it into a JSON
 // 500 instead of Express's default HTML error page (which broke the client's
 // res.json() parsing and showed up as a bare "Failed to fetch"/network-looking
-// error) or, worse, an uncaught error that could take the process down.
+// error) or, worse, an uncaught error that could take the process down. The
+// details go to the server log only - never back to the browser.
 function wrap(fn) {
   return (req, res) => {
     Promise.resolve()
       .then(() => fn(req, res))
       .catch((err) => {
         console.error(`[admin] ${req.method} ${req.originalUrl} failed:`, err);
-        if (!res.headersSent) res.status(500).json({ ok: false, message: `Server error: ${err.message}` });
+        if (!res.headersSent) res.status(500).json({ ok: false, message: 'Server error. Try again in a moment.' });
       });
   };
 }
