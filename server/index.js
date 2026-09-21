@@ -70,6 +70,6 @@ if (store.listKeys().length === 0) {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`enhanced.aim running at http://localhost:${PORT}`);
+  console.log(`enhanced.aim.net running at http://localhost:${PORT}`);
   console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
 });
