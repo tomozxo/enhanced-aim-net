@@ -260,7 +260,8 @@ export function basisFor(tab) {
     // show "retest required" instead of being compared against new ones.
     // v2: bullseye points scoring. v3: back to hit-based, ringed targets.
     // v4: targets sized to the screen (smaller), room further back.
-    scoring: 4,
+    // v5: 3D balls at aim-trainer size (~6% of the screen).
+    scoring: 5,
   });
 }
 
