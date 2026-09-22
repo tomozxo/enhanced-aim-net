@@ -432,12 +432,6 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 .drill-tabs .tab { font-size: 12px; padding: 6px 12px; }
 .drill-status { font-size: 12.5px; color: var(--text-dim); }
 .drill-stage { position: absolute; inset: 0; overflow: hidden; cursor: none; }
-/* A soft vignette: darkens the edges a touch so the eye settles in the middle
-   and the room gains depth. Kept light enough not to hide edge targets. */
-.drill-stage::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
-  background: radial-gradient(ellipse at center, transparent 58%, rgba(0,0,0,.34) 100%);
-}
 /* Whenever a modal (pause/results) needs real mouse interaction, bring the
    OS cursor back - "cursor: none" is only for actual aiming. */
 .drill-stage.show-cursor { cursor: auto; }
@@ -453,31 +447,24 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
   /* A hairline dark edge keeps it readable over the ball and the lit walls. */
   filter: drop-shadow(0 0 1px rgba(0,0,0,.95));
 }
-/* HUD: the timer in a panel at top centre, the drill name tucked under it. */
-.drill-hud-tr {
-  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 4;
-  min-width: 112px; padding: 7px 20px 8px; text-align: center;
-  font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .02em; color: #f2f2f2;
-  background: rgba(14, 14, 18, .78); border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
-  box-shadow: 0 6px 24px rgba(0,0,0,.45), inset 0 -2px 0 var(--accent);
-  backdrop-filter: blur(8px);
+/* HUD: just the timer at top centre with the drill name under it - plain
+   text, no panel, so nothing competes with the targets. */
+.drill-hud-tr, .drill-hud-tl {
+  position: absolute; left: 50%; transform: translateX(-50%); z-index: 4;
+  white-space: nowrap; text-align: center; text-shadow: 0 1px 2px rgba(0,0,0,.85);
 }
-.drill-hud-tl {
-  position: absolute; top: 64px; left: 50%; transform: translateX(-50%); z-index: 4; white-space: nowrap;
-  font-size: 10.5px; font-weight: 600; letter-spacing: .14em; color: rgba(235,235,240,.62); text-transform: uppercase;
-  text-shadow: 0 1px 3px rgba(0,0,0,.9);
-}
+.drill-hud-tr { top: 18px; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; color: #ededed; }
+.drill-hud-tl { top: 46px; font-size: 10px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: rgba(237,237,237,.5); }
 /* Narrow windows: drop the timer below the optic tabs instead of over them. */
 @media (max-width: 760px) {
   .drill-hud-tr { top: 62px; }
-  .drill-hud-tl { top: 112px; }
+  .drill-hud-tl { top: 90px; }
 }
 .drill-footer { bottom: 0; padding: 12px 20px; font-size: 11px; color: var(--text-sub); }
 
 .pause-overlay {
-  position: absolute; inset: 0; background: rgba(0,0,0,0.62); display: none;
+  position: absolute; inset: 0; background: rgba(0,0,0,0.72); display: none;
   align-items: center; justify-content: center; z-index: 5;
-  backdrop-filter: blur(10px);
 }
 .pause-overlay.active { display: flex; }
 .pause-card { text-align: center; max-width: 340px; }
@@ -488,14 +475,14 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 .pause-secondary-actions { display: flex; justify-content: center; gap: 18px; margin-top: 14px; }
 .pause-secondary-actions .clear-link { padding: 0; }
 
-/* The countdown sits over a blurred, dimmed view of the room. */
+/* The countdown sits over a dimmed view of the arena. */
 .getready {
   position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-  flex-direction: column; gap: 10px; background: rgba(0,0,0,.55); backdrop-filter: blur(10px); z-index: 5;
+  flex-direction: column; gap: 10px; background: rgba(0,0,0,.6); z-index: 5;
 }
 .getready.active { display: flex; }
-.getready .big { font-size: 13px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: rgba(235,235,240,.7); }
-.getready .num { font-size: 72px; font-weight: 800; line-height: 1; text-shadow: 0 0 28px var(--accent); }
+.getready .big { font-size: 12px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: rgba(237,237,237,.6); }
+.getready .num { font-size: 60px; font-weight: 600; line-height: 1; }
 
 .results-overlay {
   position: absolute; inset: 0; background: #050505; display: none; align-items: center; justify-content: center; padding: 30px;
