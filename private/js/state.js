@@ -259,7 +259,8 @@ export function basisFor(tab) {
     // Bumped whenever scoring changes meaning, so results scored the old way
     // show "retest required" instead of being compared against new ones.
     // v2: bullseye points scoring. v3: back to hit-based, ringed targets.
-    scoring: 3,
+    // v4: targets sized to the screen (smaller), room further back.
+    scoring: 4,
   });
 }
 

@@ -1,23 +1,26 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 
 const DRILL_LABELS = { flick: 'FLICK', targets: 'TARGETS', tracking: 'TRACKING' };
-const TARGET_DISTANCE = 22; // world units targets sit out in front of the camera
-const CAMERA_HEIGHT = 6; // "elevated in the air" - eye height above the floor grid
+const TARGET_DISTANCE = 44; // world units targets sit out in front of the camera
+const CAMERA_HEIGHT = 12; // "elevated in the air" - eye height above the floor grid
 const TRACK_YAW_RANGE = (22 * Math.PI) / 180; // how far the tracking target swings left/right
 const TRACK_PITCH_RANGE = (7 * Math.PI) / 180;
 // Flick/clear spawns: wide left-right, deliberately shallow up-down, so the
 // drill is a horizontal flick exercise and never walks you into the floor.
 const SPAWN_YAW_SPREAD = (30 * Math.PI) / 180;
 const SPAWN_PITCH_RANGE = (7 * Math.PI) / 180;
-const WALL_RADIUS = 46; // the grid room around you, comfortably behind the targets at 22
-const WALL_HEIGHT = 48; // floor at 0, ceiling at 48 - tall enough that the ceiling only shows at the top edge
+const WALL_RADIUS = 92; // the grid room around you, well behind the targets at 44
+const WALL_HEIGHT = 96; // floor at 0, ceiling at 96 - tall enough that the ceiling only shows at the top edge
+const GRID_CELL = 8; // world units per grid square - about 5° across on the wall
 
-// Target radii in world units at TARGET_DISTANCE - roughly 1.7° / 1.35° /
-// 1.55° of angular radius. About a quarter smaller than they used to be, so
-// landing on one takes actual precision rather than just getting close.
-const FLICK_RADIUS = 0.64;
-const TARGETS_RADIUS = 0.52;
-const TRACKING_RADIUS = 0.6;
+// Target sizes are set by what's on screen, not fixed in the world: each
+// target's angular radius is this fraction of the view's vertical FOV. Fixed
+// sizes looked giant on narrow views - 4:3, FOV 60, and above all the 2.5x
+// sight, which zoomed them to a sixth of the screen. Now a target is the
+// same size on screen at any FOV, aspect ratio or zoom: at FOV 60 that's
+// 0.8° / 0.65° / 0.75° of radius, about 2.7% of the screen height across
+// for a flick target.
+const TARGET_SIZE = { flick: 0.8 / 60, targets: 0.65 / 60, tracking: 0.75 / 60 };
 
 // Each target has one ring splitting it into an inner circle and an outer
 // band. Both are part of the target - a hit anywhere on it counts exactly
@@ -94,10 +97,10 @@ export class DrillEngine {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x05030a);
+    this.scene.background = new THREE.Color(0x000000);
     // Light fog so the grid fades with distance instead of ending in a hard
     // line. Kept gentle - heavy fog just puts the void back.
-    this.scene.fog = new THREE.FogExp2(0x05030a, 0.011);
+    this.scene.fog = new THREE.FogExp2(0x000000, 0.0055);
 
     this.camera = new THREE.PerspectiveCamera(90, 1, 0.1, 500);
     this.camera.position.set(0, CAMERA_HEIGHT, 0);
@@ -107,7 +110,7 @@ export class DrillEngine {
     // a consistent bright colour from every angle - no scene lighting needed,
     // the grid surfaces don't react to lights either.
 
-    // An enclosed room: floor, wall and ceiling all in the same purple grid,
+    // An enclosed room: floor, wall and ceiling all in the same black grid,
     // so wherever you look there's grid behind the targets - never a black
     // band. (The floor used to be a near-black void with thin grid lines, and
     // above the wall there was open black sky, which read as black bars
@@ -116,15 +119,24 @@ export class DrillEngine {
     // drawn after the targets, and each target sprite's see-through corners
     // would already have claimed that depth - leaving a dark square around
     // every target.
+    // Tiled so every square is GRID_CELL across on all three surfaces.
+    const wallRepeats = Math.round((2 * Math.PI * WALL_RADIUS) / GRID_CELL);
     const wall = new THREE.Mesh(
-      new THREE.CylinderGeometry(WALL_RADIUS, WALL_RADIUS, WALL_HEIGHT, 72, 1, true),
-      new THREE.MeshBasicMaterial({ map: this._makeGridTexture(26, 7), side: THREE.BackSide })
+      new THREE.CylinderGeometry(WALL_RADIUS, WALL_RADIUS, WALL_HEIGHT, 96, 1, true),
+      new THREE.MeshBasicMaterial({
+        map: this._makeGridTexture(wallRepeats, WALL_HEIGHT / GRID_CELL),
+        side: THREE.BackSide,
+      })
     );
     wall.position.y = WALL_HEIGHT / 2;
     this.scene.add(wall);
 
-    const capGeometry = new THREE.CircleGeometry(WALL_RADIUS, 72);
-    const capMaterial = new THREE.MeshBasicMaterial({ map: this._makeGridTexture(8, 8), side: THREE.DoubleSide });
+    const capRepeats = (2 * WALL_RADIUS) / GRID_CELL;
+    const capGeometry = new THREE.CircleGeometry(WALL_RADIUS, 96);
+    const capMaterial = new THREE.MeshBasicMaterial({
+      map: this._makeGridTexture(capRepeats, capRepeats),
+      side: THREE.DoubleSide,
+    });
     const floor = new THREE.Mesh(capGeometry, capMaterial);
     floor.rotation.x = -Math.PI / 2;
     this.scene.add(floor);
@@ -147,17 +159,18 @@ export class DrillEngine {
     const c = document.createElement('canvas');
     c.width = c.height = size;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#07040e';
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, size, size);
-    ctx.strokeStyle = '#2a1940';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#3a3a3a';
+    ctx.lineWidth = 3;
     ctx.strokeRect(0, 0, size, size);
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    // Fewer, larger cells: tiling them too finely just blurs the lines into
-    // a flat wash of colour at distance instead of reading as a grid.
     tex.repeat.set(repeatX, repeatY);
+    // Keeps the lines crisp on the floor and ceiling, which are seen at a
+    // steep angle - without it they smear into a grey haze.
+    tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     return tex;
   }
 
@@ -247,6 +260,7 @@ export class DrillEngine {
    * can't see. These shrink to fit the view instead (never grow). */
   _fitTargetArea(vFovDeg, aspect) {
     const v = (vFovDeg * Math.PI) / 180;
+    this.viewVFov = v; // what target sizes are measured against (_targetRadius)
     const h = 2 * Math.atan(Math.tan(v / 2) * aspect);
     const spawnYaw = Math.min(SPAWN_YAW_SPREAD, (0.8 * h) / 2);
     this.area = {
@@ -536,7 +550,7 @@ export class DrillEngine {
   _spawnForBlock(block) {
     this._clearTargets();
     if (block.type === 'flick') {
-      this.targets = [this._randomTarget(FLICK_RADIUS)];
+      this.targets = [this._randomTarget(this._targetRadius('flick'))];
     } else if (block.type === 'targets') {
       // The area replacements spawn in stays put for the whole block, centred
       // on where you were facing when it started - so the group never slowly
@@ -544,9 +558,9 @@ export class DrillEngine {
       this.targetsAreaYaw = this.yaw;
       // Built one at a time with the same spacing rules as a replacement, so
       // the opening group can't overlap or start under the crosshair either.
-      for (let i = 0; i < TARGETS_ON_SCREEN; i++) this.targets.push(this._replacementTarget(TARGETS_RADIUS));
+      for (let i = 0; i < TARGETS_ON_SCREEN; i++) this.targets.push(this._replacementTarget(this._targetRadius('targets')));
     } else if (block.type === 'tracking') {
-      this.targets = [this._targetAtAngles(0, 0, TRACKING_RADIUS)];
+      this.targets = [this._targetAtAngles(0, 0, this._targetRadius('tracking'))];
     }
   }
 
@@ -583,6 +597,12 @@ export class DrillEngine {
     return this._targetAtAngles(best.yaw, best.pitch, radius);
   }
 
+  /** A target's radius in world units at TARGET_DISTANCE, sized to take up
+   * the same share of the screen whatever the FOV or zoom (TARGET_SIZE). */
+  _targetRadius(kind) {
+    return TARGET_DISTANCE * Math.tan(TARGET_SIZE[kind] * this.viewVFov);
+  }
+
   _targetAtAngles(yaw, pitch, radius) {
     const pos = this.camera.position.clone().add(this._dirFromAngles(yaw, pitch).multiplyScalar(TARGET_DISTANCE));
 
@@ -608,12 +628,12 @@ export class DrillEngine {
 
     if (block.type === 'flick') {
       this.scene.remove(this.targets[0].mesh);
-      this.targets = [this._randomTarget(FLICK_RADIUS)];
+      this.targets = [this._randomTarget(this._targetRadius('flick'))];
     } else {
       this.scene.remove(this.targets[aimed.index].mesh);
       this.targets.splice(aimed.index, 1);
       this.metrics.cleared += 1;
-      this.targets.push(this._replacementTarget(TARGETS_RADIUS));
+      this.targets.push(this._replacementTarget(this._targetRadius('targets')));
     }
   }
 
