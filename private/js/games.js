@@ -11,7 +11,14 @@
 // Siege uses the model in sensMath.js: its hip-fire formula, and Ubisoft's
 // ADS system on top (ADS relative to hip-fire, scaled by the sight's zoom).
 
-import { estimateCm360, degPerCount as r6DegPerCount, baseSensForTab, SIGHT_ZOOM } from './sensMath.js';
+import {
+  estimateCm360,
+  degPerCount as r6DegPerCount,
+  baseSensForTab,
+  r6HipVFov,
+  SIGHT_FOV_SCALE,
+  MODEL_VERSION,
+} from './sensMath.js';
 
 const DEG = Math.PI / 180;
 
@@ -103,7 +110,8 @@ export const GAMES = {
     // Bumped when the model changes what a sens value feels like, so results
     // tested under the old model show "retest required" (see basisFor).
     // 2: real hip-fire constant, ADS relative to hip-fire, vertical FOV.
-    modelVersion: 2,
+    // 3: ADS zoom ratio by focal length (depends on FOV).
+    modelVersion: MODEL_VERSION,
     defaults: {
       hipfireH: 4,
       hipfireV: 4,
@@ -134,9 +142,9 @@ export const GAMES = {
      * view turning at ADS speed, which felt far slower than the game. */
     view(s, tab) {
       const aspect = parseAspect(s.aspectRatio);
-      let vFov = Math.max(60, Math.min(90, s.fov));
-      if (hFovFromV(vFov, aspect) > 150) vFov = vFovFromH(150, aspect);
-      if (SIGHT_ZOOM[tab]) vFov *= SIGHT_ZOOM[tab];
+      // The same FOV the sens model uses, so what you see and how fast it
+      // turns can't disagree.
+      const vFov = r6HipVFov(s) * (SIGHT_FOV_SCALE[tab] || 1);
       return { aspect, vFovDeg: vFov, stretch: s.screenFill !== 'keep-aspect', renderSize: null };
     },
   },

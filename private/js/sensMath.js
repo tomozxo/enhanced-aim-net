@@ -12,14 +12,18 @@
 // "Guide to ADS sensitivity in Y5S3": an ADS value of 50 is neutral - the
 // same mouse movement covers the same distance on your monitor as it does in
 // hip-fire - and that neutral point is 1 / XFactorAiming (0.02 by default,
-// hence 50). The rotation scales linearly with the sight's zoom, so:
-//     ADS °/count = hip-fire °/count × (ADS value × 0.02) × sight zoom
-// where the sight zoom is how much the sight narrows the field of view:
-// 0.9 for 1× sights, 0.35 for 2.5×. Those two come from the reverse-
-// engineered sight FOVs (github.com/Skwuruhl/siegeads); Ubisoft publishes
-// them only as images, so they're the one estimated part of this model.
-// The earlier version ignored hip-fire for ADS entirely, which is why ADS
-// in the drill felt much slower than the same numbers in-game.
+// hence 50). "Same distance on your monitor" is 0% monitor distance
+// matching (focal-length scaling): the turn shrinks by how much the sight
+// magnifies the middle of the screen - a ratio of tangents, so it depends
+// on your FOV:
+//     ADS °/count = hip-fire °/count × (ADS value × 0.02) × zoom ratio
+//     zoom ratio  = tan(sight vFOV / 2) / tan(your vFOV / 2)
+// Each sight's vertical FOV is a fixed fraction of yours: 0.9 for 1×, 0.35
+// for 2.5× (reverse-engineered, github.com/Skwuruhl/siegeads; Ubisoft only
+// publishes its table as an image, so these two are the estimated part).
+// At FOV 60 the ratios are 0.88 / 0.32; at FOV 90, 0.85 / 0.28.
+// History: v1 ignored hip-fire for ADS (felt far slower than the game); v2
+// used a flat 0.9 / 0.35 (2-19% too fast, depending on FOV).
 //
 // Measuring your real cm/360 for an optic ("Calibrate to your real sens")
 // stores how far the model is off at that moment, and every later sens
@@ -29,7 +33,32 @@
 export const HIP_DEG_PER_COUNT = 0.00572958; // per sens point, at multiplier 0.02
 const DEFAULT_MULT_UNIT = 0.02; // MouseSensitivityMultiplierUnit default
 const X_FACTOR_AIMING = 0.02; // default; makes ADS 50 the neutral value
-export const SIGHT_ZOOM = { ads1x: 0.9, ads25x: 0.35 }; // FOV multiplier of each sight
+export const SIGHT_FOV_SCALE = { ads1x: 0.9, ads25x: 0.35 }; // sight vFOV as a fraction of yours
+// Saved with each measurement, so ones taken against an older ADS formula
+// can be recognised (state.js drops those for ADS).
+export const MODEL_VERSION = 3;
+
+const RAD = Math.PI / 180;
+
+/** Siege's hip-fire vertical FOV (degrees) for these settings: the 60-90
+ * slider, widened to the aspect ratio up to a 150° horizontal cap - past
+ * that, the vertical FOV gives way instead. */
+export function r6HipVFov(settings) {
+  const [w, h] = String(settings.aspectRatio || '16:9').split(':').map(Number);
+  const aspect = w > 0 && h > 0 ? w / h : 16 / 9;
+  const v = Math.max(60, Math.min(90, Number(settings.fov) || 60));
+  if (2 * Math.atan(Math.tan((v * RAD) / 2) * aspect) <= 150 * RAD) return v;
+  return (2 * Math.atan(Math.tan((150 * RAD) / 2) / aspect)) / RAD;
+}
+
+/** How much a sight slows the turn at ADS 50 - tan(sight vFOV/2) /
+ * tan(hip vFOV/2). 1 for hip-fire. */
+export function sightZoomRatio(tab, settings) {
+  const k = SIGHT_FOV_SCALE[tab];
+  if (!k) return 1;
+  const v = r6HipVFov(settings) * RAD;
+  return Math.tan((k * v) / 2) / Math.tan(v / 2);
+}
 
 export function customMultiplierFactor(settings) {
   return settings.useCustomMultiplier ? settings.customMultiplier / DEFAULT_MULT_UNIT : 1;
@@ -48,7 +77,7 @@ function modelDegPerCount(tab, s) {
   const hipX = s.hipfireH * HIP_DEG_PER_COUNT * mult;
   const hipY = s.hipfireV * HIP_DEG_PER_COUNT * mult;
   if (tab === 'hipfire') return { x: hipX, y: hipY };
-  const ads = baseSensForTab(tab, s) * X_FACTOR_AIMING * SIGHT_ZOOM[tab];
+  const ads = baseSensForTab(tab, s) * X_FACTOR_AIMING * sightZoomRatio(tab, s);
   return { x: hipX * ads, y: hipY * ads };
 }
 
@@ -103,7 +132,7 @@ export function calibrationFrom(tab, cm360, settings) {
   if (!(value > 0) || !(settings.dpi > 0)) return null;
   const model = modelDegPerCount(tab, settings).x;
   if (!(model > 0)) return null;
-  return { cm360: value, dpi: settings.dpi, factor: degFromCm360(value, settings.dpi) / model };
+  return { cm360: value, dpi: settings.dpi, factor: degFromCm360(value, settings.dpi) / model, model: MODEL_VERSION };
 }
 
 /**

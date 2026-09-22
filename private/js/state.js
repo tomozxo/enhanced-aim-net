@@ -1,4 +1,5 @@
 import { GAMES } from './games.js';
+import { MODEL_VERSION } from './sensMath.js';
 
 const STORAGE_KEY = 'r6sf_state_v1'; // name kept; the shape inside is versioned
 
@@ -52,6 +53,14 @@ function upgradeR6Settings(s) {
   const out = { ...s, fov: Math.max(60, Math.min(90, Number(s.fov) || 60)) };
   const c1 = s.calib && s.calib.ads1x;
   if (c1 && !(c1.factor > 0)) out.calib = { ...s.calib, ads1x: null };
+  // An ADS measurement stores how far off the formula was at the time. One
+  // taken against an older ADS formula (before model 3) would push the new
+  // one off by the same amount, so it's dropped to be measured again.
+  // Hip-fire's formula hasn't changed, so its measurement stays.
+  for (const tab of ['ads1x', 'ads25x']) {
+    const c = out.calib && out.calib[tab];
+    if (c && c.factor > 0 && c.model !== MODEL_VERSION) out.calib = { ...out.calib, [tab]: null };
+  }
   return out;
 }
 
