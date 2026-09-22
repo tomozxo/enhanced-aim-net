@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const express = require('express');
 const store = require('./store');
 const session = require('./session');
-const { makeLimiter } = require('./rateLimit');
+const { makeLimiter, clientIp } = require('./rateLimit');
 
 const router = express.Router();
 
@@ -66,7 +66,7 @@ async function requireAdmin(req, res, next) {
 
     // Only reject paths land here - this is what actually gets rate-limited.
     // Both counters are bumped on every failure (| rather than ||).
-    if (rateLimitedIp(req.ip) | rateLimitedAll('all')) {
+    if (rateLimitedIp(clientIp(req)) | rateLimitedAll('all')) {
       return res.status(429).json({ ok: false, message: 'Too many attempts. Try again in a few minutes.' });
     }
     return res.status(401).json({ ok: false, message: 'Invalid admin token.' });

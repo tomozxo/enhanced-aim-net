@@ -1,7 +1,7 @@
 const express = require('express');
 const store = require('./store');
 const session = require('./session');
-const { makeLimiter } = require('./rateLimit');
+const { makeLimiter, clientIp } = require('./rateLimit');
 const { getOrCreateDeviceId, clearSessionCookie } = require('./cookies');
 
 const router = express.Router();
@@ -37,7 +37,7 @@ router.post(
 
     if (!key) return res.status(400).json({ ok: false, message: 'Enter a license key.' });
 
-    if (rateLimited(req.ip)) {
+    if (rateLimited(clientIp(req))) {
       return res.status(429).json({ ok: false, message: 'Too many attempts. Try again in a few minutes.' });
     }
 

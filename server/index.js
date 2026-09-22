@@ -7,6 +7,7 @@ const authRoutes = require('./auth');
 const adminRoutes = require('./admin');
 const store = require('./store');
 const session = require('./session');
+const rateLimit = require('./rateLimit');
 
 if (!process.env.JWT_SECRET || !process.env.ADMIN_TOKEN) {
   console.error(
@@ -79,6 +80,11 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '20kb' }));
+
+// A ceiling on API requests per visitor, far above normal use (the app
+// checks in once a minute), so one machine hammering the API gets turned
+// away here instead of reaching the database.
+app.use('/api', rateLimit.middleware({ max: 300, windowMs: 5 * 60 * 1000 }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
