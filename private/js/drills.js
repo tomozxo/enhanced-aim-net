@@ -20,14 +20,16 @@ const GRID = 8; // world units per grid square - about 4° across on the wall
 // Target sizes are set by what's on screen, not fixed in the world: each is
 // this share of the screen height across, the same at any FOV, aspect ratio
 // or sight zoom. Fixed world sizes used to blow up to a sixth of the screen
-// through the 2.5x sight. About 6%, the size of a standard aim-trainer ball.
+// through the 2.5x sight. About 6%, standard aim-trainer size.
 const TARGET_SIZE = { flick: 0.062, targets: 0.056, tracking: 0.06 };
 
-// Each target has one ring splitting it into an inner circle and an outer
-// band. Both are part of the target - a hit anywhere on it counts exactly
-// the same. Where it landed is only recorded as a stat ("inner hits").
-// This is the ring's midline, as a fraction of the target radius.
+// Each target is a flat bullseye: outer band, white ring, centre. A hit
+// anywhere on it counts exactly the same; whether it landed on the centre is
+// only recorded as a stat ("inner hits"). Both as fractions of the radius:
+// the centre's edge (the same boundary inner hits have always used), and the
+// white ring's outer edge.
 const INNER_FRACTION = 0.52;
+const WHITE_RING_OUTER = 0.76;
 
 // Targets drill: popping a dot brings a replacement in straight away, in a
 // free spot inside the same area as the rest, so there are always this many
@@ -106,18 +108,15 @@ export class DrillEngine {
     this.camera.position.set(0, CAMERA_HEIGHT, 0);
     this.camera.rotation.order = 'YXZ';
 
-    // A soft fill plus one key light from above and to one side: the round
-    // wall shades gradually from lit to dim as you turn, and the balls get a
-    // highlight on top and a shaded underside.
+    // A soft fill plus one key light from above and to one side, so the
+    // round wall shades gradually from lit to dim as you turn. The targets
+    // are flat and unlit, so they're unaffected.
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x1a1a1e, 1.3));
     const key = new THREE.DirectionalLight(0xffffff, 1.6);
     key.position.set(0.45, 1, 0.6);
     this.scene.add(key);
 
     this._buildArena();
-
-    // One sphere shape shared by every target, scaled per target.
-    this.sphereGeometry = new THREE.SphereGeometry(1, 48, 32);
 
     // Scratch vectors for the per-frame aim test, so tracking doesn't
     // allocate two new vectors every frame.
@@ -177,49 +176,45 @@ export class DrillEngine {
     return tex;
   }
 
-  /** The thin ring drawn over each ball, splitting it into an inner circle
-   * and an outer band - a clear middle to aim for, while the whole ball
-   * still counts as the target. Transparent apart from the ring itself. */
-  _makeRingTexture() {
-    const size = 256;
+  /** A flat bullseye: an outer band and a centre in the accent colour with
+   * a white ring between them. The centre is the "inner hit" zone; the
+   * whole target counts as a hit. */
+  _makeTargetTexture() {
+    const size = 512;
     const c = document.createElement('canvas');
     c.width = c.height = size;
     const ctx = c.getContext('2d');
-    const R = size / 2;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.lineWidth = R * 0.07;
-    ctx.beginPath();
-    ctx.arc(R, R, R * INNER_FRACTION, 0, Math.PI * 2);
-    ctx.stroke();
+    const mid = size / 2;
+    const R = mid - 2; // a hair inside the edge so the rim stays smooth
+    const accent = cssVar('--accent') || '#a50fec';
+    const disc = (r, color) => {
+      ctx.beginPath();
+      ctx.arc(mid, mid, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    };
+    disc(R, accent);
+    disc(R * WHITE_RING_OUTER, '#f4f4f4');
+    disc(R * INNER_FRACTION, accent);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     return tex;
   }
 
-  /** The materials every target in a run shares, rebuilt per run so they
-   * pick up the current accent colour. The ball is lit so it reads as a
-   * solid ball, with a touch of its own light so the shaded side never goes
-   * muddy; fog:false keeps it the same brightness at any distance. The ring
-   * skips the depth test so it always shows on top of its ball. */
+  /** One material for every target in a run, rebuilt per run so it picks up
+   * the current accent colour. A sprite always faces the camera, so the
+   * target stays a perfect circle wherever it is on screen. Unlit, and
+   * fog:false keeps its colours exact at any distance. It doesn't write
+   * depth, so its see-through corners can't block the wall behind it. */
   _rebuildTargetMaterial() {
-    for (const m of [this.targetMaterial, this.ringMaterial]) {
-      if (!m) continue;
-      m.map?.dispose();
-      m.dispose();
+    if (this.targetMaterial) {
+      this.targetMaterial.map?.dispose();
+      this.targetMaterial.dispose();
     }
-    const color = new THREE.Color(cssVar('--accent') || '#a50fec');
-    this.targetMaterial = new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.45,
-      metalness: 0,
-      emissive: color,
-      emissiveIntensity: 0.12,
-      fog: false,
-    });
-    this.ringMaterial = new THREE.SpriteMaterial({
-      map: this._makeRingTexture(),
+    this.targetMaterial = new THREE.SpriteMaterial({
+      map: this._makeTargetTexture(),
       transparent: true,
-      depthTest: false,
       depthWrite: false,
       fog: false,
     });
@@ -617,21 +612,14 @@ export class DrillEngine {
     return TARGET_SIZE[kind] * TARGET_DISTANCE * Math.tan(this.viewVFov / 2);
   }
 
-  /** A ball with its ring, as one group - the group's position is the
-   * target's centre, which is what the aim test measures from. */
   _targetAtAngles(yaw, pitch, radius) {
-    const group = new THREE.Group();
-    const ball = new THREE.Mesh(this.sphereGeometry, this.targetMaterial);
-    ball.scale.setScalar(radius);
-    // The ring sprite always faces the camera, so it stays a circle; its
-    // quad is the ball's width, so INNER_FRACTION lines up with the aim test.
-    const ring = new THREE.Sprite(this.ringMaterial);
-    ring.scale.set(radius * 2, radius * 2, 1);
-    ring.renderOrder = 1;
-    group.add(ball, ring);
-    group.position.copy(this.camera.position).add(this._dirFromAngles(yaw, pitch).multiplyScalar(TARGET_DISTANCE));
-    this.scene.add(group);
-    return { mesh: group, r: radius, yaw, pitch };
+    // Sprite geometry is a unit quad, so the scale is the diameter - which
+    // lines the drawn zones up with the aim test's radius.
+    const mesh = new THREE.Sprite(this.targetMaterial);
+    mesh.scale.set(radius * 2, radius * 2, 1);
+    mesh.position.copy(this.camera.position).add(this._dirFromAngles(yaw, pitch).multiplyScalar(TARGET_DISTANCE));
+    this.scene.add(mesh);
+    return { mesh, r: radius, yaw, pitch };
   }
 
   _handleShoot() {
