@@ -29,7 +29,7 @@ const TARGET_SIZE = { flick: 0.062, targets: 0.056, tracking: 0.06 };
 // the centre's edge (the same boundary inner hits have always used), and the
 // white ring's outer edge.
 const INNER_FRACTION = 0.52;
-const WHITE_RING_OUTER = 0.76;
+const WHITE_RING_OUTER = 0.59; // a thin ring: 7% of the radius wide
 
 // Targets drill: popping a dot brings a replacement in straight away, in a
 // free spot inside the same area as the rest, so there are always this many
@@ -94,7 +94,7 @@ export class DrillEngine {
   }
 
   // ---------- Three.js scene: a first-person view from the middle of a tall
-  // round arena, with shaded balls to flick onto and track. ----------
+  // round arena, with flat bullseye targets to flick onto and track. ----------
   _initScene() {
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
