@@ -1,26 +1,29 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 
 const DRILL_LABELS = { flick: 'FLICK', targets: 'TARGETS', tracking: 'TRACKING' };
-const TARGET_DISTANCE = 44; // world units targets sit out in front of the camera
-const CAMERA_HEIGHT = 12; // "elevated in the air" - eye height above the floor grid
+const TARGET_DISTANCE = 60; // world units targets sit out in front of the camera
 const TRACK_YAW_RANGE = (22 * Math.PI) / 180; // how far the tracking target swings left/right
 const TRACK_PITCH_RANGE = (7 * Math.PI) / 180;
 // Flick/clear spawns: wide left-right, deliberately shallow up-down, so the
 // drill is a horizontal flick exercise and never walks you into the floor.
 const SPAWN_YAW_SPREAD = (30 * Math.PI) / 180;
 const SPAWN_PITCH_RANGE = (7 * Math.PI) / 180;
-const WALL_RADIUS = 92; // the grid room around you, well behind the targets at 44
-const WALL_HEIGHT = 96; // floor at 0, ceiling at 96 - tall enough that the ceiling only shows at the top edge
-const GRID_CELL = 8; // world units per grid square - about 5° across on the wall
+// The range: a big box room you look into from high up. The walls ahead and
+// to the sides fill the view; the floor and ceiling are so far below and
+// above that they stay out of sight at normal aim (the floor only shows if
+// you look more than ~16° down at the widest FOV).
+const ROOM_HALF_WIDTH = 150;
+const ROOM_HALF_DEPTH = 120; // the wall you face is 120 away, targets sit at 60
+const ROOM_HEIGHT = 440;
+const CAMERA_HEIGHT = ROOM_HEIGHT / 2; // halfway up, "in the air"
+const PANEL = 24; // world units per wall panel (subdivided 4x4 by finer lines)
 
-// Target sizes are set by what's on screen, not fixed in the world: each
-// target's angular radius is this fraction of the view's vertical FOV. Fixed
-// sizes looked giant on narrow views - 4:3, FOV 60, and above all the 2.5x
-// sight, which zoomed them to a sixth of the screen. Now a target is the
-// same size on screen at any FOV, aspect ratio or zoom: at FOV 60 that's
-// 0.8° / 0.65° / 0.75° of radius, about 2.7% of the screen height across
-// for a flick target.
-const TARGET_SIZE = { flick: 0.8 / 60, targets: 0.65 / 60, tracking: 0.75 / 60 };
+// Target sizes are set by what's on screen, not fixed in the world: each is
+// this share of the screen height across, the same at any FOV, aspect ratio
+// or sight zoom. Fixed world sizes used to blow up to a sixth of the screen
+// through the 2.5x sight. About 6%, the size of a standard aim-trainer ball.
+const TARGET_SIZE = { flick: 0.062, targets: 0.056, tracking: 0.06 };
+const POP_MS = 220; // the burst when a target is hit
 
 // Each target has one ring splitting it into an inner circle and an outer
 // band. Both are part of the target - a hit anywhere on it counts exactly
@@ -90,133 +93,184 @@ export class DrillEngine {
     this.el.resumeBtn.addEventListener('click', () => this._requestLock());
   }
 
-  // ---------- Three.js scene: a first-person view inside a gridded arena,
-  // with ringed targets to flick onto and track. ----------
+  // ---------- Three.js scene: a first-person view from high up in a lit box
+  // room, with shaded balls to flick onto and track. ----------
   _initScene() {
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x000000);
-    // Light fog so the grid fades with distance instead of ending in a hard
-    // line. Kept gentle - heavy fog just puts the void back.
-    this.scene.fog = new THREE.FogExp2(0x000000, 0.0055);
+    const fogColor = new THREE.Color(0x050507);
+    this.scene.background = fogColor;
+    // The far walls and corners fall off into the dark, which gives the room
+    // depth instead of reading as a flat, evenly lit box.
+    this.scene.fog = new THREE.FogExp2(fogColor, 0.0028);
 
-    this.camera = new THREE.PerspectiveCamera(90, 1, 0.1, 500);
+    this.camera = new THREE.PerspectiveCamera(90, 1, 0.5, 2000);
     this.camera.position.set(0, CAMERA_HEIGHT, 0);
     this.camera.rotation.order = 'YXZ';
 
-    // Targets are unlit sprites (see _rebuildTargetMaterial) so they read as
-    // a consistent bright colour from every angle - no scene lighting needed,
-    // the grid surfaces don't react to lights either.
+    // A soft fill plus one key light from above, behind and to the right.
+    // Each wall faces it at a different angle, so they come out in different
+    // shades, and the balls get a highlight on top and a shaded underside.
+    this.scene.add(new THREE.HemisphereLight(0xe4e8ff, 0x16161b, 1.35));
+    const key = new THREE.DirectionalLight(0xffffff, 2.2);
+    key.position.set(0.45, 1, 0.6);
+    this.scene.add(key);
 
-    // An enclosed room: floor, wall and ceiling all in the same black grid,
-    // so wherever you look there's grid behind the targets - never a black
-    // band. (The floor used to be a near-black void with thin grid lines, and
-    // above the wall there was open black sky, which read as black bars
-    // across the bottom and top of the screen.)
-    // All three are opaque on purpose. As "transparent" materials they'd be
-    // drawn after the targets, and each target sprite's see-through corners
-    // would already have claimed that depth - leaving a dark square around
-    // every target.
-    // Tiled so every square is GRID_CELL across on all three surfaces.
-    const wallRepeats = Math.round((2 * Math.PI * WALL_RADIUS) / GRID_CELL);
-    const wall = new THREE.Mesh(
-      new THREE.CylinderGeometry(WALL_RADIUS, WALL_RADIUS, WALL_HEIGHT, 96, 1, true),
-      new THREE.MeshBasicMaterial({
-        map: this._makeGridTexture(wallRepeats, WALL_HEIGHT / GRID_CELL),
-        side: THREE.BackSide,
-      })
-    );
-    wall.position.y = WALL_HEIGHT / 2;
-    this.scene.add(wall);
+    this._buildRoom();
 
-    const capRepeats = (2 * WALL_RADIUS) / GRID_CELL;
-    const capGeometry = new THREE.CircleGeometry(WALL_RADIUS, 96);
-    const capMaterial = new THREE.MeshBasicMaterial({
-      map: this._makeGridTexture(capRepeats, capRepeats),
-      side: THREE.DoubleSide,
-    });
-    const floor = new THREE.Mesh(capGeometry, capMaterial);
-    floor.rotation.x = -Math.PI / 2;
-    this.scene.add(floor);
-    const ceiling = new THREE.Mesh(capGeometry, capMaterial);
-    ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.y = WALL_HEIGHT;
-    this.scene.add(ceiling);
+    // One sphere shape shared by every target, scaled per target.
+    this.sphereGeometry = new THREE.SphereGeometry(1, 48, 32);
 
     // Scratch vectors for the per-frame aim test, so tracking doesn't
     // allocate two new vectors every frame.
     this._fwd = new THREE.Vector3();
     this._toTarget = new THREE.Vector3();
+    this.effects = []; // hit bursts still fading out: { sprite, start, r }
   }
 
-  /** Procedural grid cell, tiled `repeatX` x `repeatY` times across a
-   * surface - chosen per surface so the cells come out about the same size
-   * on the wall, floor and ceiling. */
-  _makeGridTexture(repeatX, repeatY) {
-    const size = 128;
+  /** The four walls, floor and ceiling as separate panels, each tiled so a
+   * panel is PANEL across on every surface. All opaque on purpose: as
+   * "transparent" materials they'd be drawn after the targets. */
+  _buildRoom() {
+    const W = ROOM_HALF_WIDTH * 2;
+    const D = ROOM_HALF_DEPTH * 2;
+    const H = ROOM_HEIGHT;
+    const surface = (width, height, place) => {
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, height),
+        new THREE.MeshLambertMaterial({ map: this._makePanelTexture(width / PANEL, height / PANEL) })
+      );
+      place(mesh);
+      this.scene.add(mesh);
+    };
+    // A plane faces +Z to start with; each one is turned to face into the room.
+    surface(W, H, (m) => m.position.set(0, H / 2, -ROOM_HALF_DEPTH)); // ahead
+    surface(W, H, (m) => {
+      m.position.set(0, H / 2, ROOM_HALF_DEPTH);
+      m.rotation.y = Math.PI;
+    }); // behind
+    surface(D, H, (m) => {
+      m.position.set(-ROOM_HALF_WIDTH, H / 2, 0);
+      m.rotation.y = Math.PI / 2;
+    }); // left
+    surface(D, H, (m) => {
+      m.position.set(ROOM_HALF_WIDTH, H / 2, 0);
+      m.rotation.y = -Math.PI / 2;
+    }); // right
+    surface(W, D, (m) => {
+      m.rotation.x = -Math.PI / 2;
+    }); // floor
+    surface(W, D, (m) => {
+      m.position.y = H;
+      m.rotation.x = Math.PI / 2;
+    }); // ceiling
+  }
+
+  /** One wall panel: dark, split 4x4 by faint lines inside a brighter
+   * border, tiled `repeatX` x `repeatY` times across a surface. */
+  _makePanelTexture(repeatX, repeatY) {
+    const size = 512;
     const c = document.createElement('canvas');
     c.width = c.height = size;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = '#23252c';
     ctx.fillRect(0, 0, size, size);
-    ctx.strokeStyle = '#3a3a3a';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(0, 0, size, size);
+    ctx.fillStyle = '#2c2f38';
+    for (let i = 1; i < 4; i++) {
+      const p = (i * size) / 4;
+      ctx.fillRect(p - 1, 0, 2, size);
+      ctx.fillRect(0, p - 1, size, 2);
+    }
+    // 3px on each edge, so neighbouring panels meet in a 6px line.
+    ctx.fillStyle = '#41444f';
+    ctx.fillRect(0, 0, size, 3);
+    ctx.fillRect(0, size - 3, size, 3);
+    ctx.fillRect(0, 0, 3, size);
+    ctx.fillRect(size - 3, 0, 3, size);
     const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
     tex.repeat.set(repeatX, repeatY);
-    // Keeps the lines crisp on the floor and ceiling, which are seen at a
-    // steep angle - without it they smear into a grey haze.
+    // Keeps the lines crisp on walls seen at a steep angle.
     tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     return tex;
   }
 
-  /** A bright purple disc with one white ring through it, separating an
-   * inner circle from an outer band - a clear middle to aim for, while the
-   * whole disc still counts as the target. */
-  _makeTargetTexture() {
+  /** The thin ring drawn over each ball, splitting it into an inner circle
+   * and an outer band - a clear middle to aim for, while the whole ball
+   * still counts as the target. Transparent apart from the ring itself. */
+  _makeRingTexture() {
     const size = 256;
     const c = document.createElement('canvas');
     c.width = c.height = size;
     const ctx = c.getContext('2d');
-    const mid = size / 2;
-    const R = mid - 1;
-    const fill = cssVar('--target-fill') || '#c837ff';
-    const disc = (r, color) => {
-      ctx.beginPath();
-      ctx.arc(mid, mid, r, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-    };
-    const ringHalfWidth = 0.045;
-    disc(R, fill);
-    disc(R * (INNER_FRACTION + ringHalfWidth), '#ffffff');
-    disc(R * (INNER_FRACTION - ringHalfWidth), fill);
+    const R = size / 2;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = R * 0.075;
+    ctx.beginPath();
+    ctx.arc(R, R, R * INNER_FRACTION, 0, Math.PI * 2);
+    ctx.stroke();
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   }
 
-  /** One shared material for every target in a run (rebuilt per run, so it
-   * reads --target-fill after the stylesheet has loaded). A sprite always
-   * faces the camera, so the ring never gets squashed into an ellipse
-   * when it's off to one side. Flat and unlit, and fog:false keeps it full
-   * brightness at any distance. */
+  /** A soft ring of light, tinted to the target colour, for the burst when
+   * a target is hit. */
+  _makePopTexture() {
+    const size = 256;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const R = size / 2;
+    const g = ctx.createRadialGradient(R, R, R * 0.35, R, R, R);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.62, 'rgba(255,255,255,0.9)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /** The materials every target in a run shares, rebuilt per run so they
+   * pick up the current accent colour. The ball is lit, so it reads as a
+   * solid 3D ball, with a little glow of its own so it never goes dull;
+   * fog:false keeps it the same brightness at any distance. The ring skips
+   * the depth test so it always shows on top of its ball. */
   _rebuildTargetMaterial() {
-    if (this.targetMaterial) {
-      this.targetMaterial.map?.dispose();
-      this.targetMaterial.dispose();
+    for (const m of [this.targetMaterial, this.ringMaterial, this.popMaterial]) {
+      if (!m) continue;
+      m.map?.dispose();
+      m.dispose();
     }
-    this.targetMaterial = new THREE.SpriteMaterial({
-      map: this._makeTargetTexture(),
+    const color = new THREE.Color(cssVar('--accent') || '#a50fec');
+    this.targetMaterial = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.35,
+      metalness: 0.05,
+      emissive: color,
+      emissiveIntensity: 0.22,
       fog: false,
+    });
+    this.ringMaterial = new THREE.SpriteMaterial({
+      map: this._makeRingTexture(),
       transparent: true,
-      // Targets never need to hide anything behind them, so they don't write
-      // depth - that way their see-through corners can't block the backdrop.
+      depthTest: false,
       depthWrite: false,
+      fog: false,
+    });
+    this.popMaterial = new THREE.SpriteMaterial({
+      map: this._makePopTexture(),
+      color,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
     });
   }
 
@@ -263,13 +317,17 @@ export class DrillEngine {
     this.viewVFov = v; // what target sizes are measured against (_targetRadius)
     const h = 2 * Math.atan(Math.tan(v / 2) * aspect);
     const spawnYaw = Math.min(SPAWN_YAW_SPREAD, (0.8 * h) / 2);
+    // A Targets-drill ball's angular radius. Balls are a fixed share of the
+    // screen, so at a wide FOV one can be ~6° across - wider than the fixed
+    // gaps - and the gaps grow with it so balls never overlap.
+    const ball = Math.atan(TARGET_SIZE.targets * Math.tan(v / 2));
     this.area = {
       spawnYaw,
       spawnPitch: Math.min(SPAWN_PITCH_RANGE, (0.6 * v) / 2),
       trackYaw: Math.min(TRACK_YAW_RANGE, (0.6 * h) / 2),
       trackPitch: Math.min(TRACK_PITCH_RANGE, (0.5 * v) / 2),
-      targetGap: Math.min(MIN_TARGET_GAP, spawnYaw / 4),
-      crosshairGap: Math.min(MIN_CROSSHAIR_GAP, spawnYaw / 3),
+      targetGap: Math.max(Math.min(MIN_TARGET_GAP, spawnYaw / 4), 2.4 * ball),
+      crosshairGap: Math.max(Math.min(MIN_CROSSHAIR_GAP, spawnYaw / 3), 2 * ball),
     };
   }
 
@@ -317,6 +375,9 @@ export class DrillEngine {
     this.camera.aspect = selected;
     this.camera.fov = vFovDeg;
     this.camera.updateProjectionMatrix();
+    // Draw the room once straight away, so the get-ready countdown shows it
+    // behind the numbers rather than a black screen.
+    this.renderer.render(this.scene, this.camera);
   }
 
   /** Swaps in the block's candidate sens value on top of the live settings, so each calibration block actually tests that candidate rather than whatever's live in the sidebar. */
@@ -545,6 +606,11 @@ export class DrillEngine {
   _clearTargets() {
     this.targets.forEach((t) => this.scene.remove(t.mesh));
     this.targets = [];
+    this.effects.forEach((e) => {
+      this.scene.remove(e.sprite);
+      e.sprite.material.dispose();
+    });
+    this.effects = [];
   }
 
   _spawnForBlock(block) {
@@ -597,21 +663,54 @@ export class DrillEngine {
     return this._targetAtAngles(best.yaw, best.pitch, radius);
   }
 
-  /** A target's radius in world units at TARGET_DISTANCE, sized to take up
-   * the same share of the screen whatever the FOV or zoom (TARGET_SIZE). */
+  /** A target's radius in world units at TARGET_DISTANCE, sized so it's
+   * TARGET_SIZE of the screen height across whatever the FOV or zoom: its
+   * height on screen, as a share of the screen, is r / (distance ×
+   * tan(vFOV/2)). */
   _targetRadius(kind) {
-    return TARGET_DISTANCE * Math.tan(TARGET_SIZE[kind] * this.viewVFov);
+    return TARGET_SIZE[kind] * TARGET_DISTANCE * Math.tan(this.viewVFov / 2);
   }
 
+  /** A ball with its ring, as one group - the group's position is the
+   * target's centre, which is what the aim test measures from. */
   _targetAtAngles(yaw, pitch, radius) {
-    const pos = this.camera.position.clone().add(this._dirFromAngles(yaw, pitch).multiplyScalar(TARGET_DISTANCE));
+    const group = new THREE.Group();
+    const ball = new THREE.Mesh(this.sphereGeometry, this.targetMaterial);
+    ball.scale.setScalar(radius);
+    // The ring sprite always faces the camera, so it stays a circle; its
+    // quad is the ball's width, so INNER_FRACTION lines up with the aim test.
+    const ring = new THREE.Sprite(this.ringMaterial);
+    ring.scale.set(radius * 2, radius * 2, 1);
+    ring.renderOrder = 1;
+    group.add(ball, ring);
+    group.position.copy(this.camera.position).add(this._dirFromAngles(yaw, pitch).multiplyScalar(TARGET_DISTANCE));
+    this.scene.add(group);
+    return { mesh: group, r: radius, yaw, pitch };
+  }
 
-    // Sprite geometry is a unit quad, so the scale is the diameter.
-    const mesh = new THREE.Sprite(this.targetMaterial);
-    mesh.scale.set(radius * 2, radius * 2, 1);
-    mesh.position.copy(pos);
-    this.scene.add(mesh);
-    return { mesh, r: radius, yaw, pitch };
+  /** A quick ring of light that grows and fades where a target was hit. */
+  _pop(target) {
+    const sprite = new THREE.Sprite(this.popMaterial.clone());
+    sprite.position.copy(target.mesh.position);
+    sprite.renderOrder = 2;
+    this.scene.add(sprite);
+    this.effects.push({ sprite, start: performance.now(), r: target.r });
+    this._updateEffects(performance.now());
+  }
+
+  _updateEffects(now) {
+    this.effects = this.effects.filter((e) => {
+      const t = (now - e.start) / POP_MS;
+      if (t >= 1) {
+        this.scene.remove(e.sprite);
+        e.sprite.material.dispose();
+        return false;
+      }
+      const s = e.r * 2 * (1 + 0.9 * t);
+      e.sprite.scale.set(s, s, 1);
+      e.sprite.material.opacity = 1 - t;
+      return true;
+    });
   }
 
   _handleShoot() {
@@ -625,6 +724,7 @@ export class DrillEngine {
     // same as the inner circle. Which one it was is only kept as a stat.
     this.metrics.hits += 1;
     if (aimed.offset <= INNER_FRACTION) this.metrics.innerHits += 1;
+    this._pop(this.targets[aimed.index]);
 
     if (block.type === 'flick') {
       this.scene.remove(this.targets[0].mesh);
@@ -700,6 +800,7 @@ export class DrillEngine {
     this.blockElapsedMs += dt;
 
     if (this.currentBlock.type === 'tracking') this._updateTracking(dt);
+    this._updateEffects(now);
 
     this.renderer.render(this.scene, this.camera);
 
