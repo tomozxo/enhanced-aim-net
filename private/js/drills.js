@@ -80,6 +80,7 @@ export class DrillEngine {
     this.rafId = null;
     this.trackPhase = 0;
     this.windowBlurredRecently = false;
+    this._fitTargetArea(70, 16 / 9); // replaced with the real view on the first resize
 
     this._initScene();
     this._bindEvents();
@@ -240,11 +241,30 @@ export class DrillEngine {
     this.sensSettings = sensSettings;
   }
 
+  /** Where targets can appear, kept inside what's on screen. The fixed
+   * ranges suit a normal field of view, but a 2.5x sight shows only ~36° of
+   * the room, so its targets would spawn off-screen - flicks to dots you
+   * can't see. These shrink to fit the view instead (never grow). */
+  _fitTargetArea(vFovDeg, aspect) {
+    const v = (vFovDeg * Math.PI) / 180;
+    const h = 2 * Math.atan(Math.tan(v / 2) * aspect);
+    const spawnYaw = Math.min(SPAWN_YAW_SPREAD, (0.8 * h) / 2);
+    this.area = {
+      spawnYaw,
+      spawnPitch: Math.min(SPAWN_PITCH_RANGE, (0.6 * v) / 2),
+      trackYaw: Math.min(TRACK_YAW_RANGE, (0.6 * h) / 2),
+      trackPitch: Math.min(TRACK_PITCH_RANGE, (0.5 * v) / 2),
+      targetGap: Math.min(MIN_TARGET_GAP, spawnYaw / 4),
+      crosshairGap: Math.min(MIN_CROSSHAIR_GAP, spawnYaw / 3),
+    };
+  }
+
   _resizeCanvas() {
     if (!this.sensSettings) return; // window can resize before the first configure()/run()
     const stageRect = this.stage.getBoundingClientRect();
-    const { game, settings } = this.sensSettings;
-    const { aspect: selected, vFovDeg, stretch, renderSize } = game.view(settings);
+    const { game, settings, tab } = this.sensSettings;
+    const { aspect: selected, vFovDeg, stretch, renderSize } = game.view(settings, tab);
+    this._fitTargetArea(vFovDeg, selected);
 
     let w = stageRect.width;
     let h = stageRect.height;
@@ -537,8 +557,8 @@ export class DrillEngine {
    * chasing a low target dragged the next one lower again and the whole
    * session gradually walked down into the floor. */
   _randomTarget(radius) {
-    const yaw = this.yaw + rand(-SPAWN_YAW_SPREAD, SPAWN_YAW_SPREAD);
-    return this._targetAtAngles(yaw, rand(-SPAWN_PITCH_RANGE, SPAWN_PITCH_RANGE), radius);
+    const yaw = this.yaw + rand(-this.area.spawnYaw, this.area.spawnYaw);
+    return this._targetAtAngles(yaw, rand(-this.area.spawnPitch, this.area.spawnPitch), radius);
   }
 
   /** A replacement for a popped dot in the Targets drill: a random spot in
@@ -550,11 +570,11 @@ export class DrillEngine {
     const angleBetween = (y1, p1, y2, p2) => Math.hypot((y1 - y2) * Math.cos((p1 + p2) / 2), p1 - p2);
     let best = null;
     for (let i = 0; i < 40; i++) {
-      const yaw = this.targetsAreaYaw + rand(-SPAWN_YAW_SPREAD, SPAWN_YAW_SPREAD);
-      const pitch = rand(-SPAWN_PITCH_RANGE, SPAWN_PITCH_RANGE);
+      const yaw = this.targetsAreaYaw + rand(-this.area.spawnYaw, this.area.spawnYaw);
+      const pitch = rand(-this.area.spawnPitch, this.area.spawnPitch);
       const gapToDots = Math.min(Infinity, ...this.targets.map((t) => angleBetween(yaw, pitch, t.yaw, t.pitch)));
       const gapToCrosshair = angleBetween(yaw, pitch, this.yaw, this.pitch);
-      if (gapToDots >= MIN_TARGET_GAP && gapToCrosshair >= MIN_CROSSHAIR_GAP) {
+      if (gapToDots >= this.area.targetGap && gapToCrosshair >= this.area.crosshairGap) {
         return this._targetAtAngles(yaw, pitch, radius);
       }
       const room = Math.min(gapToDots, gapToCrosshair);
@@ -642,9 +662,9 @@ export class DrillEngine {
     // the target along with the view, so it could never be tracked or
     // missed. It has to move independently of where you're looking.
     const yaw =
-      Math.sin(this.trackPhase * 0.9) * TRACK_YAW_RANGE + Math.sin(this.trackPhase * 2.1) * TRACK_YAW_RANGE * 0.18;
+      Math.sin(this.trackPhase * 0.9) * this.area.trackYaw + Math.sin(this.trackPhase * 2.1) * this.area.trackYaw * 0.18;
     const pitch =
-      Math.cos(this.trackPhase * 0.7) * TRACK_PITCH_RANGE + Math.cos(this.trackPhase * 1.7) * TRACK_PITCH_RANGE * 0.18;
+      Math.cos(this.trackPhase * 0.7) * this.area.trackPitch + Math.cos(this.trackPhase * 1.7) * this.area.trackPitch * 0.18;
 
     t.mesh.position.copy(this.camera.position).add(this._dirFromAngles(yaw, pitch).multiplyScalar(TARGET_DISTANCE));
 

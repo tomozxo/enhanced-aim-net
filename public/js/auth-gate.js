@@ -58,9 +58,15 @@
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') activate(); });
   btn.addEventListener('click', activate);
 
+  // One activation at a time. Enter ignores the button being disabled, so
+  // Enter-then-click (or a double Enter) used to send two, each starting its
+  // own session and one ending the other.
+  let activating = false;
+
   async function activate() {
     const key = input.value.trim();
-    if (!key) return;
+    if (!key || activating) return;
+    activating = true;
     btn.disabled = true;
     msg.textContent = 'Activating...';
     msg.className = 'gate-msg';
@@ -79,6 +85,7 @@
       msg.textContent = err.message;
       msg.className = 'gate-msg';
       btn.disabled = false;
+      activating = false;
     }
   }
 

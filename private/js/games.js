@@ -8,10 +8,10 @@
 //   Valorant: 0.07  deg/count at sens 1
 //   CS2:      0.022 deg/count at sens 1 (the default m_yaw / m_pitch)
 // so the drill turns exactly as far as the game does for the same movement.
-// Siege doesn't publish a formula, so it uses this app's estimate from
-// sensMath.js unless the user has measured their real cm/360.
+// Siege uses the model in sensMath.js: its hip-fire formula, and Ubisoft's
+// ADS system on top (ADS relative to hip-fire, scaled by the sight's zoom).
 
-import { estimateCm360, estimateCm360Axis, baseSensForTab } from './sensMath.js';
+import { estimateCm360, degPerCount as r6DegPerCount, baseSensForTab, SIGHT_ZOOM } from './sensMath.js';
 
 const DEG = Math.PI / 180;
 
@@ -33,8 +33,6 @@ export function parseResolution(res) {
   const [w, h] = String(res).split('x').map(Number);
   return { w, h };
 }
-
-const DEG_PER_CM360 = (cm360, dpi) => (360 * 2.54) / (cm360 * dpi);
 
 // Resolutions offered for Valorant and CS2: the native ones people run, plus
 // the usual stretched-res picks. Whether a non-native one is stretched or
@@ -102,39 +100,44 @@ export const GAMES = {
       { id: 'ads1x', label: '1× ADS' },
       { id: 'ads25x', label: '2.5× ADS' },
     ],
+    // Bumped when the model changes what a sens value feels like, so results
+    // tested under the old model show "retest required" (see basisFor).
+    // 2: real hip-fire constant, ADS relative to hip-fire, vertical FOV.
+    modelVersion: 2,
     defaults: {
       hipfireH: 4,
       hipfireV: 4,
+      ads1x: 50,
       ads25x: 50,
       keepAdsSpeed: true,
       useCustomMultiplier: false,
       customMultiplier: 0.02,
-      fov: 87,
+      fov: 60, // Siege's own default; its FOV setting is vertical (60-90)
       aspectRatio: '16:9',
       screenFill: 'keep-aspect',
-      // Per-optic real-world calibration: { cm360, sens, dpi, mult } captured
-      // at the moment it was measured, so the model can rescale it to other
-      // sens values instead of returning one frozen number.
+      // Per-optic real-world calibration: { cm360, dpi, factor } - how far
+      // the model was off when measured, so it rescales to other sens values.
       calib: { hipfire: null, ads1x: null, ads25x: null },
     },
     // Siege's sliders are whole numbers from 1 to 100, so ±1 is the finest a
     // fine-tune pass can go.
     rules: { step: 1, decimals: 0, min: 1, max: 100, minSpreadPct: 0 },
     baseSens: (tab, s) => baseSensForTab(tab, s),
-    withCandidate: (s, tab, sens) => (tab === 'hipfire' ? { ...s, hipfireH: sens, hipfireV: sens } : { ...s, ads25x: sens }),
-    applySens: (tab, sens) => (tab === 'hipfire' ? { hipfireH: sens, hipfireV: sens } : { ads25x: sens }),
-    degPerCount(tab, s) {
-      if (tab === 'hipfire') {
-        return { x: DEG_PER_CM360(estimateCm360Axis('h', s), s.dpi), y: DEG_PER_CM360(estimateCm360Axis('v', s), s.dpi) };
-      }
-      const d = DEG_PER_CM360(estimateCm360(tab, s), s.dpi);
-      return { x: d, y: d };
-    },
+    withCandidate: (s, tab, sens) => (tab === 'hipfire' ? { ...s, hipfireH: sens, hipfireV: sens } : { ...s, [tab]: sens }),
+    applySens: (tab, sens) => (tab === 'hipfire' ? { hipfireH: sens, hipfireV: sens } : { [tab]: sens }),
+    degPerCount: (tab, s) => r6DegPerCount(tab, s),
     cm360: (tab, s) => estimateCm360(tab, s),
-    view(s) {
+    /** Siege's FOV setting is vertical, 60-90 (Ubisoft's ADS guide), widened
+     * to fit the aspect ratio - up to a 150° horizontal cap, past which the
+     * vertical gives way. Aiming down a sight narrows it by the sight's zoom,
+     * the same as in-game; without that the ADS drills showed a hip-fire
+     * view turning at ADS speed, which felt far slower than the game. */
+    view(s, tab) {
       const aspect = parseAspect(s.aspectRatio);
-      const hFov = Math.max(60, Math.min(110, s.fov));
-      return { aspect, vFovDeg: vFovFromH(hFov, aspect), stretch: s.screenFill !== 'keep-aspect', renderSize: null };
+      let vFov = Math.max(60, Math.min(90, s.fov));
+      if (hFovFromV(vFov, aspect) > 150) vFov = vFovFromH(150, aspect);
+      if (SIGHT_ZOOM[tab]) vFov *= SIGHT_ZOOM[tab];
+      return { aspect, vFovDeg: vFov, stretch: s.screenFill !== 'keep-aspect', renderSize: null };
     },
   },
 

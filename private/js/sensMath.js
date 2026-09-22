@@ -1,102 +1,120 @@
-// Sensitivity model, in two modes:
+// Rainbow Six Siege sensitivity model.
 //
-// 1. Uncalibrated (default): a per-optic "yaw" constant (degrees of view
-//    rotation per mouse count at sens 1). These are educated guesses, NOT
-//    Ubisoft's real formula - Siege doesn't publish one. Treat them as a
-//    ballpark starting point, nothing more.
+// Hip-fire: each mouse count turns you
+//     sens × 0.00572958° × (MouseSensitivityMultiplierUnit / 0.02)
+// Ubisoft doesn't publish this, but it's what the sens community uses, and
+// it's the only value that fits mouse-sensitivity.com's recommended ranges:
+// their top recommended sens at 400/800/1200/1600 DPI (20/10/7/5) all land
+// on the same ~20 cm/360 with it. The earlier guess here (0.00714) was 25%
+// too fast.
 //
-// 2. Calibrated: you measure your real in-game cm/360 once and enter it.
-//    That measurement is converted into a yaw constant for that optic, so
-//    every other sens value scales correctly off your real number - which
-//    is what makes the drill actually match the game, and what makes the
-//    candidates a calibration run tests (e.g. 42 / 50 / 58) genuinely feel
-//    different from each other.
+// ADS (the system since Y5S3) works *relative to hip-fire*. From Ubisoft's
+// "Guide to ADS sensitivity in Y5S3": an ADS value of 50 is neutral - the
+// same mouse movement covers the same distance on your monitor as it does in
+// hip-fire - and that neutral point is 1 / XFactorAiming (0.02 by default,
+// hence 50). The rotation scales linearly with the sight's zoom, so:
+//     ADS °/count = hip-fire °/count × (ADS value × 0.02) × sight zoom
+// where the sight zoom is how much the sight narrows the field of view:
+// 0.9 for 1× sights, 0.35 for 2.5×. Those two come from the reverse-
+// engineered sight FOVs (github.com/Skwuruhl/siegeads); Ubisoft publishes
+// them only as images, so they're the one estimated part of this model.
+// The earlier version ignored hip-fire for ADS entirely, which is why ADS
+// in the drill felt much slower than the same numbers in-game.
 //
-// Storing the measurement as a constant rather than as a fixed cm/360 is
-// the important part: a fixed value would return the same number no matter
-// what sens it was asked about, which silently made all three calibration
-// candidates identical.
+// Measuring your real cm/360 for an optic ("Calibrate to your real sens")
+// stores how far the model is off at that moment, and every later sens
+// value is scaled by the same amount - so a measurement fixes the formula,
+// not just one number.
 
-const FALLBACK_YAW = {
-  hipfire: 0.00714,
-  ads1x: 0.0003934,
-  ads25x: 0.000254,
-};
-
-const DEFAULT_MULT_UNIT = 0.02; // R6's MouseSensitivityMultiplierUnit default
+export const HIP_DEG_PER_COUNT = 0.00572958; // per sens point, at multiplier 0.02
+const DEFAULT_MULT_UNIT = 0.02; // MouseSensitivityMultiplierUnit default
+const X_FACTOR_AIMING = 0.02; // default; makes ADS 50 the neutral value
+export const SIGHT_ZOOM = { ads1x: 0.9, ads25x: 0.35 }; // FOV multiplier of each sight
 
 export function customMultiplierFactor(settings) {
   return settings.useCustomMultiplier ? settings.customMultiplier / DEFAULT_MULT_UNIT : 1;
 }
 
+/** The optic's own in-game slider value (hip-fire: the H/V average). */
 export function baseSensForTab(tab, settings) {
   if (tab === 'hipfire') return (settings.hipfireH + settings.hipfireV) / 2;
-  return settings.ads25x; // ads1x has no raw slider of its own; it borrows the 2.5x value as its input
+  if (tab === 'ads1x') return settings.ads1x;
+  return settings.ads25x;
 }
 
-/** The sens value a cm/360 measurement for this optic corresponds to. A
- * cm/360 is measured by turning horizontally, so hip-fire uses H, not the
- * H/V average. */
-export function measuredSensForTab(tab, settings) {
-  return tab === 'hipfire' ? settings.hipfireH : settings.ads25x;
+/** Degrees per mouse count straight from the formula, for each axis. */
+function modelDegPerCount(tab, s) {
+  const mult = customMultiplierFactor(s);
+  const hipX = s.hipfireH * HIP_DEG_PER_COUNT * mult;
+  const hipY = s.hipfireV * HIP_DEG_PER_COUNT * mult;
+  if (tab === 'hipfire') return { x: hipX, y: hipY };
+  const ads = baseSensForTab(tab, s) * X_FACTOR_AIMING * SIGHT_ZOOM[tab];
+  return { x: hipX * ads, y: hipY * ads };
 }
 
-function calibFor(tab, settings) {
-  const c = settings.calib && settings.calib[tab];
-  if (c && c.cm360 > 0 && c.sens > 0 && c.dpi > 0) return c;
-  return null;
+const degFromCm360 = (cm360, dpi) => (360 * 2.54) / (cm360 * dpi);
+
+/**
+ * How much a measured cm/360 says the model is off by for this optic
+ * (measured speed / model speed), or 1 without a measurement.
+ * Measurements saved by older versions stored { cm360, sens, dpi, mult }
+ * without the full settings; those are rebuilt from what's saved now.
+ */
+function calibrationFactor(tab, s) {
+  const c = s.calib && s.calib[tab];
+  if (!c || !(c.cm360 > 0) || !(c.dpi > 0)) return 1;
+  if (c.factor > 0) return c.factor;
+  if (!(c.sens > 0)) return 1;
+  const then = { ...s, useCustomMultiplier: true, customMultiplier: (c.mult || 1) * DEFAULT_MULT_UNIT };
+  if (tab === 'hipfire') Object.assign(then, { hipfireH: c.sens, hipfireV: c.sens });
+  else then[tab] = c.sens;
+  const model = modelDegPerCount(tab, then).x;
+  return model > 0 ? degFromCm360(c.cm360, c.dpi) / model : 1;
 }
 
 export function isCalibrated(tab, settings) {
-  return !!calibFor(tab, settings);
+  const c = settings.calib && settings.calib[tab];
+  return !!(c && c.cm360 > 0 && c.dpi > 0);
 }
 
-/** Degrees of view rotation per mouse count at sens 1 - derived from the
- * user's own measurement when there is one, otherwise the fallback guess. */
-export function yawForTab(tab, settings) {
-  const c = calibFor(tab, settings);
-  if (!c) return FALLBACK_YAW[tab];
-  return (2.54 * 360) / (c.dpi * c.sens * (c.mult || 1) * c.cm360);
-}
-
-function cm360For(tab, sensValue, settings) {
-  const degPerCount = yawForTab(tab, settings) * sensValue * customMultiplierFactor(settings);
-  if (!(degPerCount > 0) || !(settings.dpi > 0)) return NaN;
-  return ((360 / degPerCount) / settings.dpi) * 2.54;
+/** Degrees of rotation per mouse count, per axis - what the drill uses. */
+export function degPerCount(tab, settings) {
+  const m = modelDegPerCount(tab, settings);
+  const f = calibrationFactor(tab, settings);
+  return { x: m.x * f, y: m.y * f };
 }
 
 export function estimateCm360(tab, settings) {
-  return cm360For(tab, baseSensForTab(tab, settings), settings);
+  const d = degPerCount(tab, settings).x;
+  if (!(d > 0) || !(settings.dpi > 0)) return NaN;
+  return (360 * 2.54) / (d * settings.dpi);
 }
 
-export function estimateCm360Axis(axis, settings) {
-  // hip-fire only: H and V can differ, so drills rotate each axis at its own
-  // rate. Both share the same calibrated yaw - a measurement is one
-  // horizontal turn, there's no way to measure V separately.
-  const sensValue = axis === 'h' ? settings.hipfireH : settings.hipfireV;
-  return cm360For('hipfire', sensValue, settings);
+/** Hip-fire degrees per count for 1 sens point (with the multiplier and any
+ * hip-fire measurement) - what the game converter needs for Siege. */
+export function hipDegPerSensPoint(settings) {
+  return HIP_DEG_PER_COUNT * customMultiplierFactor(settings) * calibrationFactor('hipfire', settings);
 }
 
-/** Turns "I measured X cm/360 in-game" into the stored snapshot, pinned to
- * the settings it was measured at so it can be rescaled later. */
+/** Turns "I measured X cm/360 in-game for this optic" into a stored
+ * correction, worked out against the settings right now. */
 export function calibrationFrom(tab, cm360, settings) {
   const value = Number(cm360);
-  const sens = measuredSensForTab(tab, settings);
-  if (!(value > 0) || !(sens > 0) || !(settings.dpi > 0)) return null;
-  return { cm360: value, sens, dpi: settings.dpi, mult: customMultiplierFactor(settings) };
+  if (!(value > 0) || !(settings.dpi > 0)) return null;
+  const model = modelDegPerCount(tab, settings).x;
+  if (!(model > 0)) return null;
+  return { cm360: value, dpi: settings.dpi, factor: degFromCm360(value, settings.dpi) / model };
 }
 
 /**
- * "Keep ADS speed when hip-fire changes": in Siege, ADS turn speed is
- * coupled to hip-fire sens under the hood, so raising hip-fire also speeds
- * up ADS unless compensated. When the toggle is on, we scale the ADS·2.5x
- * value inversely to hip-fire's change so the estimated ADS cm/360 stays
- * put.
+ * "Keep ADS speed when hip-fire changes": in Siege, ADS speed is your
+ * hip-fire speed scaled by the ADS value, so raising hip-fire speeds ADS up
+ * too. With the toggle on, the ADS values are scaled the other way so every
+ * ADS optic keeps the speed it had.
  */
-export function compensateAdsForHipfireChange(oldAvg, newAvg, ads25x) {
-  if (!oldAvg || oldAvg === newAvg) return ads25x;
-  const ratio = newAvg / oldAvg;
-  const compensated = ads25x / ratio;
+export function compensateAdsForHipfireChange(oldAvg, newAvg, adsValue) {
+  if (!oldAvg || oldAvg === newAvg) return adsValue;
+  const compensated = adsValue * (oldAvg / newAvg);
   return Math.max(1, Math.min(100, Math.round(compensated)));
 }
 

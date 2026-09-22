@@ -32,19 +32,21 @@ const GAMES = [
   { id: 'cod', name: 'Call of Duty / Warzone', yaw: 0.0066, decimals: 2, min: 1, max: 20 },
 ];
 
-// Siege's own optics don't get a hardcoded constant - they use this app's
-// model, which is a rough guess until the user calibrates that optic and an
-// exact one replaces it. That's why the yaw is passed in rather than fixed.
+// Siege's hip-fire yaw is passed in rather than fixed, because it moves with
+// the custom multiplier (and a measured cm/360, if the user entered one).
+// Only hip-fire is offered. Siege's ADS values aren't a sens on their own:
+// they're relative to hip-fire (50 = same feel as hip-fire), so matching one
+// to another game's cm/360 gave nonsense like "1321". Convert hip-fire and
+// your ADS values carry over as they are.
 export const R6_OPTICS = [
   { id: 'r6_hipfire', tab: 'hipfire', name: 'Rainbow Six Siege — Hip-fire', decimals: 0, min: 1, max: 100 },
-  { id: 'r6_ads1x', tab: 'ads1x', name: 'Rainbow Six Siege — 1× ADS', decimals: 0, min: 1, max: 100 },
-  { id: 'r6_ads25x', tab: 'ads25x', name: 'Rainbow Six Siege — 2.5× ADS', decimals: 0, min: 1, max: 100 },
 ];
 
-/** The full picker list. `r6Yaw` is { hipfire, ads1x, ads25x } from sensMath. */
-export function buildGameList(r6Yaw) {
+/** The full picker list. `r6HipYaw` is Siege's hip-fire degrees per count
+ * per sens point (sensMath's hipDegPerSensPoint). */
+export function buildGameList(r6HipYaw) {
   return [
-    ...R6_OPTICS.map((o) => ({ ...o, yaw: r6Yaw ? r6Yaw[o.tab] : undefined, isR6: true })),
+    ...R6_OPTICS.map((o) => ({ ...o, yaw: r6HipYaw, isR6: true })),
     ...GAMES,
     { id: CM360_ID, name: 'Other game — enter cm/360° directly', decimals: 1, isCm360: true },
   ];

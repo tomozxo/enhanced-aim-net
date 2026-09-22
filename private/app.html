@@ -59,9 +59,9 @@
         </div>
       </div>
       <div class="field-row">
-        <div class="field-label">ADS · 1x<small>cm/360°, blank = estimated</small></div>
-        <div class="stepper" data-field="ads1xMeasured">
-          <input type="number" id="ads1xMeasuredInput" step="0.5" min="1" placeholder="Est." />
+        <div class="field-label">ADS · 1x</div>
+        <div class="stepper" data-field="ads1x">
+          <input type="number" value="50" min="1" max="100" />
           <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
         </div>
       </div>
@@ -101,9 +101,9 @@
 
       <div data-game-only="r6">
       <div class="field-row">
-        <div class="field-label">In-game FOV</div>
+        <div class="field-label">In-game FOV<small>vertical, 60–90 like R6's slider</small></div>
         <div class="stepper" data-field="fov">
-          <input type="number" value="87" min="60" max="110" />
+          <input type="number" value="60" min="60" max="90" />
           <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
         </div>
       </div>
@@ -135,16 +135,19 @@
         <button class="expander-toggle" id="calibrateToggle"><span class="chev">›</span> Calibrate to your real sens</button>
         <div class="expander-body" id="calibrateBody">
           <p style="font-size:11px;color:var(--text-dim);margin:0 0 10px;line-height:1.55">
-            Out of the box these are estimates, not R6's real formula — so drills can feel
-            faster or slower than in-game. Fix it once, permanently: in R6, line your crosshair
-            up with a mark, drag your mouse across the pad until you've turned exactly one full
-            360° back to that mark, and measure the total distance you moved with a ruler.
-            Enter that number and this optic becomes exact — including when you change sens,
-            since it calibrates the formula rather than pinning one value.
+            Hip-fire uses R6's known formula. ADS also depends on how far each sight zooms,
+            which Ubisoft doesn't publish, so ADS is a close estimate. To make an optic exact:
+            in R6, line your crosshair up with a mark, drag your mouse across the pad until
+            you've turned exactly one full 360° back to that mark, and measure the distance
+            with a ruler. Enter it below and that optic stays exact, even when you change sens.
           </p>
           <div class="sub-field">
             <span class="sub-field-label">Measured cm/360° for Hip-fire</span>
             <input type="number" id="measuredHipfireInput" placeholder="e.g. 40.0" step="0.1" min="1" />
+          </div>
+          <div class="sub-field">
+            <span class="sub-field-label">Measured cm/360° for 1x ADS</span>
+            <input type="number" id="measuredAds1xInput" placeholder="e.g. 45.0" step="0.1" min="1" />
           </div>
           <div class="sub-field">
             <span class="sub-field-label">Measured cm/360° for 2.5x ADS</span>
@@ -199,7 +202,7 @@
         <div class="stat"><div class="stat-label">Hit accuracy</div><div class="stat-value" id="statAccuracy">—</div></div>
         <div class="stat"><div class="stat-label" title="Share of your hits that landed inside the ring. Hits outside it still count - this is just for reference.">Inner hits</div><div class="stat-value" id="statTargets">—</div></div>
       </div>
-      <p class="model-note" id="modelNote">1× ADS uses an estimated R6 model. For a closer match, type this optic's measured in-game cm/360° directly into <button class="linklike" id="modelNoteLink">"ADS · 1x" in the sidebar</button>, then calibrate mouse input.</p>
+      <p class="model-note" id="modelNote">ADS speed depends on each sight's zoom, which Ubisoft doesn't publish, so this optic is a close estimate. To make it exact, <button class="linklike" id="modelNoteLink">measure your real cm/360° for it</button>.</p>
 
       <div class="refine-header">
         <div>

@@ -42,6 +42,19 @@ function fresh() {
   return normalise({ version: 2, game: 'r6', shared: {}, games: {} });
 }
 
+/** Siege settings saved before the model rework (games.js modelVersion 2):
+ * - FOV went up to 110; R6's own (vertical) slider stops at 90.
+ * - The old "ADS · 1x" box was a measured cm/360 filed against the 2.5x
+ *   value, since 1x had no value of its own. Now that it does, there's no
+ *   telling what 1x value that was measured at, so it's dropped rather than
+ *   quietly skewing 1x. */
+function upgradeR6Settings(s) {
+  const out = { ...s, fov: Math.max(60, Math.min(90, Number(s.fov) || 60)) };
+  const c1 = s.calib && s.calib.ads1x;
+  if (c1 && !(c1.factor > 0)) out.calib = { ...s.calib, ads1x: null };
+  return out;
+}
+
 /** Fills in anything missing - a game added since this was saved, a new
  * setting, a new tab - without touching what's there. */
 function normalise(p) {
@@ -50,8 +63,9 @@ function normalise(p) {
     const def = gameDefaults(id);
     const saved = (p.games && p.games[id]) || {};
     const tabs = Object.keys(def.results);
+    const settings = { ...def.settings, ...(saved.settings || {}) };
     games[id] = {
-      settings: { ...def.settings, ...(saved.settings || {}) },
+      settings: id === 'r6' ? upgradeR6Settings(settings) : settings,
       activeTab: tabs.includes(saved.activeTab) ? saved.activeTab : def.activeTab,
       results: Object.fromEntries(tabs.map((t) => [t, saved.results?.[t] ?? null])),
       resultBasis: Object.fromEntries(tabs.map((t) => [t, saved.resultBasis?.[t] ?? null])),
@@ -230,6 +244,9 @@ export function basisFor(tab) {
     calib: s.calib,
     resolution: s.resolution,
     displayMode: s.displayMode,
+    // A game's model version (Siege only so far): results tested under an
+    // older formula felt different to the same numbers now.
+    model: GAMES[data.game].modelVersion,
     // Bumped whenever scoring changes meaning, so results scored the old way
     // show "retest required" instead of being compared against new ones.
     // v2: bullseye points scoring. v3: back to hit-based, ringed targets.

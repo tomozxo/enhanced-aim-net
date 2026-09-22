@@ -27,8 +27,7 @@ import {
   compensateAdsForHipfireChange,
   calibrationFrom,
   isCalibrated,
-  yawForTab,
-  customMultiplierFactor,
+  hipDegPerSensPoint,
 } from './sensMath.js';
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine } from './drills.js';
@@ -479,6 +478,7 @@ function applyFieldChange(field, value) {
     const patch = { [field]: value };
     const newAvg = field === 'hipfireH' ? (value + s.hipfireV) / 2 : (s.hipfireH + value) / 2;
     if (s.keepAdsSpeed) {
+      patch.ads1x = compensateAdsForHipfireChange(oldAvg, newAvg, s.ads1x);
       patch.ads25x = compensateAdsForHipfireChange(oldAvg, newAvg, s.ads25x);
     }
     updateR6(patch);
@@ -488,11 +488,12 @@ function applyFieldChange(field, value) {
 }
 
 function bindSettingsFields() {
-  bindStepper('hipfireH', { step: 1, min: 1, max: 50 });
-  bindStepper('hipfireV', { step: 1, min: 1, max: 50 });
+  bindStepper('hipfireH', { step: 1, min: 1, max: 100 });
+  bindStepper('hipfireV', { step: 1, min: 1, max: 100 });
+  bindStepper('ads1x', { step: 1, min: 1, max: 100 });
   bindStepper('ads25x', { step: 1, min: 1, max: 100 });
   bindStepper('dpi', { step: 50, min: 100, max: 26000 });
-  bindStepper('fov', { step: 1, min: 60, max: 110 });
+  bindStepper('fov', { step: 1, min: 60, max: 90 });
 
   $('keepAdsSpeed').addEventListener('change', (e) => updateR6({ keepAdsSpeed: e.target.checked }));
 
@@ -507,8 +508,6 @@ function bindSettingsFields() {
 
   $('aspectRatio').addEventListener('change', (e) => updateR6({ aspectRatio: e.target.value }));
   $('screenFill').addEventListener('change', (e) => updateR6({ screenFill: e.target.value }));
-
-  bindAds1xMeasured();
 }
 
 /** Writes a measured cm/360 for one Siege optic into the calibration
@@ -519,33 +518,8 @@ function setCalibration(tab, cm360) {
   updateR6({ calib });
 }
 
-/** ADS·1x is nullable (empty = "use the estimate") and steps by 0.5, unlike
- * the other sidebar fields, so it gets its own binding instead of bindStepper. */
-function bindAds1xMeasured() {
-  const wrap = document.querySelector('.stepper[data-field="ads1xMeasured"]');
-  const input = wrap.querySelector('input');
-  const up = wrap.querySelector('[data-dir="1"]');
-  const down = wrap.querySelector('[data-dir="-1"]');
-  const step = 0.5;
-
-  function commit(v) {
-    setCalibration('ads1x', v == null ? null : Math.max(1, Math.round(v * 10) / 10));
-  }
-
-  function currentOrEstimate() {
-    const raw = input.value.trim();
-    if (raw) return Number(raw);
-    const s = getGameSettings('r6');
-    return estimateCm360('ads1x', { ...s, calib: { ...s.calib, ads1x: null } });
-  }
-
-  up.addEventListener('click', () => commit(currentOrEstimate() + step));
-  down.addEventListener('click', () => commit(currentOrEstimate() - step));
-  input.addEventListener('change', () => {
-    const raw = input.value.trim();
-    commit(raw ? Number(raw) : null);
-  });
-}
+// The "measured cm/360°" box for each Siege optic.
+const MEASURED_INPUTS = { hipfire: 'measuredHipfireInput', ads1x: 'measuredAds1xInput', ads25x: 'measuredAds25xInput' };
 
 function bindExpanders() {
   $('themeToggle').addEventListener('click', () => {
@@ -557,20 +531,22 @@ function bindExpanders() {
     $('calibrateBody').classList.toggle('open');
   });
 
+  // "Measure your real cm/360° for it" opens the calibrate section at the
+  // box for the optic being looked at.
   $('modelNoteLink').addEventListener('click', () => {
-    const input = $('ads1xMeasuredInput');
+    $('calibrateToggle').classList.add('open');
+    $('calibrateBody').classList.add('open');
+    const input = $(MEASURED_INPUTS[getState().activeTab] || MEASURED_INPUTS.hipfire);
     input.focus();
     input.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 
-  $('measuredHipfireInput').addEventListener('change', (e) => {
-    const v = e.target.value.trim();
-    setCalibration('hipfire', v ? Number(v) : null);
-  });
-  $('measuredAds25xInput').addEventListener('change', (e) => {
-    const v = e.target.value.trim();
-    setCalibration('ads25x', v ? Number(v) : null);
-  });
+  for (const [tab, id] of Object.entries(MEASURED_INPUTS)) {
+    $(id).addEventListener('change', (e) => {
+      const v = e.target.value.trim();
+      setCalibration(tab, v ? Number(v) : null);
+    });
+  }
 }
 
 function bindTabs() {
@@ -649,43 +625,32 @@ function renderAll() {
 
 // ---------- Sensitivity converter ----------
 
-/** Siege's three optics as yaw constants, so they can sit in the converter's
- * game list alongside Valorant/CS/etc. The custom-multiplier factor is folded
- * in here because it scales every optic the same way. */
-function r6YawMap(settings) {
-  const mult = customMultiplierFactor(settings);
-  return {
-    hipfire: yawForTab('hipfire', settings) * mult,
-    ads1x: yawForTab('ads1x', settings) * mult,
-    ads25x: yawForTab('ads25x', settings) * mult,
-  };
-}
-
+/** Siege hip-fire goes in the list with its yaw worked out from the user's
+ * custom multiplier (and hip-fire measurement, if any). */
 function convertList() {
-  return buildGameList(r6YawMap(getGameSettings('r6')));
+  return buildGameList(hipDegPerSensPoint(getGameSettings('r6')));
 }
 
 /** The converter's own fields default to whatever the user already has set
  * up above, so the card is showing something meaningful before it's touched.
- * Siege's entries always read Siege's settings, and Valorant/CS2 read the
- * sens saved for them here, whichever game is selected. */
+ * Siege's entry always reads Siege's settings, and Valorant/CS2 read the
+ * sens saved for them here, whichever game is selected. A saved choice
+ * that's no longer in the list (the old Siege ADS entries) falls back to
+ * the default instead of leaving the picker blank. */
 function convertValues(state) {
   const s = state.settings;
   const r6 = getGameSettings('r6');
   const c = s.convert || {};
-  const from = c.from || 'r6_hipfire';
-  const fallbackSens =
-    from === 'r6_hipfire'
-      ? r6.hipfireH
-      : from === 'r6_ads1x' || from === 'r6_ads25x'
-        ? r6.ads25x
-        : GAMES[from]
-          ? getGameSettings(from).sens
-          : 1;
+  const list = convertList();
+  const listed = (id) => !!id && !!findGame(list, id);
+  const fromDropped = !listed(c.from);
+  const from = fromDropped ? 'r6_hipfire' : c.from;
+  const fallbackSens = from === 'r6_hipfire' ? r6.hipfireH : GAMES[from] ? getGameSettings(from).sens : 1;
   return {
     from,
-    to: c.to || 'valorant',
-    sens: c.sens === undefined ? fallbackSens : c.sens,
+    to: listed(c.to) ? c.to : from === 'valorant' ? 'r6_hipfire' : 'valorant',
+    // A sens saved against a dropped entry was an ADS value - start fresh.
+    sens: c.sens === undefined || fromDropped ? fallbackSens : c.sens,
     fromDpi: c.fromDpi === undefined ? s.dpi : c.fromDpi,
     toDpi: c.toDpi === undefined ? s.dpi : c.toDpi,
   };
@@ -777,11 +742,18 @@ function renderConvert(state) {
   const result = fromCm360(toGame, cm360, v.toDpi);
   $('convertResult').textContent = formatSens(result, toGame ? toGame.decimals : 3);
 
+  // Siege's hip-fire number means nothing without the multiplier it's used
+  // with, so say which one the conversion assumed.
+  const r6 = getGameSettings('r6');
+  const r6Note =
+    v.from === 'r6_hipfire' || v.to === 'r6_hipfire'
+      ? ` R6 uses your multiplier setting (${r6.useCustomMultiplier ? Number(r6.customMultiplier) : '0.02, the default'}); ADS values carry over unchanged.`
+      : '';
   $('convertCm').innerHTML =
     isFinite(cm360) && cm360 > 0
       ? `Both work out to <b>${cm360.toFixed(1)} cm/360°</b>${
           v.fromDpi !== v.toDpi && !fromIsCm && !toIsCm ? ' — DPI difference accounted for.' : '.'
-        }`
+        }${r6Note}`
       : 'Enter a sensitivity to convert.';
 
   const warn = rangeWarning(toGame, result);
@@ -813,13 +785,15 @@ function renderSettingsInputs(state) {
   $('customMultiplier').disabled = !s.useCustomMultiplier;
   $('aspectRatio').value = s.aspectRatio;
   $('screenFill').value = s.screenFill;
-  const ads1xInput = $('ads1xMeasuredInput');
-  ads1xInput.value = s.calib?.ads1x?.cm360 ?? '';
-  const estimate = estimateCm360('ads1x', { ...s, calib: { ...s.calib, ads1x: null } });
-  ads1xInput.placeholder = `Est. ${formatCm360(estimate)}`;
-
-  $('measuredHipfireInput').value = s.calib?.hipfire?.cm360 ?? '';
-  $('measuredAds25xInput').value = s.calib?.ads25x?.cm360 ?? '';
+  document.querySelector('.stepper[data-field="ads1x"] input').value = s.ads1x;
+  // Each empty "measured" box shows what the model expects, so it's easy to
+  // see how far off a measurement is.
+  for (const [tab, id] of Object.entries(MEASURED_INPUTS)) {
+    const input = $(id);
+    if (document.activeElement !== input) input.value = s.calib?.[tab]?.cm360 ?? '';
+    const estimate = estimateCm360(tab, { ...s, calib: { ...s.calib, [tab]: null } });
+    input.placeholder = `Estimate ${formatCm360(estimate)}`;
+  }
 }
 
 let builtTabsFor = null;
@@ -837,7 +811,10 @@ function renderTabsUI(state) {
     el.classList.toggle('active', el.dataset.tab === state.activeTab);
   });
   $('comparisonTag').textContent = scopeLabel(game, state.activeTab);
-  $('modelNote').style.display = game.id === 'r6' && state.activeTab === 'ads1x' ? '' : 'none';
+  // Siege's ADS optics rest on the estimated sight zoom until measured.
+  const estimatedOptic =
+    game.id === 'r6' && state.activeTab !== 'hipfire' && !isCalibrated(state.activeTab, getGameSettings('r6'));
+  $('modelNote').style.display = estimatedOptic ? '' : 'none';
 
   // "Start calibration" is always a fresh ±15% pass - the narrower passes are
   // what "Fine-tune further" does - so this doesn't depend on past results.
