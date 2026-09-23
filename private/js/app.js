@@ -72,6 +72,24 @@ function currentSens(game, tab, settings) {
   return quantizeSens(game, game.baseSens(tab, settings));
 }
 
+/** Calibrating and the converter swap places in the right-hand column
+ * rather than sitting one below the other, so neither needs scrolling to.
+ * Which one is showing is a this-visit thing, so it isn't saved. */
+function bindViewSwitch() {
+  const switcher = $('viewSwitch');
+  switcher.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-view]');
+    if (!btn) return;
+    switcher.querySelectorAll('[data-view]').forEach((b) => {
+      const on = b === btn;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    $('viewCalibrate').hidden = btn.dataset.view !== 'calibrate';
+    $('viewConvert').hidden = btn.dataset.view !== 'convert';
+  });
+}
+
 /**
  * The aim read-out on the results card: where your shots landed relative
  * to the target, over the whole run. The marker sits left of centre when
@@ -122,6 +140,7 @@ async function main() {
   initModeToggle();
 
   bindGamePicker();
+  bindViewSwitch();
   bindSettingsFields();
   bindSimpleGameFields();
   bindExpanders();

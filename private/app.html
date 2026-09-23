@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="css/styles.css" />
 <script src="js/theme-boot.js"></script>
 </head>
-<body>
+<body class="app-shell">
 
 <header class="topbar">
   <div class="topbar-brand">
@@ -36,8 +36,16 @@
   </header>
 
   <!-- Which game this page is calibrating for. Each game keeps its own
-       settings and results; buttons are filled in from games.js. -->
-  <div class="game-picker" id="gamePicker" role="tablist" aria-label="Game to calibrate for"></div>
+       settings and results; buttons are filled in from games.js. The view
+       switch on the right swaps the right-hand column between calibrating
+       and the converter, so neither has to be scrolled to. -->
+  <div class="picker-row" style="margin-bottom:14px">
+    <div class="game-picker" id="gamePicker" role="tablist" aria-label="Game to calibrate for"></div>
+    <div class="view-switch" id="viewSwitch" role="tablist" aria-label="What to show">
+      <button class="view-btn active" data-view="calibrate" role="tab" aria-selected="true">Calibrate</button>
+      <button class="view-btn" data-view="convert" role="tab" aria-selected="false">Converter</button>
+    </div>
+  </div>
 
   <div class="layout">
     <aside class="sidebar">
@@ -191,6 +199,7 @@
     </aside>
 
     <main class="content">
+      <div class="view" id="viewCalibrate">
       <div class="tabbar">
         <div class="tabs" id="mainTabs">
           <button class="tab active" data-tab="hipfire">Hip-fire</button>
@@ -268,7 +277,10 @@
         </div>
       </div>
 
-      <div class="card" id="convertCard" style="margin-top:20px">
+      </div><!-- /viewCalibrate -->
+
+      <div class="view" id="viewConvert" hidden>
+      <div class="card" id="convertCard">
         <div class="card-header">
           <h3>Sensitivity converter</h3>
           <span class="comparison-tag">Same feel in any game</span>
@@ -319,6 +331,7 @@
           aren't a flat multiplier; use the cm/360° option for those.
         </p>
       </div>
+      </div><!-- /viewConvert -->
     </main>
   </div>
 </div>
