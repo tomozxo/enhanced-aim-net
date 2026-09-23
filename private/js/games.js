@@ -64,7 +64,7 @@ const COMMON_RESOLUTIONS = [
  * the aspect ratio. That's why 4:3 shows less of the world side-to-side, and
  * why stretching it makes everything look wider.
  */
-function simpleGame({ id, name, short, yaw, vFovDeg, fovNote, defaults, rules, arrowStep, sensLabel }) {
+function simpleGame({ id, name, short, yaw, vFovDeg, fovSlider, fovNote, defaults, rules, arrowStep, sensLabel }) {
   return {
     id,
     name,
@@ -76,6 +76,7 @@ function simpleGame({ id, name, short, yaw, vFovDeg, fovNote, defaults, rules, a
     arrowStep,
     sensLabel,
     fovNote,
+    fovSlider,
     yaw,
     vFovDeg,
     resolutions: COMMON_RESOLUTIONS,
@@ -86,9 +87,15 @@ function simpleGame({ id, name, short, yaw, vFovDeg, fovNote, defaults, rules, a
     cm360: (_tab, s) => (s.sens > 0 && s.dpi > 0 ? (2.54 * 360) / (s.dpi * s.sens * yaw) : NaN),
     view(s) {
       const r = parseResolution(s.resolution);
+      // Games with their own FOV slider (Apex, Call of Duty) show a
+      // horizontal FOV measured at 16:9, and keep the vertical where it is
+      // when the aspect ratio changes.
+      const v = fovSlider
+        ? vFovFromH(Math.max(fovSlider.min, Math.min(fovSlider.max, Number(s.fov) || fovSlider.min)), 16 / 9)
+        : vFovDeg;
       return {
         aspect: r.w / r.h,
-        vFovDeg,
+        vFovDeg: v,
         stretch: s.displayMode !== 'black-bars',
         renderSize: r,
       };
@@ -181,9 +188,40 @@ export const GAMES = {
     arrowStep: 0.05,
     sensLabel: 'Same number as your CS2 sensitivity (default m_yaw)',
   }),
+
+  // Apex is Source-derived, so it shares CS2's 0.022 per count. Its FOV
+  // slider (70-110) is a horizontal FOV at 16:9.
+  apex: simpleGame({
+    id: 'apex',
+    name: 'Apex Legends',
+    short: 'Apex',
+    yaw: 0.022,
+    fovSlider: { min: 70, max: 110 },
+    fovNote: "Apex's own slider, 70-110",
+    defaults: { sens: 1.6, fov: 90, resolution: '1920x1080', displayMode: 'stretch' },
+    rules: { step: 0.01, decimals: 2, min: 0.1, max: 20, minSpreadPct: 0.02 },
+    arrowStep: 0.05,
+    sensLabel: 'Same number as your Apex mouse sensitivity',
+  }),
+
+  // Call of Duty turns 0.0066° per count at sensitivity 1 - the constant
+  // every converter uses, still current for Black Ops 6/7 and Warzone
+  // (sens 1 at 800 DPI is 173.2 cm/360). FOV slider 60-120, horizontal.
+  cod: simpleGame({
+    id: 'cod',
+    name: 'Call of Duty',
+    short: 'CoD',
+    yaw: 0.0066,
+    fovSlider: { min: 60, max: 120 },
+    fovNote: "Call of Duty's own slider, 60-120",
+    defaults: { sens: 6, fov: 100, resolution: '1920x1080', displayMode: 'stretch' },
+    rules: { step: 0.01, decimals: 2, min: 0.1, max: 20, minSpreadPct: 0.02 },
+    arrowStep: 0.25,
+    sensLabel: 'Same number as your Call of Duty sensitivity (Black Ops 6/7, Warzone)',
+  }),
 };
 
-export const GAME_ORDER = ['r6', 'valorant', 'cs2'];
+export const GAME_ORDER = ['r6', 'valorant', 'cs2', 'apex', 'cod'];
 
 export function getGame(id) {
   return GAMES[id] || GAMES.r6;

@@ -388,11 +388,26 @@ function buildSimpleGameFields(game) {
       return `<option value="${r.value}">${w} × ${h} (${r.aspect})</option>`;
     })
     .join('');
-  $('simpleViewFields').innerHTML = `
+  // Valorant and CS2 have a locked FOV, so theirs is a read-out. Apex and
+  // Call of Duty have a slider, so theirs is a field to copy across.
+  const fovRow = game.fovSlider
+    ? `<div class="field-row">
+      <div class="field-label">Field of view<small>${game.fovNote}</small></div>
+      <div class="stepper stepper-wide" data-simple-field="fov">
+        <input type="number" step="1" min="${game.fovSlider.min}" max="${game.fovSlider.max}" id="simpleFovInput" />
+        <div class="stepper-arrows"><button type="button" data-dir="1">▲</button><button type="button" data-dir="-1">▼</button></div>
+      </div>
+    </div>
     <div class="field-row">
+      <div class="field-label">That works out to</div>
+      <div class="field-static" id="simpleFovText">—</div>
+    </div>`
+    : `<div class="field-row">
       <div class="field-label">Field of view<small>${game.fovNote}</small></div>
       <div class="field-static" id="simpleFovText">—</div>
-    </div>
+    </div>`;
+  $('simpleViewFields').innerHTML = `
+    ${fovRow}
     <div class="field-row">
       <div class="field-label">Resolution</div>
       <div class="select-wrap"><select id="simpleResolution">${resOptions}</select></div>
@@ -430,7 +445,21 @@ function bindSimpleGameFields() {
     const id = currentGame().id;
     if (e.target.id === 'simpleResolution') updateGameSettings(id, { resolution: e.target.value });
     if (e.target.id === 'simpleDisplayMode') updateGameSettings(id, { displayMode: e.target.value });
+    if (e.target.id === 'simpleFovInput') commitFov(Number(e.target.value));
   });
+  $('simpleViewFields').addEventListener('click', (e) => {
+    const btn = e.target.closest('.stepper[data-simple-field="fov"] [data-dir]');
+    if (!btn) return;
+    const cur = Number($('simpleFovInput').value) || currentGame().defaults.fov;
+    commitFov(cur + Number(btn.dataset.dir));
+  });
+}
+
+function commitFov(v) {
+  const game = currentGame();
+  if (!game.fovSlider || !isFinite(v)) return renderAll();
+  const clamped = Math.max(game.fovSlider.min, Math.min(game.fovSlider.max, Math.round(v)));
+  updateGameSettings(game.id, { fov: clamped });
 }
 
 function renderSimpleGameFields(game, s) {
@@ -442,7 +471,13 @@ function renderSimpleGameFields(game, s) {
   $('simpleDisplayMode').value = s.displayMode;
   const view = game.view(s);
   const hFov = hFovFromV(view.vFovDeg, view.aspect);
-  $('simpleFovText').textContent = `${Number(hFov.toFixed(1))}° wide`;
+  if (game.fovSlider) {
+    const fovInput = $('simpleFovInput');
+    if (document.activeElement !== fovInput) fovInput.value = s.fov;
+    $('simpleFovText').textContent = `${Number(hFov.toFixed(1))}° wide at this resolution`;
+  } else {
+    $('simpleFovText').textContent = `${Number(hFov.toFixed(1))}° wide`;
+  }
 }
 
 /** Shows the selected game's parts of the page and hides the others. */
