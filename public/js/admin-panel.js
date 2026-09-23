@@ -144,6 +144,14 @@ function lockText(k) {
   return k.gpuCount > 1 ? 'Browser + PC (2 GPUs)' : 'Browser + PC';
 }
 
+/** A key with a length runs from its first activation, so one that hasn't
+ * been used yet has no end date to show - just how long it will last. */
+function expiryText(k) {
+  if (k.expiresAt) return fmt(k.expiresAt);
+  if (k.durationDays > 0) return `${k.durationDays} day${k.durationDays === 1 ? '' : 's'} from first use`;
+  return 'never';
+}
+
 function blockedText(k) {
   if (!k.blockedAttempts) return '0';
   return `<span class="blocked-flag" title="Last one: ${esc(fmt(k.lastBlockedAt))}">${k.blockedAttempts} ⚠</span>`;
@@ -168,7 +176,7 @@ async function loadKeys() {
         <td data-label="Locked to">${lockText(k)}</td>
         <td data-label="Blocked attempts">${blockedText(k)}</td>
         <td data-label="Last seen">${fmt(k.lastSeenAt)}</td>
-        <td data-label="Expires">${k.expiresAt ? fmt(k.expiresAt) : 'never'}</td>
+        <td data-label="Expires">${expiryText(k)}</td>
         <td class="actions-cell">
           <div class="row-actions">
             <button class="btn-small" data-act="unlock" data-key="${k.key}" ${!k.lockedDeviceId ? 'disabled' : ''} title="Lets the key be activated on a new browser/PC">Reset lock</button>

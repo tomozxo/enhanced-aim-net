@@ -13,6 +13,7 @@ const COLUMNS = {
   status: 'status',
   isAdmin: 'is_admin',
   createdAt: 'created_at',
+  durationDays: 'duration_days',
   expiresAt: 'expires_at',
   lockedDeviceId: 'locked_device_id',
   lockedFingerprint: 'locked_fingerprint',
@@ -79,6 +80,7 @@ function fromRow(r) {
     status: r.status,
     isAdmin: r.is_admin,
     createdAt: iso(r.created_at),
+    durationDays: r.duration_days ?? null,
     expiresAt: iso(r.expires_at),
     lockedDeviceId: r.locked_device_id,
     lockedFingerprint: parseJson(r.locked_fingerprint),
@@ -119,18 +121,19 @@ module.exports = {
         ADD COLUMN IF NOT EXISTS locked_fingerprint TEXT,
         ADD COLUMN IF NOT EXISTS current_session_id TEXT,
         ADD COLUMN IF NOT EXISTS blocked_attempts   INTEGER NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS last_blocked_at    TIMESTAMPTZ`);
+        ADD COLUMN IF NOT EXISTS last_blocked_at    TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS duration_days      INTEGER`);
     await pool.query('ALTER TABLE license_keys ENABLE ROW LEVEL SECURITY');
   },
 
   /** Adds a new record, or returns null if that key already exists. */
   async insertKey(r) {
     const { rows } = await pool.query(
-      `INSERT INTO license_keys (key, note, status, is_admin, created_at, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO license_keys (key, note, status, is_admin, created_at, expires_at, duration_days)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (key) DO NOTHING
        RETURNING *`,
-      [r.key, r.note, r.status, r.isAdmin, r.createdAt, r.expiresAt]
+      [r.key, r.note, r.status, r.isAdmin, r.createdAt, r.expiresAt, r.durationDays]
     );
     return fromRow(rows[0]);
   },
@@ -174,6 +177,11 @@ module.exports = {
               locked_fingerprint = $3,
               current_session_id = $4,
               activated_at = COALESCE(activated_at, $5::timestamptz),
+              -- The countdown starts here, on first activation.
+              expires_at = COALESCE(
+                expires_at,
+                CASE WHEN duration_days IS NULL THEN NULL
+                     ELSE $5::timestamptz + make_interval(days => duration_days) END),
               last_seen_at = $5::timestamptz,
               last_seen_device_id = $2
         WHERE key = $1 AND locked_device_id IS NULL AND status <> 'revoked'

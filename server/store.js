@@ -47,7 +47,11 @@ async function createKey({ note = '', expiresInDays = null, isAdmin = false } = 
       status: 'unused', // unused | active | revoked
       isAdmin: !!isAdmin,
       createdAt: new Date().toISOString(),
-      expiresAt: expiresInDays ? new Date(Date.now() + expiresInDays * 86400000).toISOString() : null,
+      // How long the key lasts once it's used. The clock starts when it is
+      // first activated (claimDevice sets expiresAt from this), so a key
+      // that sits unused for a week still gives its owner the full time.
+      durationDays: expiresInDays > 0 ? Math.round(expiresInDays) : null,
+      expiresAt: null,
       lockedDeviceId: null,
       lockedFingerprint: null,
       currentSessionId: null,

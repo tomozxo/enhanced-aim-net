@@ -92,6 +92,10 @@ module.exports = {
       lockedFingerprint: lock,
       currentSessionId: sessionId,
       activatedAt: rec.activatedAt || nowIso,
+      // The countdown starts here, on first activation.
+      expiresAt:
+        rec.expiresAt ||
+        (rec.durationDays > 0 ? new Date(Date.parse(nowIso) + rec.durationDays * 86400000).toISOString() : null),
       lastSeenAt: nowIso,
       lastSeenDeviceId: deviceId,
     };
