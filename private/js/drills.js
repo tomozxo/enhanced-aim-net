@@ -1,6 +1,6 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 
-const DRILL_LABELS = { flick: 'FLICK', targets: 'TARGETS', tracking: 'TRACKING' };
+const DRILL_LABELS = { flick: 'FLICK', bounce: 'BOUNCE', targets: 'TARGETS', tracking: 'TRACKING' };
 const TARGET_DISTANCE = 60; // world units targets sit out in front of the camera
 const TRACK_YAW_RANGE = (22 * Math.PI) / 180; // how far the tracking target swings left/right
 const TRACK_PITCH_RANGE = (7 * Math.PI) / 180;
@@ -15,17 +15,27 @@ const SPAWN_PITCH_RANGE = (7 * Math.PI) / 180;
 const ARENA_RADIUS = 120; // targets sit at 60, halfway to the wall
 const ARENA_HEIGHT = 440;
 const CAMERA_HEIGHT = ARENA_HEIGHT / 2;
-const GRID = 8; // world units per grid square - about 4° across on the wall
+const GRID = 16; // world units per grid square - about 7.6° across on the wall
+
+// Bounce drill: the target slides along a straight line a couple of grid
+// squares wide and turns around at each end, and you flick onto it and
+// shoot. The next one appears on the other side of where you're looking,
+// so every shot is a flick across rather than a nudge.
+const BOUNCE_TRAVEL = (7 * Math.PI) / 180; // how far it slides, end to end
+const BOUNCE_SPEED = (9 * Math.PI) / 180; // degrees per second along that line
+const BOUNCE_OFFSET = { min: (9 * Math.PI) / 180, max: (20 * Math.PI) / 180 }; // how far out it spawns
 
 // Target sizes are set by what's on screen, not fixed in the world: each is
 // this share of the screen height across, so a target is the same size on
 // screen at any FOV, aspect ratio or sight zoom - hip-fire, 1x and 2.5x all
 // match. (Fixed world sizes used to blow up to a sixth of the screen
 // through the 2.5x sight.)
-// About 3.5%: roughly a head at Siege engagement range, which is small
-// enough that landing one takes a real micro-adjustment rather than a
-// rough swing in the right direction.
-const TARGET_SIZE = { flick: 0.035, targets: 0.032, tracking: 0.035 };
+// About 4%: small enough that landing one takes a real micro-adjustment
+// rather than a rough swing in the right direction.
+const TARGET_SIZE = { flick: 0.042, bounce: 0.042, targets: 0.038, tracking: 0.042 };
+// Each one that appears is scaled somewhere in this range, so you're never
+// adjusting to the same size twice in a row.
+const SIZE_RANGE = { min: 0.75, max: 1.3 };
 
 // Each target is a flat bullseye: outer band, white ring, centre. A hit
 // anywhere on it counts exactly the same; whether it landed on the centre is
@@ -104,21 +114,13 @@ export class DrillEngine {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 
     this.scene = new THREE.Scene();
-    const fogColor = new THREE.Color(0x060607);
-    this.scene.background = fogColor;
-    this.scene.fog = new THREE.FogExp2(fogColor, 0.0026);
+    this.scene.background = new THREE.Color(0x000000);
+    // No lights and no fog: the arena is one flat, even black whichever way
+    // you turn, so nothing shifts behind the targets as you aim.
 
     this.camera = new THREE.PerspectiveCamera(90, 1, 0.5, 2000);
     this.camera.position.set(0, CAMERA_HEIGHT, 0);
     this.camera.rotation.order = 'YXZ';
-
-    // A soft fill plus one key light from above and to one side, so the
-    // round wall shades gradually from lit to dim as you turn. The targets
-    // are flat and unlit, so they're unaffected.
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x1a1a1e, 1.3));
-    const key = new THREE.DirectionalLight(0xffffff, 1.6);
-    key.position.set(0.45, 1, 0.6);
-    this.scene.add(key);
 
     this._buildArena();
 
@@ -138,13 +140,13 @@ export class DrillEngine {
     const around = Math.round((2 * Math.PI * R) / GRID);
     const wall = new THREE.Mesh(
       new THREE.CylinderGeometry(R, R, H, 160, 1, true),
-      new THREE.MeshLambertMaterial({ map: this._makeGridTexture(around, H / GRID), side: THREE.BackSide })
+      new THREE.MeshBasicMaterial({ map: this._makeGridTexture(around, H / GRID), side: THREE.BackSide })
     );
     wall.position.y = H / 2;
     this.scene.add(wall);
 
     const capGeometry = new THREE.CircleGeometry(R, 160);
-    const capMaterial = new THREE.MeshLambertMaterial({ map: this._makeGridTexture((2 * R) / GRID, (2 * R) / GRID) });
+    const capMaterial = new THREE.MeshBasicMaterial({ map: this._makeGridTexture((2 * R) / GRID, (2 * R) / GRID) });
     const floor = new THREE.Mesh(capGeometry, capMaterial);
     floor.rotation.x = -Math.PI / 2;
     this.scene.add(floor);
@@ -161,11 +163,11 @@ export class DrillEngine {
     const c = document.createElement('canvas');
     c.width = c.height = size;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#1c1d21';
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, size, size);
     // 3px on each edge, so neighbouring squares meet in a 6px line - about
     // one screen pixel at normal FOVs.
-    ctx.fillStyle = '#34363d';
+    ctx.fillStyle = '#2b2d33';
     ctx.fillRect(0, 0, size, 3);
     ctx.fillRect(0, size - 3, size, 3);
     ctx.fillRect(0, 0, 3, size);
@@ -536,7 +538,9 @@ export class DrillEngine {
       clicks: 0,
       cleared: 0,
       onTargetMs: 0, // tracking: time the crosshair was anywhere on the dot
+      aim: [], // per shot: how far past (+) or short of (-) the target you landed
     };
+    this.shotFromYaw = 0; // where the view was when the current target appeared
     // Recentre the view at the start of every block so a candidate never
     // inherits wherever the last block happened to leave the camera aimed.
     this.yaw = 0;
@@ -562,6 +566,8 @@ export class DrillEngine {
     this._clearTargets();
     if (block.type === 'flick') {
       this.targets = [this._randomTarget(this._targetRadius('flick'))];
+    } else if (block.type === 'bounce') {
+      this._spawnBounce(Math.random() < 0.5 ? -1 : 1);
     } else if (block.type === 'targets') {
       // The area replacements spawn in stays put for the whole block, centred
       // on where you were facing when it started - so the group never slowly
@@ -575,6 +581,48 @@ export class DrillEngine {
     }
   }
 
+  /** Bounce drill: one target off to `side` (-1 left, +1 right) of where
+   * you're looking, sliding along a straight line and turning round at each
+   * end. The line is short - a couple of grid squares - so it's a flick
+   * across followed by a small adjustment, not a chase. */
+  _spawnBounce(side) {
+    const spread = Math.min(BOUNCE_OFFSET.max, this.area.spawnYaw);
+    const offset = Math.max(BOUNCE_OFFSET.min, Math.min(spread, rand(BOUNCE_OFFSET.min, spread)));
+    const centre = this.yaw + side * offset;
+    const travel = Math.min(BOUNCE_TRAVEL, this.area.spawnYaw / 2);
+    const pitch = rand(-this.area.spawnPitch, this.area.spawnPitch);
+    this.shotFromYaw = this.yaw;
+    const target = this._targetAtAngles(centre, pitch, this._targetRadius('bounce'));
+    // Which way it's travelling: start it heading back across the gap, so it
+    // moves into the flick rather than away from it.
+    this.bounce = { centre, half: travel / 2, dir: -side, phase: rand(-travel / 2, travel / 2), side };
+    target.yaw = centre + this.bounce.phase;
+    this.targets = [target];
+    this._placeBounce();
+  }
+
+  _placeBounce() {
+    const t = this.targets[0];
+    const b = this.bounce;
+    if (!t || !b) return;
+    t.yaw = b.centre + b.phase;
+    t.mesh.position.copy(this.camera.position).add(this._dirFromAngles(t.yaw, t.pitch).multiplyScalar(TARGET_DISTANCE));
+  }
+
+  _updateBounce(dtMs) {
+    const b = this.bounce;
+    if (!b) return;
+    b.phase += b.dir * BOUNCE_SPEED * (dtMs / 1000);
+    if (b.phase > b.half) {
+      b.phase = b.half;
+      b.dir = -1;
+    } else if (b.phase < -b.half) {
+      b.phase = -b.half;
+      b.dir = 1;
+    }
+    this._placeBounce();
+  }
+
   /** Spawns at a yaw offset from wherever you're currently looking (so it's
    * always on screen to flick to) but at an ABSOLUTE world pitch near eye
    * level. Pitch being absolute is the important part: taking it from the
@@ -582,6 +630,7 @@ export class DrillEngine {
    * chasing a low target dragged the next one lower again and the whole
    * session gradually walked down into the floor. */
   _randomTarget(radius) {
+    this.shotFromYaw = this.yaw; // where the flick to this one starts from
     const yaw = this.yaw + rand(-this.area.spawnYaw, this.area.spawnYaw);
     return this._targetAtAngles(yaw, rand(-this.area.spawnPitch, this.area.spawnPitch), radius);
   }
@@ -613,7 +662,8 @@ export class DrillEngine {
    * height on screen, as a share of the screen, is r / (distance ×
    * tan(vFOV/2)). */
   _targetRadius(kind) {
-    return TARGET_SIZE[kind] * TARGET_DISTANCE * Math.tan(this.viewVFov / 2);
+    const varied = TARGET_SIZE[kind] * rand(SIZE_RANGE.min, SIZE_RANGE.max);
+    return varied * TARGET_DISTANCE * Math.tan(this.viewVFov / 2);
   }
 
   _targetAtAngles(yaw, pitch, radius) {
@@ -626,21 +676,52 @@ export class DrillEngine {
     return { mesh, r: radius, yaw, pitch };
   }
 
+  /**
+   * Records where this shot landed relative to the target you were flicking
+   * to, as a fraction of the target's radius and signed along the direction
+   * of the flick: positive means the crosshair ended up past the target
+   * (over-aiming), negative means it stopped short (under-aiming). Shots
+   * with no flick behind them (the crosshair was already there) are skipped,
+   * since they say nothing about how far you swing.
+   */
+  _recordAim(target) {
+    const from = this.shotFromYaw;
+    if (from == null) return;
+    const travel = target.yaw - from;
+    if (Math.abs(travel) < target.r / TARGET_DISTANCE) return; // barely moved
+    const past = (this.yaw - target.yaw) * Math.sign(travel);
+    this.metrics.aim.push(past / (target.r / TARGET_DISTANCE));
+  }
+
   _handleShoot() {
     const block = this.currentBlock;
-    if (!block || (block.type !== 'flick' && block.type !== 'targets')) return;
+    if (!block || (block.type !== 'flick' && block.type !== 'targets' && block.type !== 'bounce')) return;
     this.metrics.clicks += 1;
     const aimed = this._aimedTarget();
-    if (!aimed) return;
+    // Only the one-target drills feed the aim read-out: with five dots up
+    // there's no telling which one a shot was meant for. A miss counts too -
+    // it's the shots that land past or short that say the most.
+    const readsAim = block.type === 'flick' || block.type === 'bounce';
+    if (!aimed) {
+      if (readsAim) this._recordAim(this.targets[0]);
+      return;
+    }
 
     // Anywhere on the target is a hit - the outer band counts exactly the
     // same as the inner circle. Which one it was is only kept as a stat.
     this.metrics.hits += 1;
     if (aimed.offset <= INNER_FRACTION) this.metrics.innerHits += 1;
+    if (readsAim) this._recordAim(this.targets[aimed.index]);
 
     if (block.type === 'flick') {
       this.scene.remove(this.targets[0].mesh);
+      this.shotFromYaw = this.yaw;
       this.targets = [this._randomTarget(this._targetRadius('flick'))];
+    } else if (block.type === 'bounce') {
+      this.scene.remove(this.targets[0].mesh);
+      this.shotFromYaw = this.yaw;
+      // Next one on the other side, so each shot is a flick across.
+      this._spawnBounce(-this.bounce.side);
     } else {
       this.scene.remove(this.targets[aimed.index].mesh);
       this.targets.splice(aimed.index, 1);
@@ -712,6 +793,7 @@ export class DrillEngine {
     this.blockElapsedMs += dt;
 
     if (this.currentBlock.type === 'tracking') this._updateTracking(dt);
+    else if (this.currentBlock.type === 'bounce') this._updateBounce(dt);
 
     this.renderer.render(this.scene, this.camera);
 
@@ -744,12 +826,14 @@ export class DrillEngine {
       candidateSens: block.candidateSens,
       scored: block.scored,
       flickHitsPerSec: block.type === 'flick' ? m.hits / elapsedSec : null,
+      bounceHitsPerSec: block.type === 'bounce' ? m.hits / elapsedSec : null,
       clearedPerSec: block.type === 'targets' ? m.cleared / elapsedSec : null,
       onTargetPct: block.type === 'tracking' ? m.onTargetMs / this.blockDurationMs : null,
       accuracy: m.clicks ? m.hits / m.clicks : null,
       hits: m.hits,
       innerHits: m.innerHits,
       clicks: m.clicks,
+      aim: m.aim.slice(),
     };
     if (block.scored) this.results.push(result);
     this.onBlockComplete?.(result, this.queueIndex, this.queue.length);

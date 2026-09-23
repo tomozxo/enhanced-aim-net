@@ -39,8 +39,12 @@ import {
   scoreResults,
   planFineTune,
   capPooledResults,
+  analyseAim,
+  AIM_VERDICTS,
   CONFIDENCE_TEXT,
   INITIAL_SPREAD_PCT,
+  TOTAL_SCORED_BLOCKS,
+  BLOCK_SECONDS,
 } from './calibration.js';
 import {
   buildGameList,
@@ -66,6 +70,29 @@ function scopeLabel(game, tab) {
 /** The sens currently set for this tab, rounded to what the game accepts. */
 function currentSens(game, tab, settings) {
   return quantizeSens(game, game.baseSens(tab, settings));
+}
+
+/**
+ * The aim read-out on the results card: where your shots landed relative
+ * to the target, over the whole run. The marker sits left of centre when
+ * flicks stop short and right when they go past; dead centre means they
+ * land where they're aimed.
+ */
+function renderAimRead(aim) {
+  const box = $('aimRead');
+  if (!aim) {
+    box.hidden = true;
+    return;
+  }
+  const verdict = AIM_VERDICTS[aim.verdict];
+  box.hidden = false;
+  $('aimReadTitle').textContent = verdict.title;
+  $('aimReadTag').textContent = `${aim.shots} shots read`;
+  $('aimReadText').textContent = verdict.text;
+  // One target width either way fills the bar; anything past that pins.
+  const pos = Math.max(-1, Math.min(1, aim.mean));
+  $('aimBarDot').style.left = `${50 + pos * 50}%`;
+  box.dataset.verdict = aim.verdict;
 }
 
 /** An admin key is an ordinary key that can also hand out keys, so it gets
@@ -210,7 +237,7 @@ async function main() {
     const tab = getState().activeTab;
     const settings = getState().settings;
     const type = $('drillPreview').value;
-    const label = { flick: 'Flicking', targets: 'Targets', tracking: 'Tracking' }[type];
+    const label = { flick: 'Flicking', bounce: 'Bounce', targets: 'Targets', tracking: 'Tracking' }[type];
     run = { isPractice: true, tab };
 
     setDrillTabsHighlight(tab);
@@ -236,11 +263,15 @@ async function main() {
       $('resultsRec').hidden = true;
       $('fineTuneBtn').hidden = true;
       $('applyResultsBtn').hidden = true;
+      // Practice still has shots to read, just fewer, so it asks for less.
+      renderAimRead(analyseAim(results, 12));
     } else {
       const pooled = capPooledResults([...run.carryOver, ...results]);
       const scored = scoreResults(run.candidates, pooled);
       const saved = {
         ...scored,
+        // How your shots landed across the whole run, over- or under-aiming.
+        aim: analyseAim(pooled),
         spreadPct: run.spreadPct,
         delta: run.delta,
         centeredValue: run.centeredValue,
@@ -272,6 +303,7 @@ async function main() {
     $('resultsConfidence').textContent = conf.label;
     $('resultsTableBody').innerHTML = comparisonRowsHtml(result, game);
     $('resultsHint').textContent = fineTuneHint(result, game);
+    renderAimRead(result.aim);
 
     // Whichever action makes more sense right now gets the accent colour: a
     // clear winner you're not already on is ready to apply; anything closer,
@@ -494,7 +526,8 @@ function renderGameChrome(state) {
     el.hidden = !el.dataset.gameOnly.split(' ').includes(game.id);
   });
   $('sidebarTitle').textContent = `Your ${game.short} settings`;
-  $('calibrationHint').textContent = `27 × 7-second blocks + warm-up · about 4 minutes${
+  const minutes = Math.round((TOTAL_SCORED_BLOCKS * (BLOCK_SECONDS + 3)) / 60);
+  $('calibrationHint').textContent = `${TOTAL_SCORED_BLOCKS} × ${BLOCK_SECONDS}-second blocks + warm-up · about ${minutes} minutes${
     game.tabs.length > 1 ? ' per optic' : ''
   } · runs fullscreen`;
   renderSimpleGameFields(game, state.settings);
@@ -774,6 +807,7 @@ function comparisonRowsHtml(result, game) {
       return `<tr class="${cls}">
         <td>${formatGameSens(game, c.sens)}${c.isBase ? ` · ${tag}` : ''}</td>
         <td>${fmtRate(c.flickHitsPerSec)}</td>
+        <td>${fmtRate(c.bounceHitsPerSec)}</td>
         <td>${fmtRate(c.clearedPerSec)}</td>
         <td>${fmtPct(c.onTargetPct)}</td>
         <td>${c.score}</td>

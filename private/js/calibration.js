@@ -1,7 +1,7 @@
 const BLOCK_DURATION_SEC = 7;
 const WARMUP_DURATION_SEC = 5;
-const DRILL_ORDER = ['flick', 'targets', 'tracking'];
-const DRILL_NAMES = { flick: 'Flicking', targets: 'Targets', tracking: 'Tracking' };
+const DRILL_ORDER = ['flick', 'bounce', 'targets', 'tracking'];
+const DRILL_NAMES = { flick: 'Flicking', bounce: 'Bounce', targets: 'Targets', tracking: 'Tracking' };
 const ROUNDS_PER_COMBO = 3; // "Repeated rounds help check whether a setting performs consistently."
 
 // When a fine-tune pass re-tests the exact same three values (because the
@@ -11,7 +11,8 @@ const MAX_POOLED_PASSES = 4;
 
 export const INITIAL_SPREAD_PCT = 0.15;
 export const CANDIDATES_COUNT = 3;
-export const TOTAL_SCORED_BLOCKS = CANDIDATES_COUNT * DRILL_ORDER.length * ROUNDS_PER_COMBO; // 27
+export const TOTAL_SCORED_BLOCKS = CANDIDATES_COUNT * DRILL_ORDER.length * ROUNDS_PER_COMBO; // 36
+export const BLOCK_SECONDS = BLOCK_DURATION_SEC;
 
 // What a game's sens values can be (see `rules` in games.js). Siege's
 // sliders are whole numbers 1-100, so that's the default here.
@@ -88,43 +89,51 @@ function sum(rows, field) {
  * Groups scored block results by candidate (averaging repeated rounds) and
  * gives each a 0-100 score:
  *   - Flick: hits per second.
+ *   - Bounce: hits per second on the sliding target.
  *   - Targets: dots cleared per second.
  *   - Tracking: share of the round the crosshair was on the dot.
  * A hit anywhere on a target counts - the inner circle and the outer band
  * are worth the same. "Inner hits" is kept as a stat to look at, and doesn't
  * affect the score. Each drill is normalised against the best candidate in
- * that drill, and the three are weighted equally.
+ * that drill, and they're weighted equally.
  */
 export function scoreResults(candidates, results) {
   const byCandidate = candidates.map((c) => {
     const own = results.filter((r) => r.candidateSens === c.sens);
     const flicks = own.filter((r) => r.type === 'flick');
+    const bounces = own.filter((r) => r.type === 'bounce');
     const targets = own.filter((r) => r.type === 'targets');
     const tracking = own.filter((r) => r.type === 'tracking');
-    const shots = [...flicks, ...targets];
+    const shots = [...flicks, ...bounces, ...targets];
     const hits = sum(shots, 'hits');
     const clicks = sum(shots, 'clicks');
     return {
       sens: c.sens,
       isBase: c.isBase,
       flickHitsPerSec: avg(flicks, 'flickHitsPerSec'),
+      bounceHitsPerSec: avg(bounces, 'bounceHitsPerSec'),
       clearedPerSec: avg(targets, 'clearedPerSec'),
       onTargetPct: avg(tracking, 'onTargetPct'),
       innerHitPct: hits ? sum(shots, 'innerHits') / hits : null,
       accuracy: clicks ? hits / clicks : null,
       totalHits: hits,
-      roundsPerDrill: Math.min(flicks.length, targets.length, tracking.length),
+      roundsPerDrill: Math.min(flicks.length, bounces.length, targets.length, tracking.length),
     };
   });
 
   const maxOf = (field) => Math.max(...byCandidate.map((c) => c[field]), 0.0001);
   const maxFlick = maxOf('flickHitsPerSec');
+  const maxBounce = maxOf('bounceHitsPerSec');
   const maxCleared = maxOf('clearedPerSec');
   const maxTracking = maxOf('onTargetPct');
 
   byCandidate.forEach((c) => {
-    const n = c.flickHitsPerSec / maxFlick + c.clearedPerSec / maxCleared + c.onTargetPct / maxTracking;
-    c.score = Math.round((n / 3) * 100);
+    const n =
+      c.flickHitsPerSec / maxFlick +
+      c.bounceHitsPerSec / maxBounce +
+      c.clearedPerSec / maxCleared +
+      c.onTargetPct / maxTracking;
+    c.score = Math.round((n / DRILL_ORDER.length) * 100);
   });
 
   // On a tie, keep what you already play on rather than recommending a change.
@@ -134,6 +143,57 @@ export function scoreResults(candidates, results) {
 
   return { candidates: byCandidate, best, margin, confidence: confidenceFor(margin) };
 }
+
+/**
+ * Reads the shots themselves rather than the scores. Every shot in the
+ * flick, bounce and targets drills records where the crosshair ended up
+ * relative to the target you were flicking to, measured in target widths
+ * and signed along the direction of the flick: positive landed past it,
+ * negative stopped short.
+ *
+ * The average of those says whether you consistently swing too far or not
+ * far enough, which is the part of aim a sensitivity can actually fix -
+ * and how spread out they are says how repeatable your flicks are.
+ * Returns null until there are enough shots to mean anything.
+ */
+export function analyseAim(results, minShots = 25) {
+  const shots = results.flatMap((r) => r.aim || []);
+  if (shots.length < minShots) return null;
+  const mean = shots.reduce((s, v) => s + v, 0) / shots.length;
+  const spread = Math.sqrt(shots.reduce((s, v) => s + (v - mean) ** 2, 0) / shots.length);
+  const past = shots.filter((v) => v > 0).length / shots.length;
+
+  // Under about a fifth of a target either way is just noise - that's a
+  // player whose flicks land where they're aimed.
+  let verdict = 'balanced';
+  if (mean > 0.2) verdict = mean > 0.5 ? 'over' : 'slightly-over';
+  else if (mean < -0.2) verdict = mean < -0.5 ? 'under' : 'slightly-under';
+
+  return { shots: shots.length, mean, spread, pastShare: past, verdict };
+}
+
+export const AIM_VERDICTS = {
+  over: {
+    title: 'You overshoot',
+    text: 'Your flicks land past the target more often than not, then come back. A lower sensitivity usually settles that - or the same sensitivity with a more deliberate stop.',
+  },
+  'slightly-over': {
+    title: 'You overshoot slightly',
+    text: 'Your flicks tend to land a little past the target. Worth trying the next step down before you commit.',
+  },
+  balanced: {
+    title: 'Your flicks land where you aim',
+    text: "No consistent pull either way, so the misses are spread rather than one-sided. That's what a sensitivity that suits you looks like.",
+  },
+  'slightly-under': {
+    title: 'You stop slightly short',
+    text: 'Your flicks tend to land a little short of the target, so you finish with a nudge. Worth trying the next step up.',
+  },
+  under: {
+    title: 'You stop short',
+    text: 'Your flicks land short of the target and you creep the rest of the way, which costs time. A higher sensitivity usually fixes that.',
+  },
+};
 
 /**
  * How decisively the winner won, in score points over the runner-up. These

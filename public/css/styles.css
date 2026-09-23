@@ -417,6 +417,23 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 }
 #convertCard table.comparison { margin-top: 16px; }
 
+/* ---------- Aim read-out on the results card ---------- */
+.aim-read { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); text-align: left; }
+.aim-read-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.aim-read-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.aim-read-tag { font-size: 11px; color: var(--text-dim); }
+.aim-bar {
+  position: relative; height: 6px; margin: 12px 0 4px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--panel-2), var(--border), var(--panel-2));
+}
+.aim-bar-mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--text-dim); opacity: .6; }
+.aim-bar-dot {
+  position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--accent); transform: translate(-50%, -50%); transition: left .4s ease;
+}
+.aim-bar-labels { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-dim); }
+.aim-read-text { font-size: 12.5px; line-height: 1.65; color: var(--text-sub); margin: 10px 0 0; }
+
 /* ---------- Mouse check dialog ---------- */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.72); z-index: 900;

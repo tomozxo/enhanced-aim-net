@@ -208,7 +208,7 @@
           <h3>Make every movement count.</h3>
           <p>Compare three sensitivities across flicking, target clearing and tracking. Repeated rounds help check whether a setting performs consistently.</p>
           <button class="btn-accent" id="startCalibrationBtn">Start calibration ↗</button>
-          <p class="caption" id="calibrationHint">27 × 7-second blocks + warm-up · about 4 minutes per optic · runs fullscreen</p>
+          <p class="caption" id="calibrationHint">36 × 7-second blocks + warm-up · about 6 minutes per optic · runs fullscreen</p>
         </div>
         <div class="panel-footer">
           <div class="kbd-hint"><span class="kbd">LMB</span> Shoot in flick &amp; targets drills</div>
@@ -233,6 +233,7 @@
           <div class="select-wrap">
             <select id="drillPreview">
               <option value="flick">Flicking</option>
+              <option value="bounce">Bounce</option>
               <option value="targets">Targets</option>
               <option value="tracking">Tracking</option>
             </select>
@@ -259,7 +260,7 @@
             <span class="comparison-tag" id="comparisonTag">1× ADS</span>
           </div>
           <table class="comparison" id="comparisonTable">
-            <thead><tr><th>Sens</th><th title="Hits per second">Flick</th><th title="Dots cleared per second">Targets</th><th title="Time on the dot">Tracking</th><th>Score</th></tr></thead>
+            <thead><tr><th>Sens</th><th title="Hits per second">Flick</th><th title="Hits per second on the sliding target">Bounce</th><th title="Dots cleared per second">Targets</th><th title="Time on the dot">Tracking</th><th>Score</th></tr></thead>
             <tbody id="comparisonBody"><tr><td colspan="5" class="card-empty">No results yet.</td></tr></tbody>
           </table>
           <p class="comparison-footnote" id="comparisonFootnote">Run a calibration to populate this table. Score: flicking, targets, tracking weighted equally at 33% each, relative to the best in each drill.</p>
@@ -368,10 +369,19 @@
           <div class="results-rec-value" id="resultsRecValue">—</div>
           <span class="badge" id="resultsConfidence"></span>
           <table class="comparison results-table">
-            <thead><tr><th>Sens</th><th>Flick</th><th>Targets</th><th>Tracking</th><th>Score</th></tr></thead>
+            <thead><tr><th>Sens</th><th>Flick</th><th>Bounce</th><th>Targets</th><th>Tracking</th><th>Score</th></tr></thead>
             <tbody id="resultsTableBody"></tbody>
           </table>
           <p class="results-hint" id="resultsHint"></p>
+        </div>
+        <!-- Reads the shots themselves: whether flicks land past the target
+             or short of it (calibration.js analyseAim). Outside the
+             recommendation block, so practice runs show it too. -->
+        <div class="aim-read" id="aimRead" hidden>
+          <div class="aim-read-head"><span class="aim-read-title" id="aimReadTitle"></span><span class="aim-read-tag" id="aimReadTag"></span></div>
+          <div class="aim-bar"><span class="aim-bar-mid"></span><span class="aim-bar-dot" id="aimBarDot"></span></div>
+          <div class="aim-bar-labels"><span>stops short</span><span>lands past</span></div>
+          <p class="aim-read-text" id="aimReadText"></p>
         </div>
         <div class="results-actions">
           <button class="btn-accent" id="fineTuneBtn">Fine-tune further</button>
