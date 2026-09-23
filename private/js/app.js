@@ -98,6 +98,7 @@ async function main() {
   bindSettingsFields();
   bindSimpleGameFields();
   bindExpanders();
+  bindMouseCheck();
   bindTabs();
   bindConvert();
   initThemePicker({
@@ -542,6 +543,108 @@ function setCalibration(tab, cm360) {
 // alternative for the ADS optics ("the value that matches hip-fire").
 const MEASURED_INPUTS = { hipfire: 'measuredHipfireInput', ads1x: 'measuredAds1xInput', ads25x: 'measuredAds25xInput' };
 const NEUTRAL_INPUTS = { ads1x: 'neutralAds1xInput', ads25x: 'neutralAds25xInput' };
+
+/**
+ * Mouse check: counts the movement the browser is given over a distance you
+ * measure with a ruler, and works back to the DPI your mouse is really
+ * sending. R6 is fed the same counts by the same mouse, so this answers two
+ * questions at once - whether the DPI here matches the mouse (the wrong DPI
+ * slot makes the game feel nothing like the drill) and whether this browser
+ * gets the mouse unaltered (Windows pointer speed and acceleration change
+ * it when raw input isn't available, but never change the game).
+ */
+function bindMouseCheck() {
+  const overlay = $('mouseCheckOverlay');
+  const card = overlay.querySelector('.modal-card');
+  const startBtn = $('mouseCheckStart');
+  const useBtn = $('mouseCheckUse');
+  const result = $('mouseCheckResult');
+  let counts = 0;
+  let capturing = false;
+  let raw = true;
+  let measured = null;
+
+  const close = () => {
+    if (document.pointerLockElement === card) document.exitPointerLock();
+    overlay.classList.remove('active');
+  };
+
+  $('mouseCheckBtn').addEventListener('click', () => {
+    result.hidden = true;
+    useBtn.hidden = true;
+    startBtn.hidden = false;
+    $('mouseCheckStep').textContent =
+      "Lay a ruler along your mousepad. Put your mouse at one end, press Start, drag it straight along the ruler by the distance below, then click to finish.";
+    overlay.classList.add('active');
+  });
+  $('mouseCheckClose').addEventListener('click', close);
+
+  document.addEventListener('mousemove', (e) => {
+    if (capturing && document.pointerLockElement === card) counts += Math.abs(e.movementX);
+  });
+
+  startBtn.addEventListener('click', async () => {
+    counts = 0;
+    raw = true;
+    try {
+      await card.requestPointerLock({ unadjustedMovement: true });
+    } catch (err) {
+      if (err && err.name === 'NotSupportedError') {
+        raw = false;
+        try {
+          await card.requestPointerLock();
+        } catch {
+          result.hidden = false;
+          result.innerHTML = '<span class="warn">This browser wouldn\'t capture the mouse. Try Chrome or Edge.</span>';
+          return;
+        }
+      } else {
+        return; // lock refused (e.g. pressed Esc a moment ago) - just try again
+      }
+    }
+    capturing = true;
+    card.classList.add('capturing');
+    startBtn.hidden = true;
+    result.hidden = true;
+    $('mouseCheckStep').textContent = 'Now drag straight along the ruler, then click.';
+  });
+
+  // The click that ends the measurement: the mouse is captured, so this is
+  // the natural way to finish without touching the keyboard.
+  document.addEventListener('mousedown', () => {
+    if (!capturing) return;
+    capturing = false;
+    card.classList.remove('capturing');
+    document.exitPointerLock();
+    const cm = Number($('mouseCheckDistance').value) || 20;
+    measured = Math.round(counts / (cm / 2.54));
+    const set = getState().settings.dpi;
+    const ratio = measured / set;
+    const off = Math.abs(ratio - 1) > 0.12;
+    startBtn.hidden = false;
+    startBtn.textContent = 'Measure again';
+    $('mouseCheckStep').textContent = `Moved ${cm} cm and the browser counted ${Math.round(counts)} steps.`;
+    result.hidden = false;
+    useBtn.hidden = !off;
+    result.innerHTML =
+      `Your mouse is really sending about <b>${measured} DPI</b>. This page is set to ${set}.` +
+      (off
+        ? `<span class="warn">That's ${ratio > 1 ? 'higher' : 'lower'} than the DPI set here, by about ${Math.round(
+            (ratio > 1 ? ratio : 1 / ratio) * 10
+          ) / 10}×.${
+            raw
+              ? ' Your mouse is on a different DPI step than this page assumes - check which step is active in your mouse software, and that R6 was played on the same one.'
+              : " This browser isn't getting raw mouse input, so Windows pointer speed and acceleration are changing it. R6 ignores those, which is why the game feels different. Use Chrome or Edge."
+          }</span>`
+        : ' That matches, so the drill and R6 are getting the same mouse movement.') +
+      (raw ? '' : '<span class="warn">Raw mouse input was unavailable in this browser, so this reading includes your Windows mouse settings.</span>');
+  });
+
+  useBtn.addEventListener('click', () => {
+    if (measured > 0) updateSettings({ dpi: measured });
+    close();
+  });
+}
 
 function bindExpanders() {
   $('themeToggle').addEventListener('click', () => {

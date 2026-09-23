@@ -417,6 +417,26 @@ table.comparison tr.best td { color: var(--accent); font-weight: 600; }
 }
 #convertCard table.comparison { margin-top: 16px; }
 
+/* ---------- Mouse check dialog ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.72); z-index: 900;
+  display: none; align-items: center; justify-content: center; padding: 24px;
+}
+.modal-overlay.active { display: flex; }
+.modal-card {
+  width: 100%; max-width: 440px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 22px;
+}
+.modal-card h3 { font-size: 18px; margin: 0 0 8px; }
+.modal-card p { font-size: 13px; line-height: 1.6; color: var(--text-sub); margin: 0 0 14px; }
+.modal-card.capturing { cursor: none; }
+.mouse-check-result { font-size: 13px; line-height: 1.7; margin: 14px 0 0; color: var(--text); }
+.mouse-check-result b { color: var(--accent); }
+.mouse-check-result .warn {
+  display: block; margin-top: 10px; padding: 8px 10px; border-radius: 6px; font-size: 12px;
+  color: var(--warn-text); background: var(--warn-bg); border: 1px solid var(--warn-border);
+}
+
 /* ---------- Fullscreen drill overlay ---------- */
 .drill-overlay {
   position: fixed; inset: 0; background: #000; z-index: 1000; display: none;

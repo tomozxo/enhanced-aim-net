@@ -99,6 +99,10 @@
           <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
         </div>
       </div>
+      <div class="field-row" style="border-bottom:none;padding-bottom:0">
+        <button class="clear-link" id="mouseCheckBtn" style="padding:0">Check my mouse with a ruler ↗</button>
+      </div>
+      <p class="fill-hint" style="margin:2px 0 10px" id="mouseCheckHint">Measures the DPI your mouse really sends, and whether this browser gets it unaltered.</p>
 
       <!-- Valorant / CS2 field of view, resolution and stretch, rendered by app.js -->
       <div data-game-only="valorant cs2" id="simpleViewFields" hidden></div>
@@ -382,6 +386,30 @@
     <div class="kbd-hint"><span class="kbd">LMB</span> Shoot in flick &amp; targets drills</div>
     <div class="raw-input" id="rawInputNote" hidden></div>
     <div class="kbd-hint"><span class="kbd">ESC</span> Pause · release mouse</div>
+  </div>
+</div>
+
+<!-- Mouse check: counts the mouse movement the browser actually receives
+     over a distance you measure with a ruler. R6 is fed the same counts, so
+     this says what DPI your mouse really reports and whether anything is
+     altering it on the way in. -->
+<div class="modal-overlay" id="mouseCheckOverlay">
+  <div class="modal-card">
+    <h3>Check your mouse</h3>
+    <p id="mouseCheckStep">
+      Lay a ruler along your mousepad. Put your mouse at one end, press Start, drag it
+      straight along the ruler by the distance below, then click to finish.
+    </p>
+    <div class="sub-field">
+      <span class="sub-field-label">Distance you'll move it (cm)</span>
+      <input type="number" id="mouseCheckDistance" value="20" min="5" max="60" step="1" />
+    </div>
+    <div class="mouse-check-result" id="mouseCheckResult" hidden></div>
+    <div class="results-actions">
+      <button class="btn-accent" id="mouseCheckStart">Start</button>
+      <button class="plain-btn" id="mouseCheckUse" hidden>Use this DPI</button>
+      <button class="plain-btn" id="mouseCheckClose">Close</button>
+    </div>
   </div>
 </div>
 
