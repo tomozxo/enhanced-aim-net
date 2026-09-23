@@ -78,9 +78,12 @@
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.message || 'Activation failed.');
-      msg.textContent = data.isAdmin ? 'Admin key recognized. Loading panel...' : 'Activated. Loading...';
+      // Every key lands on the tool itself. An admin key is an ordinary key
+      // that can also hand out keys, so it gets an "Admin" link in the app
+      // rather than being taken straight to the panel.
+      msg.textContent = data.isAdmin ? 'Admin key recognized. Loading...' : 'Activated. Loading...';
       msg.className = 'gate-msg ok';
-      window.location.href = data.isAdmin ? '/admin.html' : '/app.html';
+      window.location.href = '/app.html';
     } catch (err) {
       msg.textContent = err.message;
       msg.className = 'gate-msg';
@@ -100,7 +103,7 @@
         body: JSON.stringify({ fp: fingerprint() }),
       });
       const data = await res.json();
-      if (res.ok && data.ok) window.location.href = data.isAdmin ? '/admin.html' : '/app.html';
+      if (res.ok && data.ok) window.location.href = '/app.html';
     } catch {
       /* server unreachable, let them try activating again */
     }

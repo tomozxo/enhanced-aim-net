@@ -71,6 +71,9 @@ async function main() {
   if (!session) return;
 
   document.getElementById('pageRoot').style.display = '';
+  // An admin key is an ordinary key that can also hand out keys, so it gets
+  // the whole tool plus a way through to the panel.
+  if (session.isAdmin) $('adminLink').hidden = false;
   applyAccent(getState().settings.accentColor);
   initModeToggle();
 

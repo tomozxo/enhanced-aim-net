@@ -102,6 +102,13 @@ a { color: inherit; }
 }
 .topbar-brand { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; color: var(--text); }
 .topbar-brand .icon { color: var(--accent); display: flex; }
+/* Links between the tool and the admin panel. margin-right:auto keeps them
+   next to the brand rather than out by the light/dark buttons. */
+.topbar-link {
+  margin-right: auto; margin-left: 18px; font-size: 12px; color: var(--text-sub);
+  text-decoration: none; padding: 5px 10px; border: 1px solid var(--border); border-radius: 7px;
+}
+.topbar-link:hover { color: var(--text); background: var(--panel-2); }
 .mode-toggle { display: flex; gap: 6px; }
 .mode-btn {
   background: var(--panel-2); border: 1px solid var(--border); color: var(--text-sub);
