@@ -219,9 +219,41 @@ export const GAMES = {
     arrowStep: 0.25,
     sensLabel: 'Same number as your Call of Duty sensitivity (Black Ops 6/7, Warzone)',
   }),
+
+  // Overwatch 2 turns 0.0066 deg per count at sens 1. Its FOV slider is
+  // 80-103, horizontal.
+  overwatch: simpleGame({
+    id: 'overwatch',
+    name: 'Overwatch 2',
+    short: 'OW2',
+    yaw: 0.0066,
+    fovSlider: { min: 80, max: 103 },
+    fovNote: "Overwatch's own slider, 80-103",
+    defaults: { sens: 5, fov: 103, resolution: '1920x1080', displayMode: 'stretch' },
+    rules: { step: 0.01, decimals: 2, min: 0.1, max: 100, minSpreadPct: 0.02 },
+    arrowStep: 0.25,
+    sensLabel: 'Same number as your Overwatch sensitivity',
+  }),
+
+  // Marvel Rivals shares Overwatch's 0.0066, so the same number at the same
+  // DPI is the same turn in both (sens 5 at 800 DPI is 34.6 cm/360 in each).
+  // Some converters list it as 0.022 like CS2, which would make a normal
+  // sens about 10 cm/360 - far faster than anyone plays.
+  rivals: simpleGame({
+    id: 'rivals',
+    name: 'Marvel Rivals',
+    short: 'Rivals',
+    yaw: 0.0066,
+    fovSlider: { min: 60, max: 120 },
+    fovNote: "Marvel Rivals' own slider, horizontal",
+    defaults: { sens: 5, fov: 103, resolution: '1920x1080', displayMode: 'stretch' },
+    rules: { step: 0.01, decimals: 2, min: 0.1, max: 100, minSpreadPct: 0.02 },
+    arrowStep: 0.25,
+    sensLabel: 'Same number as your Marvel Rivals sensitivity',
+  }),
 };
 
-export const GAME_ORDER = ['r6', 'valorant', 'cs2', 'apex', 'cod'];
+export const GAME_ORDER = ['r6', 'valorant', 'cs2', 'apex', 'cod', 'overwatch', 'rivals'];
 
 export function getGame(id) {
   return GAMES[id] || GAMES.r6;

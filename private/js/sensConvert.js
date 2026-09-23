@@ -34,6 +34,8 @@ const GAMES = [
   // use that game's numbers - so convert to the game, not to this.
   { id: 'aimlab', name: 'Aim Lab (default scale)', yaw: 0.022, decimals: 3 },
   { id: 'overwatch2', name: 'Overwatch 2', yaw: 0.0066, decimals: 2, min: 1, max: 100 },
+  // Same turn rate as Overwatch, so the same number carries straight over.
+  { id: 'rivals', name: 'Marvel Rivals', yaw: 0.0066, decimals: 2, min: 1, max: 100 },
   { id: 'cod', name: 'Call of Duty / Warzone', yaw: 0.0066, decimals: 2, min: 1, max: 20 },
 ];
 

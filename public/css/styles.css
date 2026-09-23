@@ -168,18 +168,14 @@ body.app-shell > .topbar { flex: 0 0 auto; }
 .game-picker-label {
   font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); margin-right: 4px;
 }
-.game-option {
-  display: inline-flex; align-items: center; gap: 7px; height: var(--control-h);
-  background: var(--panel); border: 1px solid var(--border); color: var(--text-sub);
-  font-size: 12.5px; font-weight: 500; padding: 0 13px; border-radius: var(--radius-sm); cursor: pointer;
-  transition: border-color .12s, color .12s, background .12s;
+/* The game is a dropdown: there are enough of them now that a row of
+   buttons wrapped, and the list keeps growing. */
+.game-select select {
+  height: var(--control-h); font-size: 13px; font-weight: 600; color: var(--text);
+  padding: 0 30px 0 12px; border-color: var(--border);
 }
-.game-option:hover { color: var(--text); border-color: var(--text-dim); }
-.game-option.active { color: var(--text); border-color: var(--accent); background: var(--accent-dim); font-weight: 600; }
-/* "exact sens" / "estimated sens" only on the game you're on: on all five
-   at once it's noise. */
-.game-option-tag { display: none; font-size: 10px; font-weight: 400; color: var(--text-sub); }
-.game-option.active .game-option-tag { display: inline; }
+.game-select select:hover { border-color: var(--text-dim); }
+.game-option-tag { font-size: 10.5px; color: var(--text-dim); }
 
 /* Read-only value in a sidebar row, e.g. a game's locked FOV. */
 .field-static { font-size: 13.5px; color: var(--text); font-variant-numeric: tabular-nums; }

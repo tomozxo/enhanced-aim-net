@@ -8,6 +8,13 @@ const TRACK_PITCH_RANGE = (7 * Math.PI) / 180;
 // drill is a horizontal flick exercise and never walks you into the floor.
 const SPAWN_YAW_SPREAD = (30 * Math.PI) / 180;
 const SPAWN_PITCH_RANGE = (7 * Math.PI) / 180;
+
+// How far a flick should actually move the mouse, in centimetres of pad.
+// Angles alone aren't enough: at 130 cm/360 a 30° flick is 11 cm of pad,
+// while at 20 cm/360 it's under 2 cm. So targets are placed by distance -
+// never so far you run out of pad mid-flick, never so near that landing on
+// one is a nudge. Worked out per sens, then kept inside what's on screen.
+const FLICK_CM = { min: 3, max: 11 };
 // The arena: a tall round room with you in the middle, halfway up. The wall
 // is the same distance away whichever way you turn; the floor and ceiling
 // are so far below and above that they stay out of sight at normal aim (the
@@ -101,6 +108,7 @@ export class DrillEngine {
     this.trackPhase = 0;
     this.windowBlurredRecently = false;
     this._fitTargetArea(70, 16 / 9); // replaced with the real view on the first resize
+    this.band = { min: this.area.spawnYaw * 0.5, max: this.area.spawnYaw };
 
     this._initScene();
     this._bindEvents();
@@ -283,12 +291,37 @@ export class DrillEngine {
     };
   }
 
+  /** FLICK_CM turned into angles for the sens being tested, and kept within
+   * what's on screen. Cached per block and per resize rather than worked
+   * out per spawn. */
+  _refreshBand() {
+    const spread = this.area.spawnYaw;
+    let cm360 = NaN;
+    try {
+      const { game, tab } = this.sensSettings;
+      cm360 = game.cm360(tab, this._effectiveSettings());
+    } catch {
+      /* no settings yet - fall back to the on-screen spread below */
+    }
+    if (!(cm360 > 0)) {
+      this.band = { min: spread * 0.5, max: spread };
+      return;
+    }
+    const cmPerRadian = cm360 / (2 * Math.PI);
+    const max = Math.min(spread, FLICK_CM.max / cmPerRadian);
+    // A fast sens can hit the screen edge before it hits FLICK_CM.max, so
+    // the minimum gives way rather than crossing over it.
+    const min = Math.min(FLICK_CM.min / cmPerRadian, max * 0.6);
+    this.band = { min, max };
+  }
+
   _resizeCanvas() {
     if (!this.sensSettings) return; // window can resize before the first configure()/run()
     const stageRect = this.stage.getBoundingClientRect();
     const { game, settings, tab } = this.sensSettings;
     const { aspect: selected, vFovDeg, stretch, renderSize } = game.view(settings, tab);
     this._fitTargetArea(vFovDeg, selected);
+    this._refreshBand();
 
     let w = stageRect.width;
     let h = stageRect.height;
@@ -549,6 +582,7 @@ export class DrillEngine {
     this.camera.rotation.x = 0;
     this.camera.updateMatrixWorld(true);
     this.trackPhase = Math.random() * 1000;
+    this._refreshBand(); // each candidate sens gets its own flick distances
     this._spawnForBlock(block);
     this.phase = 'running';
     this.running = true;
@@ -586,8 +620,8 @@ export class DrillEngine {
    * end. The line is short - a couple of grid squares - so it's a flick
    * across followed by a small adjustment, not a chase. */
   _spawnBounce(side) {
-    const spread = Math.min(BOUNCE_OFFSET.max, this.area.spawnYaw);
-    const offset = Math.max(BOUNCE_OFFSET.min, Math.min(spread, rand(BOUNCE_OFFSET.min, spread)));
+    const spread = Math.min(BOUNCE_OFFSET.max, this.area.spawnYaw, this.band.max);
+    const offset = Math.max(Math.min(BOUNCE_OFFSET.min, spread), Math.min(spread, rand(this.band.min, spread)));
     const centre = this.yaw + side * offset;
     const travel = Math.min(BOUNCE_TRAVEL, this.area.spawnYaw / 2);
     const pitch = rand(-this.area.spawnPitch, this.area.spawnPitch);
@@ -631,7 +665,11 @@ export class DrillEngine {
    * session gradually walked down into the floor. */
   _randomTarget(radius) {
     this.shotFromYaw = this.yaw; // where the flick to this one starts from
-    const yaw = this.yaw + rand(-this.area.spawnYaw, this.area.spawnYaw);
+    // Always a real flick: a distance inside the band, to one side or the
+    // other, rather than anywhere in the spread (which allows "already
+    // basically on it").
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const yaw = this.yaw + side * rand(this.band.min, this.band.max);
     return this._targetAtAngles(yaw, rand(-this.area.spawnPitch, this.area.spawnPitch), radius);
   }
 
@@ -642,9 +680,12 @@ export class DrillEngine {
    * and the fallback (the roomiest spot it saw) only matters in theory. */
   _replacementTarget(radius) {
     const angleBetween = (y1, p1, y2, p2) => Math.hypot((y1 - y2) * Math.cos((p1 + p2) / 2), p1 - p2);
+    // The group is as wide as a flick is long, so clearing it never walks
+    // you off the edge of the pad.
+    const spread = Math.min(this.area.spawnYaw, this.band.max);
     let best = null;
     for (let i = 0; i < 40; i++) {
-      const yaw = this.targetsAreaYaw + rand(-this.area.spawnYaw, this.area.spawnYaw);
+      const yaw = this.targetsAreaYaw + rand(-spread, spread);
       const pitch = rand(-this.area.spawnPitch, this.area.spawnPitch);
       const gapToDots = Math.min(Infinity, ...this.targets.map((t) => angleBetween(yaw, pitch, t.yaw, t.pitch)));
       const gapToCrosshair = angleBetween(yaw, pitch, this.yaw, this.pitch);
@@ -774,8 +815,10 @@ export class DrillEngine {
     // target to the screen instead of the world: turning the mouse carried
     // the target along with the view, so it could never be tracked or
     // missed. It has to move independently of where you're looking.
-    const yaw =
-      Math.sin(this.trackPhase * 0.9) * this.area.trackYaw + Math.sin(this.trackPhase * 2.1) * this.area.trackYaw * 0.18;
+    // Also kept inside the flick band, so tracking a slow sens doesn't
+    // drag you off the pad.
+    const swing = Math.min(this.area.trackYaw, this.band.max);
+    const yaw = Math.sin(this.trackPhase * 0.9) * swing + Math.sin(this.trackPhase * 2.1) * swing * 0.18;
     const pitch =
       Math.cos(this.trackPhase * 0.7) * this.area.trackPitch + Math.cos(this.trackPhase * 1.7) * this.area.trackPitch * 0.18;
 

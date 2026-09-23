@@ -401,19 +401,16 @@ function applyRecommendation() {
 
 // ---------- Game picker ----------
 
+/** A dropdown rather than a row of buttons: there are enough games now that
+ * buttons wrapped onto two lines, and the list will only grow. */
 function bindGamePicker() {
   $('gamePicker').innerHTML =
     '<span class="game-picker-label">Game</span>' +
-    GAME_ORDER.map((id) => {
-      const g = GAMES[id];
-      return `<button class="game-option" role="tab" data-game="${id}">${g.name}<span class="game-option-tag">${
-        g.exact ? 'exact sens' : 'estimated sens'
-      }</span></button>`;
-    }).join('');
-  $('gamePicker').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-game]');
-    if (btn) setGame(btn.dataset.game);
-  });
+    '<div class="select-wrap game-select"><select id="gameSelect" aria-label="Game to calibrate for">' +
+    GAME_ORDER.map((id) => `<option value="${id}">${GAMES[id].name}</option>`).join('') +
+    '</select></div>' +
+    '<span class="game-option-tag" id="gameExactTag"></span>';
+  $('gameSelect').addEventListener('change', (e) => setGame(e.target.value));
 }
 
 // ---------- Valorant / CS2 sidebar fields ----------
@@ -534,13 +531,8 @@ function renderSimpleGameFields(game, s) {
 /** Shows the selected game's parts of the page and hides the others. */
 function renderGameChrome(state) {
   const game = getGame(state.game);
-  $('gamePicker')
-    .querySelectorAll('[data-game]')
-    .forEach((b) => {
-      const on = b.dataset.game === game.id;
-      b.classList.toggle('active', on);
-      b.setAttribute('aria-selected', on ? 'true' : 'false');
-    });
+  $('gameSelect').value = game.id;
+  $('gameExactTag').textContent = game.exact ? 'exact sens' : 'estimated sens';
   document.querySelectorAll('[data-game-only]').forEach((el) => {
     el.hidden = !el.dataset.gameOnly.split(' ').includes(game.id);
   });
