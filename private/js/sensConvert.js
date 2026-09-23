@@ -28,6 +28,11 @@ const GAMES = [
   { id: 'titanfall2', name: 'Titanfall 2', yaw: 0.022, decimals: 3 },
   { id: 'tf2', name: 'Team Fortress 2', yaw: 0.022, decimals: 3 },
   { id: 'quake', name: 'Quake Live / Champions', yaw: 0.022, decimals: 3 },
+  // Aim Lab's own scale turns at the Source rate too (its m_yaw defaults to
+  // 0.022), so it's 1:1 with CS2 at the same DPI. If you've picked a game
+  // under Aim Lab's "sensitivity scale" instead, that profile makes Aim Lab
+  // use that game's numbers - so convert to the game, not to this.
+  { id: 'aimlab', name: 'Aim Lab (default scale)', yaw: 0.022, decimals: 3 },
   { id: 'overwatch2', name: 'Overwatch 2', yaw: 0.0066, decimals: 2, min: 1, max: 100 },
   { id: 'cod', name: 'Call of Duty / Warzone', yaw: 0.0066, decimals: 2, min: 1, max: 20 },
 ];
