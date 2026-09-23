@@ -546,9 +546,9 @@ function renderGameChrome(state) {
   });
   $('sidebarTitle').textContent = `Your ${game.short} settings`;
   const minutes = Math.round((TOTAL_SCORED_BLOCKS * (BLOCK_SECONDS + 3)) / 60);
-  $('calibrationHint').textContent = `${TOTAL_SCORED_BLOCKS} × ${BLOCK_SECONDS}-second blocks + warm-up · about ${minutes} minutes${
+  $('calibrationHint').textContent = `${TOTAL_SCORED_BLOCKS} × ${BLOCK_SECONDS}s blocks · about ${minutes} min${
     game.tabs.length > 1 ? ' per optic' : ''
-  } · runs fullscreen`;
+  } · fullscreen`;
   renderSimpleGameFields(game, state.settings);
 }
 
@@ -837,7 +837,7 @@ function comparisonRowsHtml(result, game) {
 
 const SCORING_FOOTNOTE =
   'Flick: hits per second. Targets: dots cleared per second. Tracking: time on the dot. ' +
-  'A hit anywhere on a target counts, inside or outside the ring. Each drill is a third of the score, relative to the best in that drill.';
+  'A hit anywhere on a target counts, inside or outside the ring. Each of the four drills is a quarter of the score, relative to the best in that drill.';
 
 function renderAll() {
   const state = getState();
@@ -1111,7 +1111,7 @@ function renderRecommendation(state) {
     badge.className = 'badge incomplete';
     badge.textContent = 'INCOMPLETE';
     body.innerHTML =
-      '<p class="card-empty">0 of 27 scored rounds recorded. Every setting needs every drill in all 3 blocks before a recommendation.</p>';
+      `<p class="card-empty">0 of ${TOTAL_SCORED_BLOCKS} scored rounds recorded. Every setting needs every drill before a recommendation.</p>`;
     return;
   }
 
