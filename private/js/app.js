@@ -66,14 +66,29 @@ function currentSens(game, tab, settings) {
   return quantizeSens(game, game.baseSens(tab, settings));
 }
 
+/** An admin key is an ordinary key that can also hand out keys, so it gets
+ * the whole tool plus a way through to the panel. The link is built here if
+ * the page doesn't already have it, so a page still cached from an older
+ * version can't leave an admin with no way back. */
+function showAdminLink() {
+  let link = $('adminLink');
+  if (!link) {
+    link = document.createElement('a');
+    link.id = 'adminLink';
+    link.className = 'topbar-link';
+    link.href = '/admin.html';
+    link.textContent = 'Manage keys ↗';
+    document.querySelector('.topbar')?.insertBefore(link, document.querySelector('.topbar .mode-toggle'));
+  }
+  link.hidden = false;
+}
+
 async function main() {
   const session = await ensureSession();
   if (!session) return;
 
   document.getElementById('pageRoot').style.display = '';
-  // An admin key is an ordinary key that can also hand out keys, so it gets
-  // the whole tool plus a way through to the panel.
-  if (session.isAdmin) $('adminLink').hidden = false;
+  if (session.isAdmin) showAdminLink();
   applyAccent(getState().settings.accentColor);
   initModeToggle();
 
