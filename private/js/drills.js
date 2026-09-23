@@ -15,6 +15,12 @@ const SPAWN_PITCH_RANGE = (7 * Math.PI) / 180;
 // never so far you run out of pad mid-flick, never so near that landing on
 // one is a nudge. Worked out per sens, then kept inside what's on screen.
 const FLICK_CM = { min: 3, max: 11 };
+
+// Hit feedback: a thin ring that spreads from the target and fades, plus a
+// short pop. Both are deliberately slight - enough to confirm the hit
+// without pulling your eye away from the next target.
+const WAVE_MS = 260;
+const WAVE_GROWTH = 2.4; // how far the ring spreads, as a multiple of the target
 // The arena: a tall round room with you in the middle, halfway up. The wall
 // is the same distance away whichever way you turn; the floor and ceiling
 // are so far below and above that they stay out of sight at normal aim (the
@@ -67,6 +73,37 @@ function cssVar(name) {
 function rand(min, max) {
   return min + Math.random() * (max - min);
 }
+
+/**
+ * The hit sound, built rather than loaded: a short tone that drops in pitch
+ * and fades, which reads as a "pop" without a file to fetch. The audio
+ * context is only created once the first shot is fired - browsers refuse to
+ * start one before the page has been clicked, and this way nothing is set
+ * up for a session that never fires a shot.
+ */
+const hitSound = {
+  ctx: null,
+  play() {
+    try {
+      if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.exponentialRampToValueAtTime(210, now + 0.07);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.16, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+      osc.connect(gain).connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.14);
+    } catch {
+      /* no audio on this device or it's blocked - the drill doesn't need it */
+    }
+  },
+};
 
 const HALF_PI = Math.PI / 2;
 const PITCH_LIMIT = HALF_PI - 0.01;
@@ -136,6 +173,7 @@ export class DrillEngine {
     // allocate two new vectors every frame.
     this._fwd = new THREE.Vector3();
     this._toTarget = new THREE.Vector3();
+    this.waves = []; // hit rings still spreading: { sprite, start, r }
   }
 
   /** The round wall plus a floor and ceiling, all in the same grid with
@@ -216,18 +254,44 @@ export class DrillEngine {
     return tex;
   }
 
+  /** The ring that spreads out from a hit: a thin circle, nothing else, so
+   * it reads as a ripple rather than a flash. */
+  _makeWaveTexture() {
+    const size = 256;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const R = size / 2;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = R * 0.05;
+    ctx.beginPath();
+    ctx.arc(R, R, R * 0.9, 0, Math.PI * 2);
+    ctx.stroke();
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
   /** One material for every target in a run, rebuilt per run so it picks up
    * the current accent colour. A sprite always faces the camera, so the
    * target stays a perfect circle wherever it is on screen. Unlit, and
    * fog:false keeps its colours exact at any distance. It doesn't write
    * depth, so its see-through corners can't block the wall behind it. */
   _rebuildTargetMaterial() {
-    if (this.targetMaterial) {
-      this.targetMaterial.map?.dispose();
-      this.targetMaterial.dispose();
+    for (const m of [this.targetMaterial, this.waveMaterial]) {
+      if (!m) continue;
+      m.map?.dispose();
+      m.dispose();
     }
     this.targetMaterial = new THREE.SpriteMaterial({
       map: this._makeTargetTexture(),
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+    });
+    this.waveMaterial = new THREE.SpriteMaterial({
+      map: this._makeWaveTexture(),
+      color: new THREE.Color(cssVar('--accent') || '#a50fec'),
       transparent: true,
       depthWrite: false,
       fog: false,
@@ -594,6 +658,11 @@ export class DrillEngine {
   _clearTargets() {
     this.targets.forEach((t) => this.scene.remove(t.mesh));
     this.targets = [];
+    this.waves.forEach((w) => {
+      this.scene.remove(w.sprite);
+      w.sprite.material.dispose();
+    });
+    this.waves = [];
   }
 
   _spawnForBlock(block) {
@@ -707,6 +776,32 @@ export class DrillEngine {
     return varied * TARGET_DISTANCE * Math.tan(this.viewVFov / 2);
   }
 
+  /** Spreads a ring out from a hit and pops. Each ring gets its own copy of
+   * the material, because they fade independently. */
+  _wave(target) {
+    const sprite = new THREE.Sprite(this.waveMaterial.clone());
+    sprite.position.copy(target.mesh.position);
+    sprite.renderOrder = 2;
+    this.scene.add(sprite);
+    this.waves.push({ sprite, start: performance.now(), r: target.r });
+    hitSound.play();
+  }
+
+  _updateWaves(now) {
+    this.waves = this.waves.filter((w) => {
+      const t = (now - w.start) / WAVE_MS;
+      if (t >= 1) {
+        this.scene.remove(w.sprite);
+        w.sprite.material.dispose();
+        return false;
+      }
+      const size = w.r * 2 * (1 + (WAVE_GROWTH - 1) * t);
+      w.sprite.scale.set(size, size, 1);
+      w.sprite.material.opacity = (1 - t) * 0.8;
+      return true;
+    });
+  }
+
   _targetAtAngles(yaw, pitch, radius) {
     // Sprite geometry is a unit quad, so the scale is the diameter - which
     // lines the drawn zones up with the aim test's radius.
@@ -753,6 +848,7 @@ export class DrillEngine {
     this.metrics.hits += 1;
     if (aimed.offset <= INNER_FRACTION) this.metrics.innerHits += 1;
     if (readsAim) this._recordAim(this.targets[aimed.index]);
+    this._wave(this.targets[aimed.index]);
 
     if (block.type === 'flick') {
       this.scene.remove(this.targets[0].mesh);
@@ -837,6 +933,7 @@ export class DrillEngine {
 
     if (this.currentBlock.type === 'tracking') this._updateTracking(dt);
     else if (this.currentBlock.type === 'bounce') this._updateBounce(dt);
+    this._updateWaves(now);
 
     this.renderer.render(this.scene, this.camera);
 
