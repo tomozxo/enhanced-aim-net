@@ -626,6 +626,10 @@ function bindMouseCheck() {
     $('mouseCheckStep').textContent = `Moved ${cm} cm and the browser counted ${Math.round(counts)} steps.`;
     result.hidden = false;
     useBtn.hidden = !off;
+    // What the movement works out to at the DPI set here. A reading that
+    // comes in low is usually this: the pad was measured rather than the
+    // mouse's own travel, and the mouse body eats several centimetres.
+    const impliedCm = Math.round((counts / set) * 2.54 * 10) / 10;
     result.innerHTML =
       `Your mouse is really sending about <b>${measured} DPI</b>. This page is set to ${set}.` +
       (off
@@ -633,7 +637,7 @@ function bindMouseCheck() {
             (ratio > 1 ? ratio : 1 / ratio) * 10
           ) / 10}×.${
             raw
-              ? ' Your mouse is on a different DPI step than this page assumes - check which step is active in your mouse software, and that R6 was played on the same one.'
+              ? ` If your mouse really is on ${set} DPI, then it only travelled ${impliedCm} cm - measure the mouse's own travel rather than the width of the pad and try again. Otherwise it's on a different DPI step: check which step is active in your mouse software, and that R6 was played on the same one.`
               : " This browser isn't getting raw mouse input, so Windows pointer speed and acceleration are changing it. R6 ignores those, which is why the game feels different. Use Chrome or Edge."
           }</span>`
         : ' That matches, so the drill and R6 are getting the same mouse movement.') +
