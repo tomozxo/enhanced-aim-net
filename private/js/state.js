@@ -261,7 +261,8 @@ export function basisFor(tab) {
     // v2: bullseye points scoring. v3: back to hit-based, ringed targets.
     // v4: targets sized to the screen (smaller), room further back.
     // v5: 3D balls at aim-trainer size (~6% of the screen).
-    scoring: 5,
+    // v6: flat bullseyes at ~3.5% - head-sized, micro-adjustment scale.
+    scoring: 6,
   });
 }
 

@@ -18,10 +18,14 @@ const CAMERA_HEIGHT = ARENA_HEIGHT / 2;
 const GRID = 8; // world units per grid square - about 4° across on the wall
 
 // Target sizes are set by what's on screen, not fixed in the world: each is
-// this share of the screen height across, the same at any FOV, aspect ratio
-// or sight zoom. Fixed world sizes used to blow up to a sixth of the screen
-// through the 2.5x sight. About 6%, standard aim-trainer size.
-const TARGET_SIZE = { flick: 0.062, targets: 0.056, tracking: 0.06 };
+// this share of the screen height across, so a target is the same size on
+// screen at any FOV, aspect ratio or sight zoom - hip-fire, 1x and 2.5x all
+// match. (Fixed world sizes used to blow up to a sixth of the screen
+// through the 2.5x sight.)
+// About 3.5%: roughly a head at Siege engagement range, which is small
+// enough that landing one takes a real micro-adjustment rather than a
+// rough swing in the right direction.
+const TARGET_SIZE = { flick: 0.035, targets: 0.032, tracking: 0.035 };
 
 // Each target is a flat bullseye: outer band, white ring, centre. A hit
 // anywhere on it counts exactly the same; whether it landed on the centre is
