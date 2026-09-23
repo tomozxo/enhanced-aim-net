@@ -47,6 +47,7 @@
       <div data-game-only="valorant cs2" id="simpleSensFields" hidden></div>
 
       <div data-game-only="r6">
+      <p class="fill-hint" style="margin:0 0 4px">Copy these from R6 → Settings → Controls</p>
       <div class="field-row">
         <div class="field-label">Hip-fire H</div>
         <div class="stepper" data-field="hipfireH">
@@ -152,6 +153,18 @@
             <span class="sub-field-label">Measured cm/360° for 1x ADS</span>
             <input type="number" id="measuredAds1xInput" placeholder="e.g. 45.0" step="0.1" min="1" />
           </div>
+          <p style="font-size:11px;color:var(--text-dim);margin:12px 0 8px;line-height:1.55">
+            No ruler? There's a second way to pin an ADS optic. In R6, find the ADS value
+            for that sight that feels exactly like your hip-fire speed, and enter it here.
+          </p>
+          <div class="sub-field">
+            <span class="sub-field-label">1x ADS value that matches hip-fire</span>
+            <input type="number" id="neutralAds1xInput" placeholder="e.g. 58" step="1" min="1" max="100" />
+          </div>
+          <div class="sub-field">
+            <span class="sub-field-label">2.5x ADS value that matches hip-fire</span>
+            <input type="number" id="neutralAds25xInput" placeholder="e.g. 100" step="1" min="1" max="100" />
+          </div>
           <div class="sub-field">
             <span class="sub-field-label">Measured cm/360° for 2.5x ADS</span>
             <input type="number" id="measuredAds25xInput" placeholder="e.g. 90.0" step="0.1" min="1" />
@@ -205,7 +218,7 @@
         <div class="stat"><div class="stat-label">Hit accuracy</div><div class="stat-value" id="statAccuracy">—</div></div>
         <div class="stat"><div class="stat-label" title="Share of your hits that landed on the centre of the target, inside the white ring. Hits anywhere else on it still count - this is just for reference.">Inner hits</div><div class="stat-value" id="statTargets">—</div></div>
       </div>
-      <p class="model-note" id="modelNote">ADS speed depends on each sight's zoom, which Ubisoft doesn't publish, so this optic is a close estimate. To make it exact, <button class="linklike" id="modelNoteLink">measure your real cm/360° for it</button>.</p>
+      <p class="model-note" id="modelNote">ADS speed depends on each sight's zoom, which Ubisoft doesn't publish, so this optic is a close estimate. To make it exact, <button class="linklike" id="modelNoteLink">calibrate it</button>. <span id="modelNoteCheck"></span></p>
 
       <div class="refine-header">
         <div>

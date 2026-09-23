@@ -26,6 +26,8 @@ import {
   formatCm360,
   compensateAdsForHipfireChange,
   calibrationFrom,
+  neutralCalibrationFrom,
+  neutralAdsValue,
   isCalibrated,
   hipDegPerSensPoint,
 } from './sensMath.js';
@@ -536,8 +538,10 @@ function setCalibration(tab, cm360) {
   updateR6({ calib });
 }
 
-// The "measured cm/360°" box for each Siege optic.
+// The "measured cm/360°" box for each Siege optic, and the ruler-free
+// alternative for the ADS optics ("the value that matches hip-fire").
 const MEASURED_INPUTS = { hipfire: 'measuredHipfireInput', ads1x: 'measuredAds1xInput', ads25x: 'measuredAds25xInput' };
+const NEUTRAL_INPUTS = { ads1x: 'neutralAds1xInput', ads25x: 'neutralAds25xInput' };
 
 function bindExpanders() {
   $('themeToggle').addEventListener('click', () => {
@@ -563,6 +567,16 @@ function bindExpanders() {
     $(id).addEventListener('change', (e) => {
       const v = e.target.value.trim();
       setCalibration(tab, v ? Number(v) : null);
+    });
+  }
+
+  // Each optic holds one correction, so entering one of these replaces
+  // whatever was in the other box for that optic.
+  for (const [tab, id] of Object.entries(NEUTRAL_INPUTS)) {
+    $(id).addEventListener('change', (e) => {
+      const v = e.target.value.trim();
+      const s = getGameSettings('r6');
+      updateR6({ calib: { ...s.calib, [tab]: v ? neutralCalibrationFrom(tab, Number(v), s) : null } });
     });
   }
 }
@@ -812,6 +826,14 @@ function renderSettingsInputs(state) {
     const estimate = estimateCm360(tab, { ...s, calib: { ...s.calib, [tab]: null } });
     input.placeholder = `Estimate ${formatCm360(estimate)}`;
   }
+  // The same for the ruler-free boxes, where the placeholder is the value
+  // the model expects to match hip-fire.
+  for (const [tab, id] of Object.entries(NEUTRAL_INPUTS)) {
+    const input = $(id);
+    if (document.activeElement !== input) input.value = s.calib?.[tab]?.neutral ?? '';
+    const expected = neutralAdsValue(tab, { ...s, calib: { ...s.calib, [tab]: null } });
+    input.placeholder = expected > 100 ? 'Estimate: above 100' : `Estimate ${Math.round(expected)}`;
+  }
 }
 
 let builtTabsFor = null;
@@ -833,6 +855,16 @@ function renderTabsUI(state) {
   const estimatedOptic =
     game.id === 'r6' && state.activeTab !== 'hipfire' && !isCalibrated(state.activeTab, getGameSettings('r6'));
   $('modelNote').style.display = estimatedOptic ? '' : 'none';
+  if (estimatedOptic) {
+    // A check anyone can make in-game without a ruler: at this value the
+    // optic should feel exactly like hip-fire. If it doesn't, the value that
+    // does goes in the calibrate section and fixes this optic.
+    const expected = neutralAdsValue(state.activeTab, getGameSettings('r6'));
+    $('modelNoteCheck').textContent =
+      expected > 100
+        ? 'Worth knowing: no value on this sight matches hip-fire speed - even 100 is slower.'
+        : `Check it in R6: this sight should feel exactly like your hip-fire at ${Math.round(expected)}.`;
+  }
 
   // "Start calibration" is always a fresh ±15% pass - the narrower passes are
   // what "Fine-tune further" does - so this doesn't depend on past results.

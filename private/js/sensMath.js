@@ -91,8 +91,9 @@ const degFromCm360 = (cm360, dpi) => (360 * 2.54) / (cm360 * dpi);
  */
 function calibrationFactor(tab, s) {
   const c = s.calib && s.calib[tab];
-  if (!c || !(c.cm360 > 0) || !(c.dpi > 0)) return 1;
+  if (!c) return 1;
   if (c.factor > 0) return c.factor;
+  if (!(c.cm360 > 0) || !(c.dpi > 0)) return 1;
   if (!(c.sens > 0)) return 1;
   const then = { ...s, useCustomMultiplier: true, customMultiplier: (c.mult || 1) * DEFAULT_MULT_UNIT };
   if (tab === 'hipfire') Object.assign(then, { hipfireH: c.sens, hipfireV: c.sens });
@@ -103,7 +104,29 @@ function calibrationFactor(tab, s) {
 
 export function isCalibrated(tab, settings) {
   const c = settings.calib && settings.calib[tab];
-  return !!(c && c.cm360 > 0 && c.dpi > 0);
+  return !!(c && (c.factor > 0 || (c.cm360 > 0 && c.dpi > 0)));
+}
+
+/** The ADS value at which this optic turns exactly as far as hip-fire does
+ * - the value where ADS and hip-fire share a cm/360. Handy as a sanity
+ * check against the game, and what neutralCalibrationFrom() pins. */
+export function neutralAdsValue(tab, settings) {
+  const zoom = sightZoomRatio(tab, settings) * calibrationFactor(tab, settings);
+  if (!SIGHT_FOV_SCALE[tab] || !(zoom > 0)) return NaN;
+  return 1 / (X_FACTOR_AIMING * zoom);
+}
+
+/**
+ * Calibration without a ruler: "in game, this optic's ADS value X feels the
+ * same speed as my hip-fire". At that value the optic must turn exactly as
+ * far as hip-fire, which pins the sight's zoom - the one estimated part of
+ * the model - for every other ADS value too.
+ */
+export function neutralCalibrationFrom(tab, adsValue, settings) {
+  const v = Number(adsValue);
+  const zoom = sightZoomRatio(tab, settings);
+  if (!SIGHT_FOV_SCALE[tab] || !(v > 0) || !(zoom > 0)) return null;
+  return { neutral: v, factor: 1 / (v * X_FACTOR_AIMING * zoom), model: MODEL_VERSION };
 }
 
 /** Degrees of rotation per mouse count, per axis - what the drill uses. */
