@@ -13,7 +13,7 @@ const COLUMNS = {
   status: 'status',
   isAdmin: 'is_admin',
   createdAt: 'created_at',
-  durationDays: 'duration_days',
+  durationMinutes: 'duration_minutes',
   expiresAt: 'expires_at',
   lockedDeviceId: 'locked_device_id',
   lockedFingerprint: 'locked_fingerprint',
@@ -80,7 +80,8 @@ function fromRow(r) {
     status: r.status,
     isAdmin: r.is_admin,
     createdAt: iso(r.created_at),
-    durationDays: r.duration_days ?? null,
+    // Older rows stored whole days; read them as minutes.
+    durationMinutes: r.duration_minutes ?? (r.duration_days != null ? r.duration_days * 1440 : null),
     expiresAt: iso(r.expires_at),
     lockedDeviceId: r.locked_device_id,
     lockedFingerprint: parseJson(r.locked_fingerprint),
@@ -122,18 +123,19 @@ module.exports = {
         ADD COLUMN IF NOT EXISTS current_session_id TEXT,
         ADD COLUMN IF NOT EXISTS blocked_attempts   INTEGER NOT NULL DEFAULT 0,
         ADD COLUMN IF NOT EXISTS last_blocked_at    TIMESTAMPTZ,
-        ADD COLUMN IF NOT EXISTS duration_days      INTEGER`);
+        ADD COLUMN IF NOT EXISTS duration_days      INTEGER,
+        ADD COLUMN IF NOT EXISTS duration_minutes   INTEGER`);
     await pool.query('ALTER TABLE license_keys ENABLE ROW LEVEL SECURITY');
   },
 
   /** Adds a new record, or returns null if that key already exists. */
   async insertKey(r) {
     const { rows } = await pool.query(
-      `INSERT INTO license_keys (key, note, status, is_admin, created_at, expires_at, duration_days)
+      `INSERT INTO license_keys (key, note, status, is_admin, created_at, expires_at, duration_minutes)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (key) DO NOTHING
        RETURNING *`,
-      [r.key, r.note, r.status, r.isAdmin, r.createdAt, r.expiresAt, r.durationDays]
+      [r.key, r.note, r.status, r.isAdmin, r.createdAt, r.expiresAt, r.durationMinutes]
     );
     return fromRow(rows[0]);
   },
@@ -180,8 +182,11 @@ module.exports = {
               -- The countdown starts here, on first activation.
               expires_at = COALESCE(
                 expires_at,
-                CASE WHEN duration_days IS NULL THEN NULL
-                     ELSE $5::timestamptz + make_interval(days => duration_days) END),
+                -- duration_days is the older column; keys made before the
+                -- switch to minutes still carry their length there.
+                CASE WHEN COALESCE(duration_minutes, duration_days * 1440) IS NULL THEN NULL
+                     ELSE $5::timestamptz
+                          + make_interval(mins => COALESCE(duration_minutes, duration_days * 1440)) END),
               last_seen_at = $5::timestamptz,
               last_seen_device_id = $2
         WHERE key = $1 AND locked_device_id IS NULL AND status <> 'revoked'

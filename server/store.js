@@ -15,6 +15,22 @@ const backend = process.env.DATABASE_URL ? require('./store-pg') : require('./st
 
 const newSessionId = () => crypto.randomBytes(16).toString('base64url');
 
+// The three lengths a key can be sold as. The clock starts on first
+// activation, not creation, so an unsold key never burns its time.
+// Lifetime keys store no duration at all and never expire.
+const PLANS = {
+  '8h': { id: '8h', label: '8 hours', minutes: 480 },
+  '1w': { id: '1w', label: '1 week', minutes: 7 * 24 * 60 },
+  lifetime: { id: 'lifetime', label: 'Lifetime', minutes: null },
+};
+
+const isPlan = (plan) => typeof plan === 'string' && Object.prototype.hasOwnProperty.call(PLANS, plan);
+
+/** Minutes for a plan id, or null for lifetime / anything unrecognised. */
+function planMinutes(plan) {
+  return isPlan(plan) ? PLANS[plan].minutes : null;
+}
+
 function formatKey(raw) {
   // raw: 16 chars -> R6S-XXXX-XXXX-XXXX-XXXX
   const groups = raw.match(/.{1,4}/g);
@@ -37,7 +53,9 @@ async function init() {
   await backend.init();
 }
 
-async function createKey({ note = '', expiresInDays = null, isAdmin = false } = {}) {
+async function createKey({ note = '', plan = 'lifetime', expiresInDays = null, isAdmin = false } = {}) {
+  // plan is one of PLANS; expiresInDays is the older CLI form, still honoured.
+  const durationMinutes = expiresInDays > 0 ? Math.round(expiresInDays * 24 * 60) : planMinutes(plan);
   // A clash between two random 16-character keys is astronomically unlikely,
   // but a retry costs nothing and the backend refuses duplicates either way.
   for (let attempt = 0; attempt < 10; attempt++) {
@@ -50,7 +68,7 @@ async function createKey({ note = '', expiresInDays = null, isAdmin = false } = 
       // How long the key lasts once it's used. The clock starts when it is
       // first activated (claimDevice sets expiresAt from this), so a key
       // that sits unused for a week still gives its owner the full time.
-      durationDays: expiresInDays > 0 ? Math.round(expiresInDays) : null,
+      durationMinutes,
       expiresAt: null,
       lockedDeviceId: null,
       lockedFingerprint: null,
@@ -199,6 +217,8 @@ async function checkSession(key, sessionId, deviceId, rawFp) {
 
 module.exports = {
   backendName: backend.name,
+  PLANS,
+  isPlan,
   init,
   close: () => backend.close(),
   createKey,

@@ -17,6 +17,14 @@ function ensureStore() {
   if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, JSON.stringify({ keys: [] }, null, 2));
 }
 
+/** How long a key lasts, in minutes. durationDays is the older field, kept
+ * working for keys written before the switch to minutes. */
+function minutesFor(rec) {
+  if (rec.durationMinutes > 0) return rec.durationMinutes;
+  if (rec.durationDays > 0) return rec.durationDays * 1440;
+  return null;
+}
+
 function readAll() {
   ensureStore();
   const raw = fs.readFileSync(DATA_FILE, 'utf8');
@@ -95,7 +103,7 @@ module.exports = {
       // The countdown starts here, on first activation.
       expiresAt:
         rec.expiresAt ||
-        (rec.durationDays > 0 ? new Date(Date.parse(nowIso) + rec.durationDays * 86400000).toISOString() : null),
+        (minutesFor(rec) > 0 ? new Date(Date.parse(nowIso) + minutesFor(rec) * 60000).toISOString() : null),
       lastSeenAt: nowIso,
       lastSeenDeviceId: deviceId,
     };

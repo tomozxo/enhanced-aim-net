@@ -17,8 +17,12 @@ async function main() {
   await store.init();
 
   if (cmd === 'new') {
-    const [note, expiresInDays] = args;
-    const record = await store.createKey({ note, expiresInDays: expiresInDays ? Number(expiresInDays) : null });
+    const [note, plan] = args;
+    if (plan && !store.isPlan(plan)) {
+      console.log(`Unknown length "${plan}". Use one of: ${Object.keys(store.PLANS).join(', ')}.`);
+      return;
+    }
+    const record = await store.createKey({ note, plan: plan || 'lifetime' });
     console.log('Created key:', record.key);
     console.log(record);
   } else if (cmd === 'admin') {
@@ -50,7 +54,7 @@ async function main() {
   } else {
     console.log(
       'Usage:\n' +
-        '  node server/cli.js new [note] [expiresInDays]\n' +
+        '  node server/cli.js new [note] [8h|1w|lifetime]   (default: lifetime)\n' +
         '  node server/cli.js admin [note]\n' +
         '  node server/cli.js list\n' +
         '  node server/cli.js unlock <key>\n' +

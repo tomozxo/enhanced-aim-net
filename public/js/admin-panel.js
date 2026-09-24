@@ -148,8 +148,19 @@ function lockText(k) {
  * been used yet has no end date to show - just how long it will last. */
 function expiryText(k) {
   if (k.expiresAt) return fmt(k.expiresAt);
-  if (k.durationDays > 0) return `${k.durationDays} day${k.durationDays === 1 ? '' : 's'} from first use`;
+  const mins = k.durationMinutes > 0 ? k.durationMinutes : k.durationDays > 0 ? k.durationDays * 1440 : 0;
+  if (mins > 0) return `${durationLabel(mins)} from first use`;
   return 'never';
+}
+
+/** "8 hours", "1 week" - and something sensible for any other length a key
+ * made from the CLI might carry. */
+function durationLabel(mins) {
+  const plural = (n, unit) => `${n} ${unit}${n === 1 ? '' : 's'}`;
+  if (mins % (7 * 1440) === 0) return plural(mins / (7 * 1440), 'week');
+  if (mins % 1440 === 0) return plural(mins / 1440, 'day');
+  if (mins % 60 === 0) return plural(mins / 60, 'hour');
+  return plural(mins, 'minute');
 }
 
 function blockedText(k) {
@@ -214,19 +225,20 @@ document.querySelector('#keysTable tbody').addEventListener('click', async (e) =
 
 document.getElementById('createBtn').addEventListener('click', async () => {
   const note = document.getElementById('note').value;
-  const expiresInDays = document.getElementById('expiresInDays').value;
+  const plan = document.getElementById('keyPlan').value;
   const isAdmin = document.getElementById('isAdminCheckbox').checked;
   createMsg.textContent = 'Generating...';
   createMsg.className = 'form-msg';
   try {
     const { key } = await api('/api/admin/keys', {
       method: 'POST',
-      body: JSON.stringify({ note, expiresInDays: expiresInDays || null, isAdmin }),
+      body: JSON.stringify({ note, plan, isAdmin }),
     });
     createMsg.innerHTML = '';
     createMsg.className = 'form-msg ok';
     const label = document.createElement('span');
-    label.textContent = `Created ${key.key}${isAdmin ? ' (admin)' : ''} — `;
+    const planLabel = document.getElementById('keyPlan').selectedOptions[0].textContent;
+    label.textContent = `Created ${key.key} — ${planLabel}${isAdmin ? ', admin' : ''} — `;
     const copyBtn = document.createElement('button');
     copyBtn.className = 'btn-small';
     copyBtn.style.padding = '3px 9px';
@@ -244,7 +256,6 @@ document.getElementById('createBtn').addEventListener('click', async () => {
     createMsg.appendChild(label);
     createMsg.appendChild(copyBtn);
     document.getElementById('note').value = '';
-    document.getElementById('expiresInDays').value = '';
     document.getElementById('isAdminCheckbox').checked = false;
     loadKeys();
   } catch (e) {

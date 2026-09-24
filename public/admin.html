@@ -126,8 +126,12 @@
         <input id="note" class="plain-input" placeholder="optional" />
       </div>
       <div>
-        <label>Lasts for (days from first use, blank = never)</label>
-        <input id="expiresInDays" class="plain-input" type="number" min="1" placeholder="e.g. 30" />
+        <label>Lasts for (from first use)</label>
+        <select id="keyPlan" class="plain-input">
+          <option value="8h">8 hours</option>
+          <option value="1w">1 week</option>
+          <option value="lifetime" selected>Lifetime</option>
+        </select>
       </div>
       <div style="flex:0">
         <label class="check-row"><input type="checkbox" id="isAdminCheckbox" /> Admin key</label>

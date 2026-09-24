@@ -122,10 +122,13 @@ function forPanel(k) {
 router.post(
   '/keys',
   wrap(async (req, res) => {
-    const { note, expiresInDays, isAdmin } = req.body || {};
+    const { note, plan, isAdmin } = req.body || {};
+    if (plan && !store.isPlan(plan)) {
+      return res.status(400).json({ ok: false, message: 'Unknown key length.' });
+    }
     const record = await store.createKey({
       note,
-      expiresInDays: expiresInDays ? Number(expiresInDays) : null,
+      plan: plan || 'lifetime',
       isAdmin: !!isAdmin,
     });
     res.json({ ok: true, key: forPanel(record) });
