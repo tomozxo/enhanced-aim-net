@@ -1,69 +1,80 @@
-/* Minimal by design: black, one typeface, hairline dividers instead of
-   boxes wherever a box isn't needed, and the accent colour saved for the
-   few things that matter - the primary action, what's selected, and the
-   numbers you came for. */
+/* ==========================================================================
+   enhanced.aim.net
+   Small, separate pieces: every setting, stat and control is its own
+   rounded tile on a soft background tinted by the accent colour. The start
+   panel is the one bold block of colour. One typeface (Inter), one spacing
+   scale, and three radii - 10px for controls, 12-14px for tiles, 20px for
+   the big panels - used everywhere.
+   ========================================================================== */
 
-/* Dark tokens. The drill overlay re-declares them so it stays dark (like a
-   practice range) even when the rest of the site is in light mode. */
-:root,
-.drill-overlay {
-  color-scheme: dark;
-  --bg: #000000;
-  --panel: #0b0b0c;
-  --panel-2: #151517;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-soft: rgba(255, 255, 255, 0.05);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --text: #ededee;
-  --text-sub: #8e8e94;
-  --text-dim: #5c5c62;
-  --input-bg: transparent;
-  --ok: #4ade80;
-  --bad: #f87171;
-  --close: #fbbf24;
-  --warn-bg: rgba(251, 191, 36, 0.07);
-  --warn-border: rgba(251, 191, 36, 0.2);
-  --warn-text: #e8b57e;
-  /* The accent lifted towards white so accent-coloured text stays easy to
-     read on black, whichever colour was picked. */
-  --accent-text: color-mix(in srgb, var(--accent) 62%, #ffffff);
-}
-
+/* ---------- Tokens: light (the default) ---------- */
 :root {
+  color-scheme: light;
   --accent: #a50fec;
   --accent-dim: #a50fec33;
-  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --target-fill: #c837ff;
-  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  /* One radius for panels, one for controls, one height for anything
-     clickable in a row. Everything below uses these rather than its own
-     numbers, which is what keeps the page looking even. */
-  --radius: 14px;
-  --radius-sm: 8px;
-  --control-h: 32px;
-}
 
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #fafafa;
-  --panel: #ffffff;
-  --panel-2: #f1f1f3;
-  --border: rgba(0, 0, 0, 0.08);
-  --border-soft: rgba(0, 0, 0, 0.05);
-  --border-strong: rgba(0, 0, 0, 0.14);
-  --text: #111113;
-  --text-sub: #64646b;
-  --text-dim: #a0a0a7;
-  --input-bg: transparent;
+  --bg: color-mix(in srgb, var(--accent) 5%, #f6f6f9);
+  --surface: #ffffff;
+  --surface-2: color-mix(in srgb, var(--accent) 4%, #f1f1f5);
+  --track: rgba(24, 20, 45, 0.06);
+  --border: rgba(24, 20, 45, 0.08);
+  --border-strong: rgba(24, 20, 45, 0.14);
+  --text: #15131f;
+  --text-sub: #5b5870;
+  --text-dim: #9794a8;
+  --shadow-sm: 0 1px 2px rgba(24, 20, 45, 0.06), 0 0 0 1px rgba(24, 20, 45, 0.045);
+  --shadow-md: 0 10px 30px -12px rgba(24, 20, 45, 0.18), 0 0 0 1px rgba(24, 20, 45, 0.05);
+  --accent-text: color-mix(in srgb, var(--accent) 86%, #000000);
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 45%, transparent);
   --ok: #16a34a;
   --bad: #dc2626;
   --close: #b45309;
   --warn-bg: #fdf6ea;
   --warn-border: #efdcb8;
   --warn-text: #8a5a1a;
-  --accent-text: color-mix(in srgb, var(--accent) 85%, #000000);
+
+  /* Older names still used by the admin panel. */
+  --panel: var(--surface);
+  --panel-2: var(--surface-2);
+  --border-soft: var(--border);
+  --input-bg: var(--surface-2);
+
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --control-h: 34px;
 }
 
+/* ---------- Tokens: dark ----------
+   Not black: a deep shade of the accent. The drill overlay always uses
+   these, so the range stays dark whatever the page is set to. */
+:root[data-theme="dark"],
+.drill-overlay {
+  color-scheme: dark;
+  --bg: color-mix(in srgb, var(--accent) 8%, #0b0b10);
+  --surface: color-mix(in srgb, var(--accent) 7%, #16161d);
+  --surface-2: color-mix(in srgb, var(--accent) 9%, #1f1f28);
+  --track: rgba(255, 255, 255, 0.06);
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+  --text: #f3f2f8;
+  --text-sub: #a8a6ba;
+  --text-dim: #6e6c82;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-md: 0 14px 36px -14px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --accent-text: color-mix(in srgb, var(--accent) 60%, #ffffff);
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+  --ok: #4ade80;
+  --bad: #f87171;
+  --close: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, 0.08);
+  --warn-border: rgba(251, 191, 36, 0.22);
+  --warn-text: #f0c27e;
+}
+
+/* ---------- Base ---------- */
 * { box-sizing: border-box; }
 /* The scripts hide things with the hidden attribute; without this, any
    class that sets display (every button) would quietly override it. */
@@ -77,70 +88,130 @@ body {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
 }
+/* A soft wash of the accent from the top corners, behind everything. */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 0% -10%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 70%),
+    radial-gradient(700px 460px at 100% -10%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%);
+}
+.topbar, .page, .gate-card, .admin-page, .gate-wrap { position: relative; z-index: 1; }
 button, input, select, output { font-family: inherit; }
 a { color: inherit; }
 ::selection { background: var(--accent-soft); }
 button:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-select option { background: var(--panel); color: var(--text); }
+select option { background: var(--surface); color: var(--text); }
 input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
+/* ---------- Buttons ---------- */
+.btn-accent {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 36px; padding: 0 18px; cursor: pointer; white-space: nowrap;
+  background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm);
+  font-size: 13.5px; font-weight: 600;
+  box-shadow: 0 6px 16px -8px var(--accent-glow);
+  transition: filter 0.15s, transform 0.15s;
+}
+.btn-accent:hover { filter: brightness(1.08); }
+.btn-accent:active { transform: translateY(1px); }
+.select-btn, .plain-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: var(--control-h); padding: 0 14px; cursor: pointer; white-space: nowrap;
+  background: var(--surface); color: var(--text); border: none; border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm); font-size: 13px; font-weight: 500;
+  transition: box-shadow 0.15s, color 0.15s;
+}
+.plain-btn:hover { box-shadow: var(--shadow-md); }
+.select-btn.primary, .plain-btn.primary { background: var(--accent); color: #fff; font-weight: 600; }
+.btn-accent:disabled, .plain-btn:disabled { opacity: 0.45; cursor: default; filter: none; box-shadow: none; }
+.clear-link {
+  background: none; border: none; padding: 6px 0 0; cursor: pointer;
+  color: var(--text-sub); font-size: 12.5px; transition: color 0.15s;
+}
+.clear-link:hover { color: var(--accent-text); }
+
 /* ---------- Activation gate (the loader, and the admin sign-in) ---------- */
-/* No card: just the form, centred, over one soft glow of the accent. */
 .gate-body {
   display: flex; align-items: center; justify-content: center;
   min-height: 100vh; padding: 80px 20px 40px;
-  background:
-    radial-gradient(600px 420px at 50% 42%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
-    var(--bg);
 }
-.gate-topbar { position: fixed; top: 0; left: 0; right: 0; justify-content: flex-end; border-bottom: none; }
-.gate-card { width: 100%; max-width: 340px; text-align: center; }
-.gate-icon { display: inline-flex; margin-bottom: 18px; color: var(--accent); }
-.gate-card h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 6px; }
-.gate-sub { color: var(--text-sub); font-size: 13.5px; margin: 0 0 26px; }
+.gate-topbar { position: fixed; top: 0; left: 0; right: 0; justify-content: flex-end; }
+.gate-card {
+  width: 100%; max-width: 380px; padding: 32px 28px 26px; text-align: center;
+  background: var(--surface); border-radius: 20px; box-shadow: var(--shadow-md);
+}
+.gate-icon {
+  display: inline-grid; place-items: center; width: 46px; height: 46px; margin-bottom: 18px;
+  border-radius: 13px; background: var(--accent); color: #fff; box-shadow: 0 8px 20px -8px var(--accent-glow);
+}
+.gate-icon svg { width: 24px; height: 24px; }
+/* The admin sign-in draws its icon in the accent; on the tile it's white. */
+.gate-icon svg * { stroke: #fff; }
+.gate-icon svg circle[fill] { fill: #fff; }
+.gate-card h1 { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 6px; }
+.gate-sub { color: var(--text-sub); font-size: 13.5px; margin: 0 0 22px; }
 .gate-input {
   width: 100%; height: 44px; margin-bottom: 10px; padding: 0 14px;
-  background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
-  color: var(--text); font-size: 14px; letter-spacing: 0.04em; text-align: center;
-  font-variant-numeric: tabular-nums; transition: border-color 0.15s;
+  background: var(--surface-2); border: 1px solid transparent; border-radius: var(--radius-sm);
+  color: var(--text); font-size: 14px; letter-spacing: 0.04em; text-align: center; font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .gate-input::placeholder { color: var(--text-dim); }
-.gate-input:focus { outline: none; border-color: var(--accent); }
+.gate-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .gate-btn {
   width: 100%; height: 44px; padding: 0 14px; cursor: pointer;
   background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm);
-  font-size: 14px; font-weight: 600; transition: filter 0.15s;
+  font-size: 14px; font-weight: 600; box-shadow: 0 8px 20px -10px var(--accent-glow); transition: filter 0.15s;
 }
-.gate-btn:hover { filter: brightness(1.1); }
+.gate-btn:hover { filter: brightness(1.08); }
 .gate-btn:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
-.gate-msg { min-height: 18px; font-size: 13px; color: var(--bad); margin: 14px 0 0; }
+.gate-msg { min-height: 18px; font-size: 13px; color: var(--bad); margin: 12px 0 0; }
 .gate-msg.ok { color: var(--ok); }
-.gate-footnote { color: var(--text-dim); font-size: 12px; margin: 22px 0 0; line-height: 1.6; }
+.gate-footnote {
+  color: var(--text-dim); font-size: 12px; line-height: 1.6; margin: 18px 0 0; padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
 
 /* ---------- Top bar ---------- */
 .topbar {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  height: 52px; padding: 0 28px; border-bottom: 1px solid var(--border-soft);
+  height: 60px; padding: 0 28px; flex: 0 0 auto;
 }
-.topbar-brand { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
-.topbar-brand .icon { color: var(--accent); display: flex; }
+.topbar-brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
+.topbar-brand .icon {
+  display: grid; place-items: center; width: 30px; height: 30px; flex: none;
+  border-radius: 9px; background: var(--accent); color: #fff; box-shadow: 0 6px 14px -6px var(--accent-glow);
+}
+.topbar-brand .icon svg { width: 16px; height: 16px; }
 .brand-tld { color: var(--accent-text); }
 /* Links between the tool and the admin panel. margin-right:auto keeps them
    next to the brand rather than out by the light/dark buttons. */
 .topbar-link {
-  margin-right: auto; margin-left: 16px; font-size: 12.5px; color: var(--text-sub); text-decoration: none;
-  transition: color 0.15s;
+  margin-right: auto; margin-left: 14px; height: 30px; padding: 0 12px;
+  display: inline-flex; align-items: center; border-radius: 999px;
+  background: var(--surface); box-shadow: var(--shadow-sm);
+  font-size: 12.5px; font-weight: 500; color: var(--text-sub); text-decoration: none; transition: color 0.15s;
 }
 .topbar-link:hover { color: var(--text); }
-.mode-toggle { display: flex; gap: 2px; }
-.mode-btn {
-  background: none; border: none; color: var(--text-dim); cursor: pointer;
-  font-size: 12.5px; padding: 6px 10px; border-radius: 6px; transition: color 0.15s;
+
+/* Segmented controls: light/dark, calibrate/converter and the optic tabs.
+   A quiet track with the chosen option lifted out of it. */
+.mode-toggle, .view-switch, .tabs {
+  display: flex; align-items: center; gap: 2px; padding: 3px;
+  background: var(--track); border-radius: 999px;
 }
-.mode-btn:hover { color: var(--text-sub); }
-.mode-btn.active { color: var(--text); }
+.mode-btn, .view-btn, .tab {
+  height: 100%; padding: 0 14px; cursor: pointer; white-space: nowrap;
+  background: none; border: none; border-radius: 999px;
+  color: var(--text-sub); font-size: 12.5px; font-weight: 500; transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.mode-btn { height: 26px; padding: 0 12px; font-size: 12px; }
+.view-switch, .tabs { height: var(--control-h); }
+.mode-btn:hover, .view-btn:hover, .tab:hover { color: var(--text); }
+.mode-btn.active, .view-btn.active, .tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+:root[data-theme="dark"] :is(.mode-btn.active, .view-btn.active, .tab.active) { background: var(--surface-2); }
 
 /* ---------- App shell ---------- */
 /* The page is sized to the window and never scrolls as a whole: the sidebar
@@ -148,28 +219,13 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
    controls are always on screen. Only the app uses this - the key screen
    and admin panel scroll normally. */
 body.app-shell { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-body.app-shell > .topbar { flex: 0 0 auto; }
 .page {
-  width: 100%; max-width: 1440px; margin: 0 auto; padding: 18px 28px 20px;
+  width: 100%; max-width: 1440px; margin: 0 auto; padding: 4px 28px 24px;
   flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
 }
 .view { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1; }
 .view[hidden] { display: none; }
 .picker-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-
-/* Segmented controls: the calibrate/converter switch and the optic tabs. */
-.view-switch, .tabs {
-  display: flex; gap: 2px; height: var(--control-h); align-items: center; padding: 2px;
-  background: var(--panel-2); border-radius: var(--radius-sm);
-}
-.view-btn, .tab {
-  height: 100%; padding: 0 14px; background: none; border: none; border-radius: 6px; cursor: pointer;
-  color: var(--text-sub); font-size: 12.5px; font-weight: 500; white-space: nowrap; transition: color 0.15s, background 0.15s;
-}
-.view-btn:hover, .tab:hover { color: var(--text); }
-.view-btn.active, .tab.active { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
-:root[data-theme="light"] :is(.view-btn.active, .tab.active) { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
-
 /* Anything that can overflow gets its own scrollbar rather than pushing the
    page down. */
 .sidebar, .content, #convertCard, .bottom-grid > .card {
@@ -177,8 +233,8 @@ body.app-shell > .topbar { flex: 0 0 auto; }
 }
 
 /* Page title (the admin panel's). */
-.page-header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
-.page-header h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+.page-header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.page-header h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.025em; margin: 0; }
 
 /* ---------- Game picker ---------- */
 .game-picker { display: flex; align-items: center; gap: 10px; margin: 0; flex-wrap: wrap; }
@@ -186,57 +242,53 @@ body.app-shell > .topbar { flex: 0 0 auto; }
 /* The game is a dropdown: there are enough of them now that a row of
    buttons wrapped, and the list keeps growing. */
 .game-select select {
-  height: var(--control-h); padding: 0 30px 0 12px;
-  font-size: 13.5px; font-weight: 600; color: var(--text); border-color: var(--border-strong);
+  height: 36px; padding: 0 36px 0 16px; border-radius: 999px;
+  background: var(--surface); border: none; box-shadow: var(--shadow-sm);
+  font-size: 13.5px; font-weight: 600; color: var(--text);
 }
-.game-option-tag { font-size: 12px; color: var(--text-dim); }
-
-/* Read-only value in a sidebar row, e.g. a game's locked FOV. */
-.field-static { font-size: 13.5px; color: var(--text); font-variant-numeric: tabular-nums; }
-/* Valorant/CS2 sens takes up to 3 decimals, so its box is wider. */
-.stepper.stepper-wide input { width: 64px; }
-.sidebar-note { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin: 10px 0 2px; }
-.sidebar-note b { color: var(--text-sub); font-weight: 600; }
-
-/* Drill footer: whether the mouse is being read raw. */
-.raw-input { font-size: 12px; color: var(--text-dim); }
-.raw-input.ok::before { content: "● "; color: var(--ok); }
-.raw-input.warn { color: var(--warn-text); }
+.game-select select:hover { box-shadow: var(--shadow-md); }
+.game-select::after { right: 15px; }
+.game-option-tag {
+  font-size: 11.5px; font-weight: 500; padding: 4px 10px; border-radius: 999px;
+  color: var(--accent-text); background: var(--accent-soft);
+}
+.game-option-tag:empty { display: none; }
 
 .layout {
-  display: grid; grid-template-columns: 272px 1fr; gap: 32px; align-items: stretch;
+  display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: stretch;
   flex: 1; min-height: 0;
 }
 .layout > .sidebar { overflow-y: auto; }
 .layout > .content { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 @media (max-width: 900px) { .layout { grid-template-columns: 1fr; overflow-y: auto; } }
 
-/* ---------- Sidebar ---------- */
-/* Not a box - just a column of settings. */
-.sidebar { padding: 4px 6px 12px 0; }
-.sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.sidebar-header h2 { font-size: 13.5px; margin: 0; font-weight: 600; }
+/* ---------- Sidebar: a column of small tiles ---------- */
+.sidebar { padding: 2px 4px 12px 2px; margin: -2px -4px 0 -2px; }
+.sidebar-header { display: flex; justify-content: space-between; align-items: center; margin: 0 2px 10px; }
+.sidebar-header h2 { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
 
-/* Every row is the same height whether it holds a number, a switch or a
-   dropdown, so the column reads as one list rather than a stack of boxes. */
 .field-row {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  min-height: 40px; padding: 6px 0; border-bottom: 1px solid var(--border-soft);
+  min-height: 44px; padding: 0 14px; margin-bottom: 6px;
+  background: var(--surface); border-radius: 12px; box-shadow: var(--shadow-sm);
 }
-.field-row:last-child { border-bottom: none; }
-.field-label { font-size: 13px; color: var(--text-sub); line-height: 1.35; }
+.field-label { font-size: 13px; color: var(--text); line-height: 1.3; padding: 7px 0; }
 .field-label small { display: block; color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+.field-static { font-size: 13.5px; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+.fill-hint, .sidebar-note { font-size: 12px; color: var(--text-dim); line-height: 1.55; padding: 8px 4px 6px; margin: 0; }
+.sidebar-note b { color: var(--text-sub); font-weight: 600; }
 
 .stepper { display: flex; align-items: center; gap: 4px; }
 .stepper input {
   width: 46px; padding: 0; background: transparent; border: none; color: var(--text);
-  font-size: 13.5px; font-weight: 500; font-variant-numeric: tabular-nums; text-align: right;
+  font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right;
 }
 .stepper input:focus { outline: none; color: var(--accent-text); }
+/* Valorant/CS2 sens takes up to 3 decimals, so its box is wider. */
+.stepper.stepper-wide input { width: 64px; }
 .stepper[data-field="ads1xMeasured"] input { width: 70px; }
 .stepper[data-field="ads1xMeasured"] input::placeholder { color: var(--text-dim); }
-/* The arrows only show up when you're on the row, so the column is just
-   names and numbers until then. */
+/* The arrows only show when you're on the tile. */
 .stepper-arrows { display: flex; flex-direction: column; opacity: 0; transition: opacity 0.15s; }
 .field-row:hover .stepper-arrows, .stepper:focus-within .stepper-arrows { opacity: 1; }
 .stepper-arrows button {
@@ -244,139 +296,146 @@ body.app-shell > .topbar { flex: 0 0 auto; }
   display: flex; align-items: center; justify-content: center;
   background: none; border: none; color: var(--text-dim); cursor: pointer;
 }
-.stepper-arrows button:hover { color: var(--text); }
+.stepper-arrows button:hover { color: var(--accent-text); }
 
 .select-wrap { position: relative; }
 .select-wrap select {
-  appearance: none; height: 30px; padding: 0 28px 0 10px; cursor: pointer;
-  background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--text); font-size: 13px; transition: border-color 0.15s;
+  appearance: none; height: 32px; padding: 0 28px 0 12px; cursor: pointer;
+  background: var(--surface-2); border: none; border-radius: var(--radius-sm);
+  color: var(--text); font-size: 13px; font-weight: 500;
 }
-.select-wrap select:hover { border-color: var(--border-strong); }
-.select-wrap select:focus { outline: none; border-color: var(--accent); }
+.select-wrap select:focus { outline: none; box-shadow: 0 0 0 2px var(--accent); }
 .select-wrap::after {
-  content: ""; position: absolute; right: 11px; top: 50%; width: 5px; height: 5px; pointer-events: none;
-  border-right: 1.5px solid var(--text-dim); border-bottom: 1.5px solid var(--text-dim);
+  content: ""; position: absolute; right: 12px; top: 50%; width: 5px; height: 5px; pointer-events: none;
+  border-right: 1.5px solid var(--text-sub); border-bottom: 1.5px solid var(--text-sub);
   transform: translateY(-70%) rotate(45deg);
 }
+/* A dropdown inside a tile is the tile's value: no box of its own. */
+.field-row .select-wrap select { background: transparent; padding-left: 0; font-weight: 600; text-align-last: right; }
+.field-row .select-wrap[style*="width:100%"] select { text-align-last: left; }
+#mouseCheckBtn { padding: 0; color: var(--accent-text); font-weight: 500; }
 
-.toggle { position: relative; width: 34px; height: 20px; flex: none; }
+.toggle { position: relative; width: 36px; height: 22px; flex: none; }
 .toggle input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
-.toggle .track { position: absolute; inset: 0; background: var(--panel-2); border-radius: 100px; transition: background 0.15s; }
+.toggle .track { position: absolute; inset: 0; border-radius: 999px; background: var(--border-strong); transition: background 0.2s; }
 .toggle input:checked ~ .track { background: var(--accent); }
 .toggle input:focus-visible ~ .track { outline: 2px solid var(--accent); outline-offset: 2px; }
 .toggle .thumb {
-  position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%;
-  background: var(--text-sub); transition: left 0.15s, background 0.15s;
+  position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); transition: left 0.2s;
 }
-.toggle input:checked ~ .thumb { left: 17px; background: #fff; }
+.toggle input:checked ~ .thumb { left: 17px; }
 
-.sub-field { padding: 8px 0 4px; }
+/* Number boxes below a setting (the multiplier, the calibration values). */
+.sub-field {
+  padding: 10px 14px 12px; margin-bottom: 6px;
+  background: var(--surface); border-radius: 12px; box-shadow: var(--shadow-sm);
+}
+.sub-field-label { display: block; font-size: 12px; color: var(--text-sub); margin-bottom: 7px; }
 .sub-field input[type="number"] {
   width: 100%; height: 32px; padding: 0 10px;
-  background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; transition: border-color 0.15s;
+  background: var(--surface-2); border: 1px solid transparent; border-radius: 8px;
+  color: var(--text); font-size: 13.5px; font-weight: 500; font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.sub-field input[type="number"]:focus { outline: none; border-color: var(--accent); }
+.sub-field input[type="number"]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .sub-field input::placeholder { color: var(--text-dim); }
-.sub-field input:disabled { opacity: 0.4; }
-.sub-field-label { font-size: 12px; color: var(--text-dim); margin-bottom: 6px; display: block; }
+.sub-field input:disabled { opacity: 0.45; }
 
-.fill-hint { font-size: 12px; color: var(--text-dim); padding-top: 10px; }
-
-.expander { margin-top: 4px; }
+.expander { margin-bottom: 6px; }
 .expander-toggle {
-  display: flex; align-items: center; gap: 8px; padding: 10px 0 0; cursor: pointer;
-  background: none; border: none; color: var(--text-sub); font-size: 13px; transition: color 0.15s;
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; padding: 0 14px; cursor: pointer;
+  background: var(--surface); border: none; border-radius: 12px; box-shadow: var(--shadow-sm);
+  color: var(--text); font-size: 13px; text-align: left; transition: box-shadow 0.15s;
 }
-.expander-toggle:hover { color: var(--text); }
-.expander-toggle .chev { color: var(--text-dim); transition: transform 0.15s; }
+.expander-toggle:hover { box-shadow: var(--shadow-md); }
+.expander-toggle .chev {
+  display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 6px;
+  background: var(--accent-soft); color: var(--accent-text); font-size: 13px; line-height: 1; transition: transform 0.2s;
+}
 .expander-toggle.open .chev { transform: rotate(90deg); }
-.expander-body { display: none; padding-top: 10px; }
+.expander-body { display: none; padding: 8px 0 0; }
 .expander-body.open { display: block; }
-.expander-body .sub-field { border-top: 1px solid var(--border-soft); padding-top: 10px; margin-top: 4px; }
+.expander-body > p { padding: 0 4px; }
 
-.accent-row { display: flex; align-items: center; gap: 10px; }
-.accent-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.accent-row { display: flex; align-items: center; gap: 12px; }
+.accent-swatches { display: flex; gap: 7px; flex-wrap: wrap; }
 .accent-swatch {
-  width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0;
+  width: 20px; height: 20px; padding: 0; cursor: pointer; border-radius: 50%;
+  border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border); transition: transform 0.15s;
 }
-.accent-swatch.active { border-color: var(--text); }
+.accent-swatch:hover { transform: scale(1.1); }
+.accent-swatch.active { box-shadow: 0 0 0 2px var(--text); }
 .accent-picker {
-  width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 6px; background: none; padding: 2px; cursor: pointer;
+  width: 30px; height: 30px; padding: 2px; cursor: pointer;
+  background: var(--surface-2); border: none; border-radius: 8px;
 }
 
-/* ---------- Main content ---------- */
+/* ---------- Main column ---------- */
 .tabbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .tabbar-status { font-size: 12.5px; color: var(--text-dim); }
 
-/* The one place with some colour behind it: a soft wash of the accent
-   falling from the top of the start panel. */
+/* The start panel: the one bold block of colour, with faint target rings
+   in the corner. */
 .main-panel {
-  flex: 1 1 auto; min-height: 170px; overflow: hidden; position: relative;
+  position: relative; flex: 1 1 auto; min-height: 170px; overflow: hidden;
   display: flex; flex-direction: column;
-  background:
-    radial-gradient(ellipse 60% 90% at 50% -20%, color-mix(in srgb, var(--accent) 17%, transparent), transparent 70%),
-    var(--panel);
-  border: 1px solid var(--border-soft); border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 55%), var(--accent);
+  color: #fff; border-radius: 20px;
+  box-shadow: 0 18px 40px -20px var(--accent-glow);
+}
+.main-panel::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-radial-gradient(circle at 92% 110%, rgba(255, 255, 255, 0.13) 0 1px, transparent 1.5px 38px);
+  -webkit-mask-image: radial-gradient(circle at 92% 110%, #000 10%, transparent 62%);
+  mask-image: radial-gradient(circle at 92% 110%, #000 10%, transparent 62%);
 }
 .main-panel-center {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   text-align: center; padding: 20px 24px; min-height: 0; overflow: hidden;
 }
-.main-panel-center h3 { font-size: 26px; margin: 0 0 8px; font-weight: 600; letter-spacing: -0.025em; }
-.main-panel-center p { color: var(--text-sub); font-size: 13.5px; max-width: 420px; line-height: 1.6; margin: 0 0 20px; }
-.btn-accent {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  height: 36px; padding: 0 18px; cursor: pointer; white-space: nowrap;
-  background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm);
-  font-size: 13.5px; font-weight: 600; transition: filter 0.15s;
+.main-panel-center h3 { font-size: 28px; font-weight: 600; letter-spacing: -0.03em; margin: 0 0 8px; }
+.main-panel-center p { color: rgba(255, 255, 255, 0.82); font-size: 14px; max-width: 430px; line-height: 1.6; margin: 0 0 20px; }
+.main-panel .btn-accent {
+  height: 40px; padding: 0 22px; background: #fff; color: color-mix(in srgb, var(--accent) 80%, #000);
+  box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.35);
 }
-.btn-accent:hover { filter: brightness(1.1); }
+.main-panel .caption { color: rgba(255, 255, 255, 0.72); }
 .caption { color: var(--text-dim); font-size: 12px; margin-top: 12px; max-width: 46ch; line-height: 1.55; }
-
 .panel-footer {
-  display: flex; justify-content: space-between; align-items: center; gap: 12px;
-  padding: 9px 16px; border-top: 1px solid var(--border-soft); font-size: 12px; color: var(--text-dim);
+  position: relative; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 18px; border-top: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 12px; color: rgba(255, 255, 255, 0.78);
 }
 .kbd-hint { display: flex; align-items: center; gap: 7px; }
 .kbd {
-  border: 1px solid var(--border-strong); border-radius: 5px; padding: 1px 6px;
-  font-size: 10.5px; font-weight: 500; color: var(--text-sub);
+  padding: 2px 7px; border-radius: 6px; font-size: 10.5px; font-weight: 600;
+  background: var(--surface-2); color: var(--text-sub);
 }
+.panel-footer .kbd { background: rgba(255, 255, 255, 0.18); color: #fff; }
 
-/* Stats: one row split by hairlines rather than four separate boxes. */
-.statsbar {
-  display: grid; grid-template-columns: repeat(4, 1fr); flex: 0 0 auto;
-  border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft);
-}
-.stat { padding: 11px 0 12px 18px; border-left: 1px solid var(--border-soft); min-width: 0; }
-.stat:first-child { border-left: none; padding-left: 2px; }
-.stat-label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stat-value { font-size: 22px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+/* Stats: four small tiles. */
+.statsbar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; flex: 0 0 auto; }
+.stat { padding: 12px 16px 13px; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-sm); min-width: 0; }
+.stat-label { font-size: 12px; color: var(--text-dim); margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-value { font-size: 22px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; font-variant-numeric: tabular-nums; }
 /* cm/360 is the number everything here is about. */
 .stat:nth-child(2) .stat-value { color: var(--accent-text); }
-.model-note { font-size: 12px; color: var(--text-dim); margin: 0 2px; line-height: 1.6; flex: 0 0 auto; }
+.model-note {
+  flex: 0 0 auto; margin: 0; padding: 10px 14px; border-radius: 12px;
+  font-size: 12.5px; line-height: 1.55; color: var(--text-sub); background: var(--accent-soft);
+}
 .model-note button.linklike {
-  background: none; border: none; color: var(--accent-text); cursor: pointer; padding: 0;
-  font-size: inherit; text-decoration: underline; text-underline-offset: 2px;
+  background: none; border: none; padding: 0; cursor: pointer; font-size: inherit; font-weight: 600;
+  color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px;
 }
 
 /* refine section */
-.refine-header { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px; flex: 0 0 auto; margin: 2px 0 0; }
-.refine-header h3 { font-size: 14px; margin: 0 0 3px; font-weight: 600; }
+.refine-header { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px; flex: 0 0 auto; margin: 4px 2px 0; }
+.refine-header h3 { font-size: 14px; font-weight: 600; margin: 0 0 3px; }
 .refine-header p { font-size: 12.5px; color: var(--text-sub); margin: 0; }
 .refine-controls { display: flex; align-items: center; gap: 8px; }
-.refine-controls .select-wrap select { height: var(--control-h); }
-.select-btn, .plain-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  height: var(--control-h); padding: 0 14px; cursor: pointer; white-space: nowrap;
-  background: transparent; border: 1px solid var(--border); color: var(--text);
-  font-size: 13px; font-weight: 500; border-radius: var(--radius-sm); transition: border-color 0.15s, background 0.15s;
-}
-.plain-btn:hover { border-color: var(--border-strong); background: var(--panel-2); }
-.select-btn.primary, .plain-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-.btn-accent:disabled, .plain-btn:disabled { opacity: 0.45; cursor: default; filter: none; }
+.refine-controls .select-wrap select { height: var(--control-h); background: var(--surface); box-shadow: var(--shadow-sm); }
 
 /* bottom cards */
 /* The two cards keep their own scrollbars so a long comparison table can't
@@ -388,116 +447,115 @@ body.app-shell > .topbar { flex: 0 0 auto; }
 .bottom-grid > .card { overflow-y: auto; }
 #convertCard { overflow-y: auto; flex: 1; }
 @media (max-width: 900px) { .bottom-grid { grid-template-columns: 1fr; } }
-.card { background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 16px 18px; }
+.card { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-sm); padding: 16px 18px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
-.card-header h3 { font-size: 13.5px; margin: 0; font-weight: 600; }
-/* Status pills, in sentence case rather than the shouting the scripts
+.card-header h3 { font-size: 13.5px; font-weight: 600; margin: 0; }
+.comparison-tag {
+  font-size: 11.5px; font-weight: 500; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+  color: var(--text-sub); background: var(--track);
+}
+/* Status pills, in sentence case rather than the capitals the scripts
    write them in. */
 .badge {
-  font-size: 11.5px; font-weight: 500; padding: 3px 9px; border-radius: 100px; white-space: nowrap;
+  font-size: 11.5px; font-weight: 500; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
   text-transform: lowercase;
 }
 .badge::first-letter { text-transform: uppercase; }
 .badge:empty { display: none !important; }
-.badge.retest, .badge.incomplete { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
-.badge.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
-.badge.close { background: color-mix(in srgb, var(--close) 12%, transparent); color: var(--close); }
+.badge.retest, .badge.incomplete { color: var(--bad); background: color-mix(in srgb, var(--bad) 11%, transparent); }
+.badge.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.badge.close { color: var(--close); background: color-mix(in srgb, var(--close) 13%, transparent); }
 .card-empty { color: var(--text-dim); font-size: 13px; line-height: 1.6; }
 
-.rec-value { font-size: 34px; font-weight: 600; letter-spacing: -0.03em; margin: 6px 0 4px; color: var(--accent-text); font-variant-numeric: tabular-nums; }
+.rec-value { font-size: 36px; font-weight: 600; letter-spacing: -0.035em; margin: 4px 0 4px; color: var(--accent-text); font-variant-numeric: tabular-nums; }
 .rec-sub { font-size: 13px; color: var(--text-sub); margin: 0 0 14px; }
 .rec-sub.rec-hint { font-size: 12px; color: var(--text-dim); line-height: 1.55; margin-top: -8px; }
 .rec-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 table.comparison { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.comparison th { text-align: left; color: var(--text-dim); font-weight: 500; font-size: 12px; padding: 6px 8px; white-space: nowrap; }
-table.comparison td { padding: 8px; border-top: 1px solid var(--border-soft); font-variant-numeric: tabular-nums; color: var(--text-sub); }
-table.comparison tr.base td { color: var(--text); }
+table.comparison td { padding: 8px; border-top: 1px solid var(--border); color: var(--text-sub); font-variant-numeric: tabular-nums; }
+table.comparison tr.base td { color: var(--text); font-weight: 500; }
 table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
-.comparison-tag { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .comparison-footnote { font-size: 12px; color: var(--text-dim); margin: 12px 0 0; line-height: 1.6; }
-.clear-link { background: none; border: none; color: var(--text-sub); font-size: 12.5px; cursor: pointer; padding: 6px 0 0; transition: color 0.15s; }
-.clear-link:hover { color: var(--text); }
 
 /* ---------- Sensitivity converter ---------- */
-.convert-intro { font-size: 13px; color: var(--text-sub); margin: -2px 0 20px; line-height: 1.6; max-width: 62ch; }
-
-.convert-grid { display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 16px; }
+.convert-intro { font-size: 13px; color: var(--text-sub); margin: -2px 0 18px; line-height: 1.6; max-width: 62ch; }
+.convert-grid { display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 14px; }
 @media (max-width: 720px) {
   .convert-grid { grid-template-columns: 1fr; }
   .convert-swap { justify-self: start; transform: rotate(90deg); }
 }
-.convert-side { border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
-.convert-lbl { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
-.convert-side .select-wrap select { width: 100%; }
-
+.convert-side { padding: 14px; background: var(--surface-2); border-radius: var(--radius); }
+.convert-lbl { display: block; font-size: 12px; font-weight: 500; color: var(--text-sub); margin-bottom: 8px; }
+.convert-side .select-wrap select { width: 100%; height: 36px; background: var(--surface); box-shadow: var(--shadow-sm); font-weight: 600; }
 .convert-pair { display: grid; grid-template-columns: 1fr 88px; gap: 10px; margin-top: 12px; }
 .convert-pair label { display: block; }
 .convert-mini { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 5px; }
 .convert-pair input {
-  width: 100%; height: 34px; padding: 0 10px;
-  background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; transition: border-color 0.15s;
+  width: 100%; height: 36px; padding: 0 10px;
+  background: var(--surface); border: 1px solid transparent; border-radius: 8px; box-shadow: var(--shadow-sm);
+  color: var(--text); font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s;
 }
 .convert-pair input:focus { outline: none; border-color: var(--accent); }
-.convert-pair input:disabled { opacity: 0.4; cursor: not-allowed; }
+.convert-pair input:disabled { opacity: 0.45; cursor: not-allowed; }
 .convert-out {
-  display: flex; align-items: center; height: 34px; padding: 0 2px;
-  font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; color: var(--accent-text);
+  display: flex; align-items: center; height: 36px; padding: 0 2px;
+  font-size: 26px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; color: var(--accent-text);
   font-variant-numeric: tabular-nums;
 }
 .convert-swap {
-  align-self: center; margin-top: 26px; width: 32px; height: 32px; flex: none; cursor: pointer;
-  background: none; border: 1px solid var(--border); border-radius: 50%;
-  color: var(--text-sub); font-size: 14px; line-height: 1; transition: color 0.15s, border-color 0.15s;
+  align-self: center; margin-top: 26px; width: 34px; height: 34px; flex: none; cursor: pointer;
+  background: var(--surface); border: none; border-radius: 50%; box-shadow: var(--shadow-sm);
+  color: var(--accent-text); font-size: 15px; line-height: 1; transition: box-shadow 0.15s;
 }
-.convert-swap:hover { color: var(--text); border-color: var(--border-strong); }
-.convert-cm { font-size: 12.5px; color: var(--text-sub); margin: 14px 0 0; }
+.convert-swap:hover { box-shadow: var(--shadow-md); }
+.convert-cm { font-size: 12.5px; color: var(--text-sub); margin: 14px 2px 0; }
 .convert-cm b { color: var(--text); font-weight: 600; }
 .convert-warn {
-  font-size: 12px; line-height: 1.6; margin: 8px 0 0; padding: 8px 10px;
+  font-size: 12px; line-height: 1.6; margin: 8px 0 0; padding: 9px 12px;
   color: var(--warn-text); background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: var(--radius-sm);
 }
-#convertCard table.comparison { margin-top: 18px; }
+#convertCard table.comparison { margin-top: 16px; }
 
 /* ---------- Aim read-out on the results card ---------- */
-.aim-read { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-soft); text-align: left; }
+.aim-read { margin-top: 20px; padding: 16px; border-radius: var(--radius); background: var(--surface-2); text-align: left; }
 .aim-read-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .aim-read-title { font-size: 14px; font-weight: 600; color: var(--text); }
 .aim-read-tag { font-size: 12px; color: var(--text-dim); }
-.aim-bar { position: relative; height: 4px; margin: 14px 0 6px; border-radius: 2px; background: var(--panel-2); }
-.aim-bar-mid { position: absolute; left: 50%; top: -4px; bottom: -4px; width: 1px; background: var(--text-dim); }
+.aim-bar { position: relative; height: 6px; margin: 14px 0 6px; border-radius: 999px; background: var(--track); }
+.aim-bar-mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--border-strong); }
 .aim-bar-dot {
-  position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%;
-  background: var(--accent); transform: translate(-50%, -50%); transition: left 0.4s ease;
+  position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); border: 3px solid var(--surface); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  transform: translate(-50%, -50%); transition: left 0.4s ease;
 }
 .aim-bar-labels { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-dim); }
 .aim-read-text { font-size: 13px; line-height: 1.65; color: var(--text-sub); margin: 10px 0 0; }
 
 /* ---------- Mouse check dialog ---------- */
 .modal-overlay {
-  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); z-index: 900;
-  display: none; align-items: center; justify-content: center; padding: 24px;
+  position: fixed; inset: 0; z-index: 900; display: none; align-items: center; justify-content: center; padding: 24px;
+  background: color-mix(in srgb, var(--accent) 8%, rgba(10, 8, 20, 0.5)); backdrop-filter: blur(6px);
 }
 .modal-overlay.active { display: flex; }
-.modal-card {
-  width: 100%; max-width: 440px; background: var(--panel); border: 1px solid var(--border);
-  border-radius: 16px; padding: 24px;
-}
-.modal-card h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 8px; }
+.modal-card { width: 100%; max-width: 440px; padding: 24px; background: var(--surface); border-radius: 20px; box-shadow: var(--shadow-md); }
+.modal-card h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; margin: 0 0 8px; }
 .modal-card p { font-size: 13px; line-height: 1.6; color: var(--text-sub); margin: 0 0 14px; }
+.modal-card .sub-field { padding: 0; box-shadow: none; background: none; }
 .modal-card.capturing { cursor: none; }
 .modal-card .results-actions { margin-top: 18px; }
 .mouse-check-result { font-size: 13px; line-height: 1.7; margin: 14px 0 0; color: var(--text); }
 .mouse-check-result b { color: var(--accent-text); }
 .mouse-check-result .warn {
-  display: block; margin-top: 10px; padding: 8px 10px; border-radius: var(--radius-sm); font-size: 12px;
+  display: block; margin-top: 10px; padding: 9px 12px; border-radius: var(--radius-sm); font-size: 12px;
   color: var(--warn-text); background: var(--warn-bg); border: 1px solid var(--warn-border);
 }
 
 /* ---------- Fullscreen drill overlay ---------- */
 .drill-overlay {
-  position: fixed; inset: 0; background: #000; color: var(--text); z-index: 1000; display: none;
+  position: fixed; inset: 0; z-index: 1000; display: none; background: #000; color: var(--text);
 }
 .drill-overlay.active { display: block; }
 /* The stage fills the whole overlay - in fullscreen, the whole monitor - the
@@ -513,9 +571,9 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
 /* No shaded strips behind the bars - just a soft shadow on the text itself,
    so nothing darkens the top or bottom edge of the view. */
 .drill-topbar, .drill-footer { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
-.drill-tabs { display: flex; gap: 2px; background: rgba(20, 20, 22, 0.85); border-radius: var(--radius-sm); padding: 2px; }
-.drill-tabs .tab { font-size: 12px; padding: 6px 12px; height: auto; }
-.drill-status { font-size: 12.5px; color: var(--text-dim); }
+.drill-tabs { background: rgba(28, 28, 34, 0.85); height: 32px; text-shadow: none; }
+.drill-tabs .tab { font-size: 12px; display: inline-flex; align-items: center; }
+.drill-status { font-size: 12.5px; color: var(--text-sub); }
 .drill-stage { position: absolute; inset: 0; overflow: hidden; cursor: none; }
 /* Whenever a modal (pause/results) needs real mouse interaction, bring the
    OS cursor back - "cursor: none" is only for actual aiming. */
@@ -548,13 +606,20 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
 .drill-footer { bottom: 0; padding: 12px 20px; font-size: 12px; color: var(--text-sub); }
 
 .pause-overlay {
-  position: absolute; inset: 0; background: rgba(0, 0, 0, 0.75); display: none;
-  align-items: center; justify-content: center; z-index: 5;
+  position: absolute; inset: 0; z-index: 5; display: none; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
 }
 .pause-overlay.active { display: flex; }
-.pause-card { text-align: center; max-width: 340px; }
-.pause-card .icon { color: var(--accent); margin-bottom: 14px; }
-.pause-card h3 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 8px; }
+.pause-card {
+  width: min(360px, calc(100% - 40px)); padding: 28px 26px 22px; text-align: center;
+  background: var(--surface); border-radius: 20px; box-shadow: var(--shadow-md);
+}
+.pause-card .icon {
+  display: inline-grid; place-items: center; width: 44px; height: 44px; margin-bottom: 14px;
+  border-radius: 12px; background: var(--accent); color: #fff;
+}
+.pause-card .icon svg { width: 24px; height: 24px; }
+.pause-card h3 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 6px; }
 .pause-card p { color: var(--text-sub); font-size: 13.5px; margin: 0 0 20px; }
 .pause-card .caption { margin: 14px auto 0; }
 .pause-secondary-actions { display: flex; justify-content: center; gap: 18px; margin-top: 14px; }
@@ -562,25 +627,34 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
 
 /* The countdown sits over a dimmed view of the arena. */
 .getready {
-  position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-  flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.6); z-index: 5;
+  position: absolute; inset: 0; z-index: 5; display: none; align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px; background: rgba(0, 0, 0, 0.55);
 }
 .getready.active { display: flex; }
-.getready .big { font-size: 12px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(237, 237, 237, 0.6); }
-.getready .num { font-size: 64px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+.getready .big { font-size: 12px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(237, 237, 237, 0.65); }
+.getready .num { font-size: 72px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; color: #fff; }
 
 .results-overlay {
-  position: absolute; inset: 0; background: #000; display: none; padding: 30px; overflow-y: auto;
+  position: absolute; inset: 0; display: none; padding: 30px; overflow-y: auto;
+  background: radial-gradient(900px 500px at 50% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%), var(--bg);
 }
 .results-overlay.active { display: flex; }
-.results-card { width: 100%; max-width: 520px; margin: auto; text-align: center; }
-.results-card h3 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 8px; }
-.results-card p { color: var(--text-sub); font-size: 13.5px; margin: 0 0 20px; }
-.results-rec-value { font-size: 52px; font-weight: 600; letter-spacing: -0.04em; color: var(--accent-text); line-height: 1; margin: 4px 0 12px; font-variant-numeric: tabular-nums; }
+.results-card {
+  width: 100%; max-width: 540px; margin: auto; padding: 28px 28px 24px; text-align: center;
+  background: var(--surface); border-radius: 20px; box-shadow: var(--shadow-md);
+}
+.results-card h3 { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 6px; }
+.results-card p { color: var(--text-sub); font-size: 13.5px; margin: 0 0 18px; }
+.results-rec-value { font-size: 56px; font-weight: 600; letter-spacing: -0.045em; line-height: 1; margin: 4px 0 12px; color: var(--accent-text); font-variant-numeric: tabular-nums; }
 .results-card .results-table { margin: 18px 0 0; text-align: left; }
 .results-card .results-hint { font-size: 12.5px; margin: 12px 0 20px; }
 .results-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-.results-actions .btn-accent, .results-actions .plain-btn { min-width: 120px; }
+.results-actions .btn-accent, .results-actions .plain-btn { min-width: 120px; height: 38px; }
+
+/* Drill footer: whether the mouse is being read raw. */
+.raw-input { font-size: 12px; color: var(--text-dim); }
+.raw-input.ok::before { content: "● "; color: var(--ok); }
+.raw-input.warn { color: var(--warn-text); }
 
 /* dev-only banner (see dev-bypass.js) */
 .dev-banner {
@@ -595,9 +669,15 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
 @media (max-height: 840px) {
   .main-panel-center p:not(.caption) { display: none; }
 }
+@media (max-height: 800px) {
+  .main-panel { min-height: 132px; }
+  .model-note { padding: 8px 12px; }
+}
 @media (max-height: 700px) {
+  .bottom-grid { min-height: 128px; }
+  .main-panel-center { padding: 14px 20px; }
   .main-panel-center .caption { display: none; }
   .panel-footer { display: none; }
-  .stat { padding-top: 8px; padding-bottom: 9px; }
+  .stat { padding-top: 9px; padding-bottom: 10px; }
   .stat-value { font-size: 19px; }
 }

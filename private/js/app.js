@@ -461,7 +461,7 @@ function buildSimpleGameFields(game) {
       <div class="select-wrap"><select id="simpleResolution">${resOptions}</select></div>
     </div>
     <div class="fill-hint">If the resolution doesn't match your monitor</div>
-    <div class="field-row" style="padding-top:6px;border-bottom:none">
+    <div class="field-row">
       <div class="select-wrap" style="width:100%">
         <select id="simpleDisplayMode" style="width:100%">
           <option value="stretch">Stretched (fills the screen)</option>
