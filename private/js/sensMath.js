@@ -12,18 +12,19 @@
 // "Guide to ADS sensitivity in Y5S3": an ADS value of 50 is neutral - the
 // same mouse movement covers the same distance on your monitor as it does in
 // hip-fire - and that neutral point is 1 / XFactorAiming (0.02 by default,
-// hence 50). "Same distance on your monitor" is 0% monitor distance
-// matching (focal-length scaling): the turn shrinks by how much the sight
-// magnifies the middle of the screen - a ratio of tangents, so it depends
-// on your FOV:
-//     ADS °/count = hip-fire °/count × (ADS value × 0.02) × zoom ratio
-//     zoom ratio  = tan(sight vFOV / 2) / tan(your vFOV / 2)
-// Each sight's vertical FOV is a fixed fraction of yours: 0.9 for 1×, 0.35
-// for 2.5× (reverse-engineered, github.com/Skwuruhl/siegeads; Ubisoft only
-// publishes its table as an image, so these two are the estimated part).
-// At FOV 60 the ratios are 0.88 / 0.32; at FOV 90, 0.85 / 0.28.
-// History: v1 ignored hip-fire for ADS (felt far slower than the game); v2
-// used a flat 0.9 / 0.35 (2-19% too fast, depending on FOV).
+// hence 50). Ubisoft's guide publishes the rest as images; read from them
+// directly (sens_lookupchart.png and sens_FOVadj_f.png on that page):
+//
+//     FOVAdjustment = tan(FOVMultiplier × VerticalFOV / 2) / tan(VerticalFOV / 2)
+//     ADS °/count   = hip-fire °/count × (ADS value × 0.02) × FOVAdjustment
+//
+// with a FOVMultiplier per sight: 1.0× 0.9, 1.5× 0.59, 2.0× 0.49,
+// 2.5× 0.42, 3.0× 0.35, 4.0× 0.3, 5.0× 0.22, 12.0× 0.092. So it isn't an
+// estimate any more - these are Ubisoft's own numbers, and they reproduce
+// the guide's worked example (old ADS 30 becomes 20 on 1.0× at FOV 60).
+// History: v1 ignored hip-fire for ADS (felt far slower than the game);
+// v2 used a flat multiplier instead of the tangent ratio; v3 had 2.5× at
+// 0.35, which is the 3.0× row - that made 2.5× about 20% too slow.
 //
 // Measuring your real cm/360 for an optic ("Calibrate to your real sens")
 // stores how far the model is off at that moment, and every later sens
@@ -33,10 +34,12 @@
 export const HIP_DEG_PER_COUNT = 0.00572958; // per sens point, at multiplier 0.02
 const DEFAULT_MULT_UNIT = 0.02; // MouseSensitivityMultiplierUnit default
 const X_FACTOR_AIMING = 0.02; // default; makes ADS 50 the neutral value
-export const SIGHT_FOV_SCALE = { ads1x: 0.9, ads25x: 0.35 }; // sight vFOV as a fraction of yours
+// Ubisoft's FOVMultiplier for each sight: the sight's vertical FOV as a
+// fraction of yours.
+export const SIGHT_FOV_SCALE = { ads1x: 0.9, ads25x: 0.42 };
 // Saved with each measurement, so ones taken against an older ADS formula
 // can be recognised (state.js drops those for ADS).
-export const MODEL_VERSION = 3;
+export const MODEL_VERSION = 4;
 
 const RAD = Math.PI / 180;
 

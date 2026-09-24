@@ -118,6 +118,7 @@ export const GAMES = {
     // tested under the old model show "retest required" (see basisFor).
     // 2: real hip-fire constant, ADS relative to hip-fire, vertical FOV.
     // 3: ADS zoom ratio by focal length (depends on FOV).
+    // 4: Ubisoft's own FOV multipliers - 2.5x was using the 3.0x row.
     modelVersion: MODEL_VERSION,
     defaults: {
       hipfireH: 4,
