@@ -1157,7 +1157,7 @@ function renderComparison(state) {
       .map(
         (c) => `<tr class="${c.isBase ? 'base' : ''}">
           <td>${formatGameSens(game, c.sens)}${c.isBase ? ' · current' : ''}</td>
-          <td>—</td><td>—</td><td>—</td><td>—</td>
+          <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
         </tr>`
       )
       .join('');
