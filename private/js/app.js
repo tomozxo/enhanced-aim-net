@@ -756,21 +756,89 @@ function bindHitVolume() {
 }
 
 // ---------- Crosshair ----------
-// Each crosshair is a picture to click, drawn in the chosen colour (white
-// until one is picked), enlarged so they all show at about the same size.
+// A dropdown of the crosshairs, each shown as a picture with a plain name,
+// drawn in the chosen colour (white until one is picked). The list floats
+// over the page so the sidebar's scrolling can't cut it off.
+
+/** A picture box: the arena's grey with the crosshair on it. */
+function crosshairPicture() {
+  const box = document.createElement('span');
+  box.className = 'xh-pic';
+  box.appendChild(document.createElement('canvas'));
+  return box;
+}
 
 function bindCrosshair() {
-  const grid = $('crosshairGrid');
-  CROSSHAIRS.forEach((c, i) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'crosshair-option';
-    btn.setAttribute('role', 'radio');
-    btn.setAttribute('aria-label', `Crosshair ${i + 1}`);
-    btn.dataset.id = c.id;
-    btn.appendChild(document.createElement('canvas'));
-    btn.addEventListener('click', () => updateSettings({ crosshair: c.id }));
-    grid.appendChild(btn);
+  const trigger = $('crosshairTrigger');
+  const menu = $('crosshairMenu');
+  // Lives on the page body, not inside the sidebar, so the sidebar can't
+  // clip it and nothing in it can scroll the sidebar.
+  document.body.appendChild(menu);
+
+  for (const c of CROSSHAIRS) {
+    const opt = document.createElement('button');
+    opt.type = 'button';
+    opt.className = 'xh-option';
+    opt.setAttribute('role', 'option');
+    opt.dataset.id = c.id;
+    opt.append(crosshairPicture(), c.label);
+    opt.addEventListener('click', () => {
+      updateSettings({ crosshair: c.id });
+      closeMenu();
+      trigger.focus();
+    });
+    menu.appendChild(opt);
+  }
+
+  function place() {
+    const tile = trigger.closest('.crosshair-tile').getBoundingClientRect();
+    const t = trigger.getBoundingClientRect();
+    menu.style.left = `${tile.left}px`;
+    menu.style.width = `${tile.width}px`;
+    // Below the button if the whole list fits there; otherwise whichever
+    // side has more room, scrolling if even that isn't enough.
+    menu.style.maxHeight = 'none';
+    const natural = menu.offsetHeight;
+    const below = innerHeight - t.bottom - 18;
+    const above = t.top - 18;
+    const down = natural <= below || below >= above;
+    const room = Math.max(120, down ? below : above);
+    menu.style.maxHeight = `${room}px`;
+    menu.style.top = `${down ? t.bottom + 6 : t.top - 6 - Math.min(natural, room)}px`;
+  }
+  function openMenu() {
+    menu.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    place();
+    (menu.querySelector('[aria-selected="true"]') || menu.firstElementChild).focus({ preventScroll: true });
+  }
+  function closeMenu() {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+  }
+  trigger.addEventListener('click', () => (menu.hidden ? openMenu() : closeMenu()));
+  document.addEventListener('mousedown', (e) => {
+    if (!menu.contains(e.target) && !trigger.contains(e.target)) closeMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (menu.hidden) return;
+    const opts = [...menu.children];
+    const i = opts.indexOf(document.activeElement);
+    if (e.key === 'Escape') {
+      closeMenu();
+      trigger.focus();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = i < 0 ? 0 : (i + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length;
+      opts[next].focus({ preventScroll: true });
+      opts[next].scrollIntoView({ block: 'nearest' });
+    }
+  });
+  window.addEventListener('resize', closeMenu);
+  // Scrolling the sidebar carries the list along with its button.
+  document.querySelector('.sidebar').addEventListener('scroll', () => {
+    if (!menu.hidden) place();
   });
 
   const colors = $('crosshairColors');
@@ -798,28 +866,24 @@ function bindCrosshair() {
   colors.appendChild(customWrap);
 }
 
-/** How much to enlarge a crosshair's picture: whole multiples of its real
- * size (so it stays sharp) up to about 30px, so the tiny ones read as
- * clearly as the big ones. */
-const PICTURE_PX = 30;
-const pictureScratch = document.createElement('canvas');
-function pictureScale(preset) {
-  const real = drawCrosshair(pictureScratch, preset, '#fff', 1);
-  return Math.max(1, Math.floor(PICTURE_PX / real));
+/** A crosshair's picture is its true 1080p size, the same as in the drill
+ * on a 1080p screen - so the list shows them in proportion, sharp, and
+ * without blowing the small ones up into blobs. */
+function drawPicture(box, preset, color) {
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = box.querySelector('canvas');
+  const size = drawCrosshair(canvas, preset, color, dpr);
+  canvas.style.width = canvas.style.height = `${size / dpr}px`;
 }
 
 function renderCrosshair(s) {
-  const chosen = getCrosshair(s.crosshair).id;
+  const preset = getCrosshair(s.crosshair);
   const color = (s.crosshairColor || DEFAULT_CROSSHAIR_COLOR).toLowerCase();
-  const dpr = window.devicePixelRatio || 1;
-  $('crosshairGrid').querySelectorAll('.crosshair-option').forEach((btn) => {
-    const on = btn.dataset.id === chosen;
-    btn.classList.toggle('active', on);
-    btn.setAttribute('aria-checked', on ? 'true' : 'false');
-    const canvas = btn.querySelector('canvas');
-    const preset = getCrosshair(btn.dataset.id);
-    const size = drawCrosshair(canvas, preset, color, pictureScale(preset) * dpr);
-    canvas.style.width = canvas.style.height = `${size / dpr}px`;
+  drawPicture($('crosshairTrigger').querySelector('.xh-pic'), preset, color);
+  $('crosshairName').textContent = preset.label;
+  $('crosshairMenu').querySelectorAll('.xh-option').forEach((opt) => {
+    opt.setAttribute('aria-selected', opt.dataset.id === preset.id ? 'true' : 'false');
+    drawPicture(opt.querySelector('.xh-pic'), getCrosshair(opt.dataset.id), color);
   });
   let matched = false;
   $('crosshairColors').querySelectorAll('.accent-swatch[data-hex]').forEach((el) => {

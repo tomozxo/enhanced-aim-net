@@ -188,11 +188,16 @@
         </div>
       </div>
 
-      <!-- The drill crosshair, picked from pictures, in any colour. Shared by
-           every game. Filled in by app.js from crosshairs.js. -->
+      <!-- The drill crosshair, picked from a dropdown of pictures, in any
+           colour. Shared by every game. Filled in by app.js from crosshairs.js. -->
       <div class="crosshair-tile">
-        <div class="crosshair-head"><div class="field-label">Crosshair</div></div>
-        <div class="crosshair-grid" id="crosshairGrid" role="radiogroup" aria-label="Crosshair"></div>
+        <div class="crosshair-head">
+          <div class="field-label">Crosshair</div>
+          <button type="button" class="xh-trigger" id="crosshairTrigger" aria-haspopup="listbox" aria-expanded="false">
+            <span class="xh-pic"><canvas></canvas></span><span id="crosshairName">Default</span>
+          </button>
+        </div>
+        <div class="xh-menu" id="crosshairMenu" role="listbox" aria-label="Crosshair" hidden></div>
         <div class="crosshair-colors" id="crosshairColors" role="group" aria-label="Crosshair colour"></div>
       </div>
 

@@ -19,32 +19,33 @@
 //   thickness in 1/480ths of screen height (x2.25 at 1080p, rounded like
 //   the game rounds them), gap in pixels where the hole is 4 + gap.
 
-// Shown as pictures only, all in one colour (white until you pick another),
-// largest to smallest. The comments say whose each one is and the setting
-// it comes from; the colours those players use aren't carried over.
+// Listed by a plain description of the shape, all in one colour (white
+// until you pick another), largest to smallest. The comments say whose each
+// one is and the setting it comes from; the colours those players use
+// aren't carried over.
 export const DEFAULT_CROSSHAIR_COLOR = '#ffffff';
 
 export const CROSSHAIRS = [
   // The site's original crosshair.
-  { id: 'default', length: 7, thickness: 1, hole: 7, dot: 0, outline: 1, outlineAlpha: 0.6, alpha: 1 },
+  { id: 'default', label: 'Default', length: 7, thickness: 1, hole: 7, dot: 0, outline: 1, outlineAlpha: 0.6, alpha: 1 },
   // Valorant's own default inner lines (6 long, 2 thick, offset 3, outline
   // at 0.5) without the outer lines.
-  { id: 'valorant', length: 6, thickness: 2, hole: 6, dot: 0, outline: 1, outlineAlpha: 0.5, alpha: 1 },
+  { id: 'valorant', label: 'Classic', length: 6, thickness: 2, hole: 6, dot: 0, outline: 1, outlineAlpha: 0.5, alpha: 1 },
   // Demon1: 0;p;0;s;1;P;o;1;f;0;0t;1;0l;3;0o;2;0a;1;0f;0;1b;0 - 1px outline
-  { id: 'demon1', length: 3, thickness: 1, hole: 4, dot: 0, outline: 1, outlineAlpha: 1, alpha: 1 },
+  { id: 'demon1', label: 'Outlined', length: 3, thickness: 1, hole: 4, dot: 0, outline: 1, outlineAlpha: 1, alpha: 1 },
   // TenZ: 0;s;1;P;c;5;h;0;m;1;0l;4;0o;2;0a;1;0f;0;1b;0
-  { id: 'tenz', length: 4, thickness: 2, hole: 4, dot: 0, outline: 0, alpha: 1 },
+  { id: 'tenz', label: 'Small cross', length: 4, thickness: 2, hole: 4, dot: 0, outline: 0, alpha: 1 },
   // Aspas: 0;s;1;P;c;1;h;0;0l;4;0o;1;0a;1;0f;0;1b;0
-  { id: 'aspas', length: 4, thickness: 2, hole: 2, dot: 0, outline: 0, alpha: 1 },
+  { id: 'aspas', label: 'Tight cross', length: 4, thickness: 2, hole: 2, dot: 0, outline: 0, alpha: 1 },
   // ZywOo (CS2): length 2, thickness 0.5, gap -3
-  { id: 'zywoo', length: 5, thickness: 1, hole: 1, dot: 0, outline: 0, alpha: 1 },
+  { id: 'zywoo', label: 'Thin cross', length: 5, thickness: 1, hole: 1, dot: 0, outline: 0, alpha: 1 },
   // donk (CS2): length 1, thickness 1.5, gap -4
-  { id: 'donk', length: 2, thickness: 3, hole: 0, dot: 0, outline: 0, alpha: 1 },
+  { id: 'donk', label: 'Thick plus', length: 2, thickness: 3, hole: 0, dot: 0, outline: 0, alpha: 1 },
   // s1mple (CS2): length 1, thickness 1, gap -4, alpha 200 (m0NESY runs the
   // same shape fully opaque)
-  { id: 's1mple', length: 2, thickness: 2, hole: 0, dot: 0, outline: 0, alpha: 200 / 255 },
+  { id: 's1mple', label: 'Mini plus', length: 2, thickness: 2, hole: 0, dot: 0, outline: 0, alpha: 200 / 255 },
   // NiKo (CS2): length 0 with the dot on, thickness 2 - just a dot
-  { id: 'niko', length: 0, thickness: 4, hole: 0, dot: 4, outline: 0, alpha: 1 },
+  { id: 'niko', label: 'Dot', length: 0, thickness: 4, hole: 0, dot: 4, outline: 0, alpha: 1 },
 ];
 
 /** The colours both games offer, in the order Valorant lists them. */

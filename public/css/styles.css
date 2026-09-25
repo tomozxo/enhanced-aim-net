@@ -315,27 +315,48 @@ body.app-shell { height: 100%; display: flex; flex-direction: column; overflow: 
 .field-row .select-wrap[style*="width:100%"] select { text-align-last: left; }
 #mouseCheckBtn { padding: 0; color: var(--accent-text); font-weight: 500; }
 
-/* Crosshair: its own tile - a grid of the crosshairs as pictures, each on
-   the arena's grey, then the colours. */
+/* Crosshair: its own tile - a dropdown of the crosshairs as pictures, then
+   the colours. */
 .crosshair-tile {
-  padding: 2px 14px 12px; margin-bottom: 6px;
+  padding: 0 14px 12px; margin-bottom: 6px;
   background: var(--surface); border-radius: 12px; box-shadow: var(--shadow-sm);
 }
-.crosshair-head { display: flex; align-items: center; min-height: 40px; }
-/* Nine even squares, each crosshair centred on the arena's grey. */
-.crosshair-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.crosshair-option {
-  display: grid; place-items: center; aspect-ratio: 1.45; padding: 0; overflow: hidden; cursor: pointer;
-  background: #222428; border: none; border-radius: 10px; opacity: 0.7;
-  box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.15s, opacity 0.15s;
+.crosshair-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; }
+/* A crosshair's picture on the arena's grey - in the dropdown and on it. */
+.xh-pic {
+  display: grid; place-items: center; width: 30px; height: 30px; flex: none; overflow: hidden;
+  border-radius: 7px; background: #222428;
 }
-.crosshair-option:hover { opacity: 1; }
-.crosshair-option.active { opacity: 1; box-shadow: 0 0 0 2px var(--accent); }
-.crosshair-option canvas { image-rendering: pixelated; }
+.xh-pic canvas { image-rendering: pixelated; }
+.xh-trigger {
+  position: relative; display: flex; align-items: center; gap: 9px; padding: 3px 26px 3px 3px; cursor: pointer;
+  background: none; border: none; border-radius: 9px; color: var(--text); font-size: 13px; font-weight: 600;
+  transition: background 0.15s;
+}
+.xh-trigger:hover, .xh-trigger[aria-expanded="true"] { background: var(--track); }
+.xh-trigger::after {
+  content: ""; position: absolute; right: 10px; top: 50%; width: 5px; height: 5px;
+  border-right: 1.5px solid var(--text-sub); border-bottom: 1.5px solid var(--text-sub);
+  transform: translateY(-70%) rotate(45deg); transition: transform 0.15s;
+}
+.xh-trigger[aria-expanded="true"]::after { transform: translateY(-30%) rotate(-135deg); }
+/* The open list floats over the page (placed by app.js), so the sidebar's
+   scrolling can't cut it off. */
+.xh-menu {
+  position: fixed; z-index: 800; padding: 4px; overflow-y: auto;
+  background: var(--surface); border-radius: 12px; box-shadow: var(--shadow-md);
+}
+.xh-option {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 10px 0 5px; cursor: pointer;
+  background: none; border: none; border-radius: 8px; color: var(--text); font-size: 13px; text-align: left;
+}
+.xh-option:hover, .xh-option:focus-visible { background: var(--track); outline: none; }
+.xh-option[aria-selected="true"] { font-weight: 600; }
+.xh-option[aria-selected="true"]::after { content: "✓"; margin-left: auto; color: var(--accent-text); }
 /* One even row of colour dots, the last a rainbow for any colour. */
 .crosshair-colors {
   display: flex; align-items: center; justify-content: space-between;
-  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+  padding-top: 12px; border-top: 1px solid var(--border);
 }
 .crosshair-colors .accent-swatch { width: 22px; height: 22px; }
 .swatch-custom {
