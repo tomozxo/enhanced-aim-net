@@ -28,7 +28,8 @@ const WAVE_GROWTH = 2.4; // how far the ring spreads, as a multiple of the targe
 const ARENA_RADIUS = 120; // targets sit at 60, halfway to the wall
 const ARENA_HEIGHT = 440;
 const CAMERA_HEIGHT = ARENA_HEIGHT / 2;
-const GRID = 16; // world units per grid square - about 7.6° across on the wall
+const GRID = 48; // world units per grid square - about 23° across on the wall. Big on
+// purpose: small squares made the wall shimmer and play tricks on the eye.
 
 // Bounce drill: the target slides along a straight line a couple of grid
 // squares wide and turns around at each end, and you flick onto it and
@@ -160,7 +161,7 @@ export class DrillEngine {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
-    // No lights and no fog: the arena is one flat, even black whichever way
+    // No lights and no fog: the arena is one flat, even grey whichever way
     // you turn, so nothing shifts behind the targets as you aim.
 
     this.camera = new THREE.PerspectiveCamera(90, 1, 0.5, 2000);
@@ -202,22 +203,23 @@ export class DrillEngine {
     this.scene.add(ceiling);
   }
 
-  /** One grid square - dark, with a thin lighter edge - tiled `repeatX` x
+  /** One grid square - dark grey, with a thin black edge - tiled `repeatX` x
    * `repeatY` times across a surface. */
   _makeGridTexture(repeatX, repeatY) {
-    const size = 256;
+    const size = 512;
     const c = document.createElement('canvas');
     c.width = c.height = size;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = '#222428';
     ctx.fillRect(0, 0, size, size);
-    // 3px on each edge, so neighbouring squares meet in a 6px line - about
-    // one screen pixel at normal FOVs.
-    ctx.fillStyle = '#2b2d33';
-    ctx.fillRect(0, 0, size, 3);
-    ctx.fillRect(0, size - 3, size, 3);
-    ctx.fillRect(0, 0, 3, size);
-    ctx.fillRect(size - 3, 0, 3, size);
+    // 2px on each edge, so neighbouring squares meet in a 4px line: the same
+    // width on screen as before the squares were made 3x bigger - about one
+    // screen pixel at normal FOVs.
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, size, 2);
+    ctx.fillRect(0, size - 2, size, 2);
+    ctx.fillRect(0, 0, 2, size);
+    ctx.fillRect(size - 2, 0, 2, size);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.wrapS = THREE.RepeatWrapping;
