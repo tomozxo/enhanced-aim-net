@@ -33,6 +33,7 @@ import {
 } from './sensMath.js';
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine, previewHitSound } from './drills.js';
+import { CROSSHAIRS, CROSSHAIR_COLORS, drawCrosshair, getCrosshair } from './crosshairs.js';
 import {
   buildCandidates,
   buildQueue,
@@ -152,6 +153,7 @@ async function main() {
   bindSimpleGameFields();
   bindExpanders();
   bindHitVolume();
+  bindCrosshair();
   bindMouseCheck();
   bindTabs();
   bindConvert();
@@ -753,6 +755,57 @@ function bindHitVolume() {
   slider.addEventListener('change', () => previewHitSound(Number(slider.value)));
 }
 
+// ---------- Crosshair ----------
+// Picking a crosshair also picks its owner's colour; any colour can then be
+// chosen on top. The preview is drawn at twice the 1080p size so it reads at
+// sidebar scale.
+
+function bindCrosshair() {
+  const select = $('crosshairSelect');
+  const option = (c) => `<option value="${c.id}">${c.name}</option>`;
+  const group = (game) =>
+    `<optgroup label="${game} pros">${CROSSHAIRS.filter((c) => c.game === game).map(option).join('')}</optgroup>`;
+  select.innerHTML = CROSSHAIRS.filter((c) => !c.game).map(option).join('') + group('Valorant') + group('CS2');
+  select.addEventListener('change', () => {
+    const preset = getCrosshair(select.value);
+    updateSettings({ crosshair: preset.id, crosshairColor: preset.color });
+  });
+
+  const colors = $('crosshairColors');
+  for (const c of CROSSHAIR_COLORS) {
+    const swatch = document.createElement('button');
+    swatch.type = 'button';
+    swatch.className = 'accent-swatch';
+    swatch.title = c.name;
+    swatch.dataset.hex = c.hex;
+    swatch.style.background = c.hex;
+    swatch.addEventListener('click', () => updateSettings({ crosshairColor: c.hex }));
+    colors.appendChild(swatch);
+  }
+  const custom = document.createElement('input');
+  custom.type = 'color';
+  custom.className = 'accent-picker';
+  custom.id = 'crosshairCustomColor';
+  custom.title = 'Any colour';
+  custom.addEventListener('input', () => updateSettings({ crosshairColor: custom.value }));
+  colors.appendChild(custom);
+}
+
+function renderCrosshair(s) {
+  const preset = getCrosshair(s.crosshair);
+  const color = (s.crosshairColor || preset.color).toLowerCase();
+  $('crosshairSelect').value = preset.id;
+  $('crosshairColors').querySelectorAll('.accent-swatch').forEach((el) => {
+    el.classList.toggle('active', el.dataset.hex === color);
+  });
+  const custom = $('crosshairCustomColor');
+  if (document.activeElement !== custom && /^#[0-9a-f]{6}$/.test(color)) custom.value = color;
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = $('crosshairPreview');
+  const size = drawCrosshair(canvas, preset, color, 2 * dpr);
+  canvas.style.width = canvas.style.height = `${size / dpr}px`;
+}
+
 function bindExpanders() {
   $('themeToggle').addEventListener('click', () => {
     $('themeToggle').classList.toggle('open');
@@ -1025,6 +1078,7 @@ function renderSettingsInputs(state) {
   const hitVolume = s.hitVolume ?? 100;
   if (document.activeElement !== $('hitVolume')) $('hitVolume').value = hitVolume;
   $('hitVolumeValue').textContent = hitVolumeText(hitVolume);
+  renderCrosshair(s);
   $('keepAdsSpeed').checked = s.keepAdsSpeed;
   $('useCustomMultiplier').checked = s.useCustomMultiplier;
   $('customMultiplier').value = s.customMultiplier;

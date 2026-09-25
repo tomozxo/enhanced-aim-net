@@ -315,6 +315,24 @@ body.app-shell { height: 100%; display: flex; flex-direction: column; overflow: 
 .field-row .select-wrap[style*="width:100%"] select { text-align-last: left; }
 #mouseCheckBtn { padding: 0; color: var(--accent-text); font-weight: 500; }
 
+/* Crosshair: its own tile - which one, a preview on the arena's grey, and
+   the colours. */
+.crosshair-tile {
+  padding: 2px 14px 12px; margin-bottom: 6px;
+  background: var(--surface); border-radius: 12px; box-shadow: var(--shadow-sm);
+}
+.crosshair-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 42px; }
+.crosshair-head .select-wrap select { background: transparent; padding-left: 0; font-weight: 600; text-align-last: right; }
+.crosshair-body { display: flex; align-items: center; gap: 12px; }
+.crosshair-preview-box {
+  display: grid; place-items: center; width: 52px; height: 52px; flex: none; overflow: hidden;
+  border-radius: 10px; background: #222428;
+}
+.crosshair-preview { image-rendering: pixelated; }
+.crosshair-colors { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1; }
+.crosshair-colors .accent-swatch { width: 18px; height: 18px; }
+.crosshair-colors .accent-picker { width: 26px; height: 26px; }
+
 /* Hit sound volume: a slider with its level beside it. */
 .volume { display: flex; align-items: center; gap: 10px; }
 .volume input[type="range"] { width: 110px; margin: 0; accent-color: var(--accent); cursor: pointer; }
@@ -595,6 +613,10 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
   /* A hairline dark edge keeps it readable over the ball and the lit walls. */
   filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.95));
 }
+/* Once the chosen crosshair is drawn (drills.js), it replaces the image
+   above and is placed on exact screen pixels by the script. */
+.drill-crosshair.drawn { background-image: none; filter: none; transform: none; }
+.drill-crosshair canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
 /* HUD: just the timer at top centre with the drill name under it - plain
    text, no panel, so nothing competes with the targets. */
 .drill-hud-tr, .drill-hud-tl {

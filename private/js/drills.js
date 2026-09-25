@@ -1,4 +1,5 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import { drawCrosshair, getCrosshair } from './crosshairs.js';
 
 const DRILL_LABELS = { flick: 'FLICK', bounce: 'BOUNCE', targets: 'TARGETS', tracking: 'TRACKING' };
 const TARGET_DISTANCE = 60; // world units targets sit out in front of the camera
@@ -390,6 +391,30 @@ export class DrillEngine {
     this.band = { min, max };
   }
 
+  /** Draws the chosen crosshair (crosshairs.js) the size the game would. Its
+   * sizes are for a 1080p picture, so they scale with the picture's height,
+   * and a stretched resolution widens it the same way it widens the game.
+   * Placed on whole screen pixels so it stays sharp. */
+  _drawCrosshair(w, h, selected, stretch) {
+    const el = this.stage.querySelector('.drill-crosshair');
+    if (!el || !(h > 0)) return;
+    if (!this.crosshairCanvas) {
+      this.crosshairCanvas = document.createElement('canvas');
+      el.appendChild(this.crosshairCanvas);
+      el.classList.add('drawn');
+    }
+    const { settings } = this.sensSettings;
+    const dpr = window.devicePixelRatio || 1;
+    const preset = getCrosshair(settings.crosshair);
+    const size = drawCrosshair(this.crosshairCanvas, preset, settings.crosshairColor || preset.color, (h * dpr) / 1080);
+    const devW = Math.round(size * (stretch ? w / h / selected : 1));
+    const stage = this.stage.getBoundingClientRect();
+    el.style.width = `${devW / dpr}px`;
+    el.style.height = `${size / dpr}px`;
+    el.style.left = `${Math.round((stage.width * dpr - devW) / 2) / dpr}px`;
+    el.style.top = `${Math.round((stage.height * dpr - size) / 2) / dpr}px`;
+  }
+
   _resizeCanvas() {
     if (!this.sensSettings) return; // window can resize before the first configure()/run()
     const stageRect = this.stage.getBoundingClientRect();
@@ -435,6 +460,7 @@ export class DrillEngine {
     this.camera.aspect = selected;
     this.camera.fov = vFovDeg;
     this.camera.updateProjectionMatrix();
+    this._drawCrosshair(w, h, selected, stretch);
     // Draw the room once straight away, so the get-ready countdown shows it
     // behind the numbers rather than a black screen.
     this.renderer.render(this.scene, this.camera);
