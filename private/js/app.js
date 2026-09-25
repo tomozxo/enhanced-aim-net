@@ -33,7 +33,7 @@ import {
 } from './sensMath.js';
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine, previewHitSound } from './drills.js';
-import { CROSSHAIRS, CROSSHAIR_COLORS, drawCrosshair, getCrosshair } from './crosshairs.js';
+import { CROSSHAIRS, CROSSHAIR_COLORS, DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
 import {
   buildCandidates,
   buildQueue,
@@ -756,19 +756,21 @@ function bindHitVolume() {
 }
 
 // ---------- Crosshair ----------
-// Picking a crosshair also picks its owner's colour; any colour can then be
-// chosen on top. The preview is drawn at twice the 1080p size so it reads at
-// sidebar scale.
+// Each crosshair is a picture to click, drawn in the chosen colour (white
+// until one is picked) at twice its 1080p size so it reads at sidebar scale.
 
 function bindCrosshair() {
-  const select = $('crosshairSelect');
-  const option = (c) => `<option value="${c.id}">${c.name}</option>`;
-  const group = (game) =>
-    `<optgroup label="${game} pros">${CROSSHAIRS.filter((c) => c.game === game).map(option).join('')}</optgroup>`;
-  select.innerHTML = CROSSHAIRS.filter((c) => !c.game).map(option).join('') + group('Valorant') + group('CS2');
-  select.addEventListener('change', () => {
-    const preset = getCrosshair(select.value);
-    updateSettings({ crosshair: preset.id, crosshairColor: preset.color });
+  const grid = $('crosshairGrid');
+  CROSSHAIRS.forEach((c, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'crosshair-option';
+    btn.setAttribute('role', 'radio');
+    btn.setAttribute('aria-label', `Crosshair ${i + 1}`);
+    btn.dataset.id = c.id;
+    btn.appendChild(document.createElement('canvas'));
+    btn.addEventListener('click', () => updateSettings({ crosshair: c.id }));
+    grid.appendChild(btn);
   });
 
   const colors = $('crosshairColors');
@@ -792,18 +794,22 @@ function bindCrosshair() {
 }
 
 function renderCrosshair(s) {
-  const preset = getCrosshair(s.crosshair);
-  const color = (s.crosshairColor || preset.color).toLowerCase();
-  $('crosshairSelect').value = preset.id;
+  const chosen = getCrosshair(s.crosshair).id;
+  const color = (s.crosshairColor || DEFAULT_CROSSHAIR_COLOR).toLowerCase();
+  const dpr = window.devicePixelRatio || 1;
+  $('crosshairGrid').querySelectorAll('.crosshair-option').forEach((btn) => {
+    const on = btn.dataset.id === chosen;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    const canvas = btn.querySelector('canvas');
+    const size = drawCrosshair(canvas, getCrosshair(btn.dataset.id), color, 2 * dpr);
+    canvas.style.width = canvas.style.height = `${size / dpr}px`;
+  });
   $('crosshairColors').querySelectorAll('.accent-swatch').forEach((el) => {
     el.classList.toggle('active', el.dataset.hex === color);
   });
   const custom = $('crosshairCustomColor');
   if (document.activeElement !== custom && /^#[0-9a-f]{6}$/.test(color)) custom.value = color;
-  const dpr = window.devicePixelRatio || 1;
-  const canvas = $('crosshairPreview');
-  const size = drawCrosshair(canvas, preset, color, 2 * dpr);
-  canvas.style.width = canvas.style.height = `${size / dpr}px`;
 }
 
 function bindExpanders() {

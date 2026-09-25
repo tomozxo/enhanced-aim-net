@@ -1,5 +1,5 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { drawCrosshair, getCrosshair } from './crosshairs.js';
+import { DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
 
 const DRILL_LABELS = { flick: 'FLICK', bounce: 'BOUNCE', targets: 'TARGETS', tracking: 'TRACKING' };
 const TARGET_DISTANCE = 60; // world units targets sit out in front of the camera
@@ -406,7 +406,7 @@ export class DrillEngine {
     const { settings } = this.sensSettings;
     const dpr = window.devicePixelRatio || 1;
     const preset = getCrosshair(settings.crosshair);
-    const size = drawCrosshair(this.crosshairCanvas, preset, settings.crosshairColor || preset.color, (h * dpr) / 1080);
+    const size = drawCrosshair(this.crosshairCanvas, preset, settings.crosshairColor || DEFAULT_CROSSHAIR_COLOR, (h * dpr) / 1080);
     const devW = Math.round(size * (stretch ? w / h / selected : 1));
     const stage = this.stage.getBoundingClientRect();
     el.style.width = `${devW / dpr}px`;

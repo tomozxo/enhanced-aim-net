@@ -188,17 +188,12 @@
         </div>
       </div>
 
-      <!-- The drill crosshair: the site default or a pro's, in any colour.
-           Shared by every game. Filled in by app.js from crosshairs.js. -->
+      <!-- The drill crosshair, picked from pictures, in any colour. Shared by
+           every game. Filled in by app.js from crosshairs.js. -->
       <div class="crosshair-tile">
-        <div class="crosshair-head">
-          <div class="field-label">Crosshair</div>
-          <div class="select-wrap"><select id="crosshairSelect" aria-label="Crosshair"></select></div>
-        </div>
-        <div class="crosshair-body">
-          <div class="crosshair-preview-box"><canvas class="crosshair-preview" id="crosshairPreview" aria-hidden="true"></canvas></div>
-          <div class="crosshair-colors" id="crosshairColors" role="group" aria-label="Crosshair colour"></div>
-        </div>
+        <div class="crosshair-head"><div class="field-label">Crosshair</div></div>
+        <div class="crosshair-grid" id="crosshairGrid" role="radiogroup" aria-label="Crosshair"></div>
+        <div class="crosshair-colors" id="crosshairColors" role="group" aria-label="Crosshair colour"></div>
       </div>
 
       <div class="expander">

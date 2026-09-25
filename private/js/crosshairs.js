@@ -19,30 +19,32 @@
 //   thickness in 1/480ths of screen height (x2.25 at 1080p, rounded like
 //   the game rounds them), gap in pixels where the hole is 4 + gap.
 
+// Shown as pictures only, all in one colour (white until you pick another),
+// largest to smallest. The comments say whose each one is and the setting
+// it comes from; the colours those players use aren't carried over.
+export const DEFAULT_CROSSHAIR_COLOR = '#ffffff';
+
 export const CROSSHAIRS = [
-  {
-    id: 'default', name: 'Default', game: '',
-    length: 7, thickness: 1, hole: 7, dot: 0, outline: 1, outlineAlpha: 0.6, alpha: 1, color: '#f2f2f2',
-  },
-  // 0;s;1;P;c;5;h;0;m;1;0l;4;0o;2;0a;1;0f;0;1b;0
-  { id: 'tenz', name: 'TenZ', game: 'Valorant', length: 4, thickness: 2, hole: 4, dot: 0, outline: 0, alpha: 1, color: '#00ffff' },
-  // 0;s;1;P;c;1;h;0;0l;4;0o;1;0a;1;0f;0;1b;0
-  { id: 'aspas', name: 'Aspas', game: 'Valorant', length: 4, thickness: 2, hole: 2, dot: 0, outline: 0, alpha: 1, color: '#00ff00' },
-  // 0;p;0;s;1;P;o;1;f;0;0t;1;0l;3;0o;2;0a;1;0f;0;1b;0 - white, 1px black outline
-  {
-    id: 'demon1', name: 'Demon1', game: 'Valorant',
-    length: 3, thickness: 1, hole: 4, dot: 0, outline: 1, outlineAlpha: 1, alpha: 1, color: '#ffffff',
-  },
-  // Length 1, thickness 1, gap -4, alpha 200, green
-  { id: 's1mple', name: 's1mple', game: 'CS2', length: 2, thickness: 2, hole: 0, dot: 0, outline: 0, alpha: 200 / 255, color: '#00ff00' },
-  // Length 1, thickness 1, gap -4, RGB 0/255/145
-  { id: 'm0nesy', name: 'm0NESY', game: 'CS2', length: 2, thickness: 2, hole: 0, dot: 0, outline: 0, alpha: 1, color: '#00ff91' },
-  // Length 1, thickness 1.5, gap -4, RGB 0/255/165
-  { id: 'donk', name: 'donk', game: 'CS2', length: 2, thickness: 3, hole: 0, dot: 0, outline: 0, alpha: 1, color: '#00ffa5' },
-  // Length 2, thickness 0.5, gap -3, green
-  { id: 'zywoo', name: 'ZywOo', game: 'CS2', length: 5, thickness: 1, hole: 1, dot: 0, outline: 0, alpha: 1, color: '#00ff00' },
-  // Length 0 with the dot on, thickness 2: just a dot. RGB 0/255/145
-  { id: 'niko', name: 'NiKo', game: 'CS2', length: 0, thickness: 4, hole: 0, dot: 4, outline: 0, alpha: 1, color: '#00ff91' },
+  // The site's original crosshair.
+  { id: 'default', length: 7, thickness: 1, hole: 7, dot: 0, outline: 1, outlineAlpha: 0.6, alpha: 1 },
+  // Valorant's own default inner lines (6 long, 2 thick, offset 3, outline
+  // at 0.5) without the outer lines.
+  { id: 'valorant', length: 6, thickness: 2, hole: 6, dot: 0, outline: 1, outlineAlpha: 0.5, alpha: 1 },
+  // Demon1: 0;p;0;s;1;P;o;1;f;0;0t;1;0l;3;0o;2;0a;1;0f;0;1b;0 - 1px outline
+  { id: 'demon1', length: 3, thickness: 1, hole: 4, dot: 0, outline: 1, outlineAlpha: 1, alpha: 1 },
+  // TenZ: 0;s;1;P;c;5;h;0;m;1;0l;4;0o;2;0a;1;0f;0;1b;0
+  { id: 'tenz', length: 4, thickness: 2, hole: 4, dot: 0, outline: 0, alpha: 1 },
+  // Aspas: 0;s;1;P;c;1;h;0;0l;4;0o;1;0a;1;0f;0;1b;0
+  { id: 'aspas', length: 4, thickness: 2, hole: 2, dot: 0, outline: 0, alpha: 1 },
+  // ZywOo (CS2): length 2, thickness 0.5, gap -3
+  { id: 'zywoo', length: 5, thickness: 1, hole: 1, dot: 0, outline: 0, alpha: 1 },
+  // donk (CS2): length 1, thickness 1.5, gap -4
+  { id: 'donk', length: 2, thickness: 3, hole: 0, dot: 0, outline: 0, alpha: 1 },
+  // s1mple (CS2): length 1, thickness 1, gap -4, alpha 200 (m0NESY runs the
+  // same shape fully opaque)
+  { id: 's1mple', length: 2, thickness: 2, hole: 0, dot: 0, outline: 0, alpha: 200 / 255 },
+  // NiKo (CS2): length 0 with the dot on, thickness 2 - just a dot
+  { id: 'niko', length: 0, thickness: 4, hole: 0, dot: 4, outline: 0, alpha: 1 },
 ];
 
 /** The colours both games offer, in the order Valorant lists them. */
@@ -104,7 +106,7 @@ export function drawCrosshair(canvas, preset, color, scale = 1) {
   // the colour where the two overlap.
   for (const [x, y, w, h] of rects) ctx.clearRect(x, y, w, h);
   ctx.globalAlpha = preset.alpha ?? 1;
-  ctx.fillStyle = color || preset.color;
+  ctx.fillStyle = color || DEFAULT_CROSSHAIR_COLOR;
   for (const [x, y, w, h] of rects) ctx.fillRect(x, y, w, h);
   ctx.globalAlpha = 1;
   return size;
