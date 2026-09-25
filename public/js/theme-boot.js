@@ -5,6 +5,6 @@
 (function () {
   try {
     var m = localStorage.getItem('r6sf_theme_mode');
-    document.documentElement.dataset.theme = m === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = m === 'light' ? 'light' : 'dark';
   } catch (e) {}
 })();

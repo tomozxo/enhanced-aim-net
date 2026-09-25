@@ -3,14 +3,14 @@ const MODE_KEY = 'r6sf_theme_mode';
 
 export function getMode() {
   try {
-    return localStorage.getItem(MODE_KEY) === 'dark' ? 'dark' : 'light';
+    return localStorage.getItem(MODE_KEY) === 'light' ? 'light' : 'dark';
   } catch {
-    return 'light';
+    return 'dark';
   }
 }
 
 export function applyMode(mode) {
-  document.documentElement.dataset.theme = mode === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = mode === 'light' ? 'light' : 'dark';
   try {
     localStorage.setItem(MODE_KEY, mode);
   } catch {

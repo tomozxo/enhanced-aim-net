@@ -757,7 +757,7 @@ function bindHitVolume() {
 
 // ---------- Crosshair ----------
 // Each crosshair is a picture to click, drawn in the chosen colour (white
-// until one is picked) at twice its 1080p size so it reads at sidebar scale.
+// until one is picked), enlarged so they all show at about the same size.
 
 function bindCrosshair() {
   const grid = $('crosshairGrid');
@@ -784,13 +784,28 @@ function bindCrosshair() {
     swatch.addEventListener('click', () => updateSettings({ crosshairColor: c.hex }));
     colors.appendChild(swatch);
   }
+  // Any other colour: a rainbow dot with the colour picker hidden inside it.
+  const customWrap = document.createElement('label');
+  customWrap.className = 'accent-swatch swatch-custom';
+  customWrap.id = 'crosshairCustomSwatch';
+  customWrap.title = 'Any colour';
   const custom = document.createElement('input');
   custom.type = 'color';
-  custom.className = 'accent-picker';
   custom.id = 'crosshairCustomColor';
-  custom.title = 'Any colour';
+  custom.setAttribute('aria-label', 'Any colour');
   custom.addEventListener('input', () => updateSettings({ crosshairColor: custom.value }));
-  colors.appendChild(custom);
+  customWrap.appendChild(custom);
+  colors.appendChild(customWrap);
+}
+
+/** How much to enlarge a crosshair's picture: whole multiples of its real
+ * size (so it stays sharp) up to about 30px, so the tiny ones read as
+ * clearly as the big ones. */
+const PICTURE_PX = 30;
+const pictureScratch = document.createElement('canvas');
+function pictureScale(preset) {
+  const real = drawCrosshair(pictureScratch, preset, '#fff', 1);
+  return Math.max(1, Math.floor(PICTURE_PX / real));
 }
 
 function renderCrosshair(s) {
@@ -802,12 +817,18 @@ function renderCrosshair(s) {
     btn.classList.toggle('active', on);
     btn.setAttribute('aria-checked', on ? 'true' : 'false');
     const canvas = btn.querySelector('canvas');
-    const size = drawCrosshair(canvas, getCrosshair(btn.dataset.id), color, 2 * dpr);
+    const preset = getCrosshair(btn.dataset.id);
+    const size = drawCrosshair(canvas, preset, color, pictureScale(preset) * dpr);
     canvas.style.width = canvas.style.height = `${size / dpr}px`;
   });
-  $('crosshairColors').querySelectorAll('.accent-swatch').forEach((el) => {
-    el.classList.toggle('active', el.dataset.hex === color);
+  let matched = false;
+  $('crosshairColors').querySelectorAll('.accent-swatch[data-hex]').forEach((el) => {
+    const on = el.dataset.hex === color;
+    el.classList.toggle('active', on);
+    matched = matched || on;
   });
+  // The rainbow dot is the selected one when the colour isn't a preset.
+  $('crosshairCustomSwatch').classList.toggle('active', !matched);
   const custom = $('crosshairCustomColor');
   if (document.activeElement !== custom && /^#[0-9a-f]{6}$/.test(color)) custom.value = color;
 }
