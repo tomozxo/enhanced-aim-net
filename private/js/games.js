@@ -51,6 +51,7 @@ const COMMON_RESOLUTIONS = [
   { value: '1280x720', aspect: '16:9' },
   { value: '1920x1200', aspect: '16:10' },
   { value: '1680x1050', aspect: '16:10' },
+  { value: '1920x1440', aspect: '4:3' },
   { value: '1440x1080', aspect: '4:3' },
   { value: '1280x960', aspect: '4:3' },
   { value: '1024x768', aspect: '4:3' },
