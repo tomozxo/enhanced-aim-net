@@ -72,6 +72,13 @@ function currentSens(game, tab, settings) {
   return quantizeSens(game, game.baseSens(tab, settings));
 }
 
+/** A result's winning sens, rounded to what the game accepts now - results
+ * saved before a game's step changed (CS2 used to be 3 decimals) can hold a
+ * value like 0.742 that the game can't take. */
+function bestSens(game, result) {
+  return quantizeSens(game, result.best.sens);
+}
+
 /** Calibrating and the converter swap places in the right-hand column
  * rather than sitting one below the other, so neither needs scrolling to.
  * Which one is showing is a this-visit thing, so it isn't saved. */
@@ -328,7 +335,7 @@ async function main() {
     // clear winner you're not already on is ready to apply; anything closer,
     // or a winner that's already your setting, points at another pass.
     const current = currentSens(game, tab, getState().settings);
-    const alreadySet = result.best.sens === current;
+    const alreadySet = bestSens(game, result) === current;
     const readyToApply = result.confidence === 'clear' && !alreadySet;
     $('fineTuneBtn').hidden = false;
     $('fineTuneBtn').className = readyToApply ? 'plain-btn' : 'btn-accent';
@@ -396,7 +403,7 @@ function applyRecommendation() {
   const tab = getState().activeTab;
   const result = getState().results[tab];
   if (!result) return;
-  updateSettings(currentGame().applySens(tab, result.best.sens));
+  updateSettings(currentGame().applySens(tab, bestSens(currentGame(), result)));
 }
 
 // ---------- Game picker ----------
@@ -1124,8 +1131,8 @@ function renderRecommendation(state) {
   const game = getGame(state.game);
   const fmt = (v) => formatGameSens(game, v);
   const current = currentSens(game, tab, state.settings);
-  const same = result.best.sens === current;
-  const delta = result.best.sens - current;
+  const same = bestSens(game, result) === current;
+  const delta = bestSens(game, result) - current;
   const deltaText = same
     ? 'Matches your current setting.'
     : `${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))} from your current ${fmt(current)}.`;

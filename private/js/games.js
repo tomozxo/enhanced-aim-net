@@ -186,7 +186,9 @@ export const GAMES = {
     vFovDeg: vFovFromH(90, 4 / 3),
     fovNote: 'Fixed by CS2',
     defaults: { sens: 1.5, resolution: '1920x1080', displayMode: 'stretch' },
-    rules: { step: 0.001, decimals: 3, min: 0.01, max: 8, minSpreadPct: 0.02 },
+    // CS2's settings menu takes sens to 2 decimals, so that's the finest a
+    // recommendation can be - one you can actually type in.
+    rules: { step: 0.01, decimals: 2, min: 0.01, max: 8, minSpreadPct: 0.02 },
     arrowStep: 0.05,
     sensLabel: 'Same number as your CS2 sensitivity (default m_yaw)',
   }),
@@ -268,8 +270,9 @@ export function quantizeSens(game, v) {
   return Math.max(min, Math.min(max, q));
 }
 
-/** Display form: Siege as a whole number; Valorant/CS2 up to 3 decimals with
- * trailing zeros trimmed (0.4, 0.368, 1.5). */
+/** Display form: Siege as a whole number; the rest to their own decimals
+ * (Valorant 3, CS2 and most others 2) with trailing zeros trimmed (0.4,
+ * 0.368, 1.5). */
 export function formatSens(game, v) {
   if (v == null || !isFinite(v)) return '—';
   return String(Number(Number(v).toFixed(game.rules.decimals)));

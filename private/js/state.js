@@ -1,4 +1,4 @@
-import { GAMES } from './games.js';
+import { GAMES, quantizeSens } from './games.js';
 import { MODEL_VERSION } from './sensMath.js';
 
 const STORAGE_KEY = 'r6sf_state_v1'; // name kept; the shape inside is versioned
@@ -64,6 +64,12 @@ function upgradeR6Settings(s) {
   return out;
 }
 
+/** A sens saved finer than the game accepts (CS2 used to allow 3 decimals
+ * here, but its menu only takes 2) is rounded to what can actually be set. */
+function fitSensToGame(id, s) {
+  return s.sens > 0 ? { ...s, sens: quantizeSens(GAMES[id], s.sens) } : s;
+}
+
 /** Fills in anything missing - a game added since this was saved, a new
  * setting, a new tab - without touching what's there. */
 function normalise(p) {
@@ -74,7 +80,7 @@ function normalise(p) {
     const tabs = Object.keys(def.results);
     const settings = { ...def.settings, ...(saved.settings || {}) };
     games[id] = {
-      settings: id === 'r6' ? upgradeR6Settings(settings) : settings,
+      settings: id === 'r6' ? upgradeR6Settings(settings) : fitSensToGame(id, settings),
       activeTab: tabs.includes(saved.activeTab) ? saved.activeTab : def.activeTab,
       results: Object.fromEntries(tabs.map((t) => [t, saved.results?.[t] ?? null])),
       resultBasis: Object.fromEntries(tabs.map((t) => [t, saved.resultBasis?.[t] ?? null])),

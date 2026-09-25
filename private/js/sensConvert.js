@@ -23,7 +23,7 @@ export const CM360_ID = 'cm360';
 // Titanfall and TF2 convert 1:1 between each other.
 const GAMES = [
   { id: 'valorant', name: 'Valorant', yaw: 0.07, decimals: 3, min: 0.1, max: 10 },
-  { id: 'cs2', name: 'CS2 / CS:GO', yaw: 0.022, decimals: 3 },
+  { id: 'cs2', name: 'CS2 / CS:GO', yaw: 0.022, decimals: 2 },
   { id: 'apex', name: 'Apex Legends', yaw: 0.022, decimals: 3 },
   { id: 'titanfall2', name: 'Titanfall 2', yaw: 0.022, decimals: 3 },
   { id: 'tf2', name: 'Team Fortress 2', yaw: 0.022, decimals: 3 },
