@@ -84,7 +84,10 @@ function rand(min, max) {
  */
 const hitSound = {
   ctx: null,
-  play() {
+  /** volume: 0-100, the "Hit sound" slider. 0 is silent - nothing plays. */
+  play(volume = 100) {
+    const level = Math.max(0, Math.min(100, Number(volume))) / 100;
+    if (!(level > 0)) return;
     try {
       if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
       if (this.ctx.state === 'suspended') this.ctx.resume();
@@ -95,7 +98,7 @@ const hitSound = {
       osc.frequency.setValueAtTime(880, now);
       osc.frequency.exponentialRampToValueAtTime(210, now + 0.07);
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.16, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.16 * level), now + 0.005);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
       osc.connect(gain).connect(this.ctx.destination);
       osc.start(now);
@@ -105,6 +108,12 @@ const hitSound = {
     }
   },
 };
+
+/** Plays the hit pop once at this volume, so the slider can be heard as
+ * it's set. */
+export function previewHitSound(volume) {
+  hitSound.play(volume);
+}
 
 const HALF_PI = Math.PI / 2;
 const PITCH_LIMIT = HALF_PI - 0.01;
@@ -786,7 +795,7 @@ export class DrillEngine {
     sprite.renderOrder = 2;
     this.scene.add(sprite);
     this.waves.push({ sprite, start: performance.now(), r: target.r });
-    hitSound.play();
+    hitSound.play(this.sensSettings?.settings?.hitVolume ?? 100);
   }
 
   _updateWaves(now) {

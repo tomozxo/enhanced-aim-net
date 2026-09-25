@@ -179,6 +179,15 @@
       </div>
       </div>
 
+      <!-- The pop when a target is hit. Shared by every game. -->
+      <div class="field-row">
+        <div class="field-label">Hit sound</div>
+        <div class="volume">
+          <input type="range" id="hitVolume" min="0" max="100" step="5" value="100" aria-label="Hit sound volume" />
+          <span class="volume-value" id="hitVolumeValue">100%</span>
+        </div>
+      </div>
+
       <div class="expander">
         <button class="expander-toggle" id="themeToggle"><span class="chev">›</span> Accent color</button>
         <div class="expander-body" id="themeBody">

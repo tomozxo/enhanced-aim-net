@@ -4,11 +4,13 @@ import { MODEL_VERSION } from './sensMath.js';
 const STORAGE_KEY = 'r6sf_state_v1'; // name kept; the shape inside is versioned
 
 // Settings that belong to you rather than to a game: the same mouse (DPI),
-// the site's accent colour, and the sens converter card.
-const SHARED_KEYS = ['dpi', 'accentColor', 'convert'];
+// the site's accent colour, the hit sound's volume, and the sens converter
+// card.
+const SHARED_KEYS = ['dpi', 'accentColor', 'hitVolume', 'convert'];
 const SHARED_DEFAULTS = {
   dpi: 800,
   accentColor: '#a50fec',
+  hitVolume: 100, // 0-100; 0 mutes the pop when a target is hit
   // Sensitivity converter panel. The sens/DPI keys are deliberately absent
   // rather than null: absent means "never touched", which seeds the fields
   // from the main settings, while an explicit null means the user emptied

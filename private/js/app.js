@@ -32,7 +32,7 @@ import {
   hipDegPerSensPoint,
 } from './sensMath.js';
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
-import { DrillEngine } from './drills.js';
+import { DrillEngine, previewHitSound } from './drills.js';
 import {
   buildCandidates,
   buildQueue,
@@ -151,6 +151,7 @@ async function main() {
   bindSettingsFields();
   bindSimpleGameFields();
   bindExpanders();
+  bindHitVolume();
   bindMouseCheck();
   bindTabs();
   bindConvert();
@@ -736,6 +737,22 @@ function bindMouseCheck() {
   });
 }
 
+/** "Hit sound": how loud the pop is when a target is hit, 0 (off) to 100.
+ * Letting go of the slider plays the pop once at the new level. */
+function hitVolumeText(v) {
+  return v > 0 ? `${v}%` : 'Off';
+}
+
+function bindHitVolume() {
+  const slider = $('hitVolume');
+  slider.addEventListener('input', () => {
+    const v = Number(slider.value);
+    $('hitVolumeValue').textContent = hitVolumeText(v);
+    updateSettings({ hitVolume: v });
+  });
+  slider.addEventListener('change', () => previewHitSound(Number(slider.value)));
+}
+
 function bindExpanders() {
   $('themeToggle').addEventListener('click', () => {
     $('themeToggle').classList.toggle('open');
@@ -1005,6 +1022,9 @@ function renderSettingsInputs(state) {
   document.querySelector('.stepper[data-field="ads25x"] input').value = s.ads25x;
   document.querySelector('.stepper[data-field="dpi"] input').value = s.dpi;
   document.querySelector('.stepper[data-field="fov"] input').value = s.fov;
+  const hitVolume = s.hitVolume ?? 100;
+  if (document.activeElement !== $('hitVolume')) $('hitVolume').value = hitVolume;
+  $('hitVolumeValue').textContent = hitVolumeText(hitVolume);
   $('keepAdsSpeed').checked = s.keepAdsSpeed;
   $('useCustomMultiplier').checked = s.useCustomMultiplier;
   $('customMultiplier').value = s.customMultiplier;
