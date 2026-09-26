@@ -8,11 +8,15 @@
 // stand or strafe at marked distances. So this is an outdoor range with a
 // covered firing line, lanes, distance markers, cover in the field and
 // dummies about 1.8 m tall with a real-sized head (21 cm wide, 24 cm tall).
+// There are no dividers between the lanes: it's a range for one, so nothing
+// along the firing line gets in the way of what you're looking at.
 //
 // Everything is in metres. The sens and FOV come from the same game models
 // as the drills (games.js), so a flick here turns exactly as far as it
-// would in the game. Movement follows CS2 with a rifle: about 5.5 m/s
-// running, just over half that walking.
+// would in the game. Aiming down sights (right mouse) uses the game's own
+// sight and ADS setting from games.js: the view zooms to the sight's FOV and
+// the turn changes exactly as it does in the game. Movement follows CS2 with
+// a rifle: about 5.5 m/s running, just over half that walking.
 //
 // Nothing is loaded from outside: every texture is painted on a canvas.
 
@@ -36,6 +40,19 @@ const PITCH_LIMIT = 89 * DEG;
 const FIRE_MS = 100; // 600 rounds a minute
 const MAG_SIZE = 30;
 const RELOAD_MS = 2100;
+
+// Aiming down sights: how long the rifle takes to come up (about what the
+// games take for a red dot and for a scope), and how much slower you move
+// while aimed.
+const ADS_MS = { dot: 170, scope: 240 };
+const ADS_MOVE = 0.6;
+// Where the eye sits behind each sight while aimed (gun coordinates: the
+// sight's axis height, and the z of its rear lens plus the eye relief).
+const SIGHT_EYE = { dot: { y: 0.106, z: 0.018 + 0.13 }, scope: { y: 0.112, z: 0.118 + 0.075 } };
+
+// The roof over the firing line, for the rifle's lighting (it's in shade
+// under there).
+const ROOF = { zMin: -1.4, zMax: 6.0 };
 
 // Dummies
 const HEAD_R = 0.105; // 21 cm wide
@@ -110,6 +127,54 @@ function dots(ctx, size, count, rMin, rMax, colors) {
   }
 }
 
+/** Joins geometries into one (positions and normals), each moved by its
+ * own matrix first - for trees built from several pieces. */
+function mergeGeometries(parts) {
+  const pos = [];
+  const nor = [];
+  for (const [geo, matrix] of parts) {
+    const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(matrix);
+    pos.push(...g.attributes.position.array);
+    nor.push(...g.attributes.normal.array);
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  return out;
+}
+
+/** Pushes every vertex in or out a little, so a smooth shape looks grown
+ * rather than made. The same point always moves the same way, so shared
+ * edges stay shut. */
+function roughen(geo, amount, scale = 1.7) {
+  const p = geo.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const n = Math.sin(v.x * scale * 3.1 + v.y * 1.7) * Math.cos(v.z * scale * 2.3 - v.y * 2.9) + Math.sin(v.y * scale * 5.3 + v.x);
+    v.multiplyScalar(1 + n * amount);
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Rounds off a faceted blob's lighting: each normal bends towards the
+ * direction out from the blob's centre, by k (0 = faceted, 1 = a sphere). */
+function softNormals(geo, k) {
+  const p = geo.attributes.position;
+  const n = geo.attributes.normal;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    a.fromBufferAttribute(n, i);
+    b.fromBufferAttribute(p, i).normalize();
+    a.lerp(b, k).normalize();
+    n.setXYZ(i, a.x, a.y, a.z);
+  }
+  return geo;
+}
+
 function cracks(ctx, size, count, color) {
   ctx.strokeStyle = color;
   ctx.lineWidth = 1;
@@ -145,6 +210,14 @@ export class RangeEngine {
     this.el = el;
     this.onFinish = onFinish;
     this.onRawInputChange = onRawInputChange;
+    // The scope's picture sits over the 3D view (see _drawScope).
+    this.scopeCanvas = document.createElement('canvas');
+    this.scopeCanvas.className = 'range-scope';
+    this.scopeCanvas.style.visibility = 'hidden';
+    canvasEl.after(this.scopeCanvas);
+    this.scopedShown = 0;
+    this.crosshairEl = stageEl.querySelector('.drill-crosshair');
+    this.crossShown = true;
     this.built = false;
     this.active = false;
     this.running = false;
@@ -183,6 +256,7 @@ export class RangeEngine {
     this._buildGround();
     this._buildBay();
     this._buildField();
+    this._buildDetail();
     this._buildSurroundings();
     this._buildDummyParts();
     this._buildViewmodel();
@@ -331,22 +405,45 @@ export class RangeEngine {
       grain(x, 256, 14);
       T.steel = c;
     }
-    // Acoustic panelling for the lane dividers.
+    // Blades of grass and weeds for the tufts along the walls: drawn on a
+    // transparent canvas, cut out with alphaTest.
+    {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 128;
+      const x = c.getContext('2d');
+      const greens = ['#5d6b36', '#6f7a3e', '#4e5a2c', '#7d8047', '#8a8452', '#65703a'];
+      for (let i = 0; i < 90; i++) {
+        const bx = rand(8, 248);
+        const h = rand(40, 124);
+        const lean = rand(-26, 26);
+        const w = rand(2, 4.5);
+        x.fillStyle = greens[(Math.random() * greens.length) | 0];
+        x.beginPath();
+        x.moveTo(bx - w, 128);
+        x.quadraticCurveTo(bx + lean * 0.3, 128 - h * 0.6, bx + lean, 128 - h);
+        x.quadraticCurveTo(bx + lean * 0.3 + w * 0.4, 128 - h * 0.55, bx + w, 128);
+        x.fill();
+      }
+      // Darker at the roots, where the blades shade each other.
+      x.globalCompositeOperation = 'source-atop';
+      const g = x.createLinearGradient(0, 128, 0, 40);
+      g.addColorStop(0, 'rgba(30,32,18,0.7)');
+      g.addColorStop(1, 'rgba(30,32,18,0)');
+      x.fillStyle = g;
+      x.fillRect(0, 0, 256, 128);
+      T.blades = c;
+    }
+    // Scuffs for the dummies' shells: moulded polymer that's been shot at.
     {
       const c = canvas(256);
       const x = c.getContext('2d');
-      x.fillStyle = '#4b4f55';
+      x.fillStyle = '#ffffff';
       x.fillRect(0, 0, 256, 256);
-      for (let yy = 0; yy < 256; yy += 8) {
-        for (let xx = (yy / 8) % 2 ? 4 : 0; xx < 256; xx += 8) {
-          x.fillStyle = 'rgba(25,27,30,0.55)';
-          x.beginPath();
-          x.arc(xx, yy, 1.6, 0, Math.PI * 2);
-          x.fill();
-        }
-      }
-      grain(x, 256, 10);
-      T.acoustic = c;
+      blotches(x, 256, 16, 10, 50, ['rgba(160,150,135,A)', 'rgba(120,115,105,A)'], 0.12);
+      dots(x, 256, 140, 0.4, 1.6, ['rgba(90,84,76,0.35)', 'rgba(140,132,120,0.3)']);
+      grain(x, 256, 8);
+      T.shell = c;
     }
     // Hessian sandbags.
     {
@@ -515,6 +612,41 @@ export class RangeEngine {
     return this._solid(m, opts);
   }
 
+  /** A soft darkening on the ground round the foot of something: the
+   * ambient occlusion real surfaces have where things meet them, which the
+   * sun's shadow alone doesn't give. */
+  _contact(x, z, w, d, strength = 0.45, rotY = 0) {
+    if (!this.contactTex) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d');
+      // A blurred box: the box is drawn off the canvas and only its shadow
+      // lands on it (canvas blur filters aren't everywhere yet).
+      g.shadowColor = '#000';
+      g.shadowBlur = 22;
+      g.shadowOffsetX = 400;
+      g.fillStyle = '#000';
+      g.fillRect(30 - 400, 30, 68, 68);
+      this.contactTex = new THREE.CanvasTexture(c);
+    }
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, d),
+      new THREE.MeshBasicMaterial({
+        map: this.contactTex,
+        transparent: true,
+        opacity: strength,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -3,
+      })
+    );
+    m.rotation.set(-Math.PI / 2, 0, rotY);
+    m.position.set(x, 0.016, z);
+    m.renderOrder = 1;
+    this.scene.add(m);
+    return m;
+  }
+
   _buildGround() {
     const T = this.tex;
     const grass = this._mat({ map: this._tex(T.grass, 60), roughness: 0.95 });
@@ -568,20 +700,22 @@ export class RangeEngine {
   _buildBay() {
     const T = this.tex;
     const concreteWall = this._mat({ map: this._tex(T.wall, 1, 1), roughness: 0.92 });
-    const steel = this._mat({ map: this._tex(T.steel, 1), metalness: 0.55, roughness: 0.5 });
     const darkSteel = this._mat({ color: 0x2c2f33, metalness: 0.6, roughness: 0.45 });
     const wood = this._mat({ map: this._tex(T.wood, 1), roughness: 0.75 });
-    const acoustic = this._mat({ map: this._tex(T.acoustic, 2, 2), roughness: 0.95 });
 
     // Roof over the firing line: a slab on steel columns, with a band of
-    // light fittings underneath.
+    // light fittings underneath. The front columns stand a step behind the
+    // benches and the roof reaches out over them, so from the firing line
+    // there's nothing between you and the field.
     const roofMat = this._mat({ color: 0x6e6c68, roughness: 0.9 });
     this._box(BAY_HALF * 2, 0.26, 7.4, roofMat, 0, 3.5, 2.3);
     for (let i = 0; i <= 4; i++) {
       const x = -BAY_HALF + 1 + (i * (BAY_HALF * 2 - 2)) / 4;
-      this._box(0.3, 3.37, 0.3, darkSteel, x, 1.685, -0.9, { collide: true });
+      this._box(0.3, 3.37, 0.3, darkSteel, x, 1.685, 1.3, { collide: true });
       this._box(0.3, 3.37, 0.3, darkSteel, x, 1.685, 5.6, { collide: true });
       this._box(0.18, 0.3, 7.2, darkSteel, x, 3.23, 2.3, { cast: false });
+      this._contact(x, 1.3, 0.95, 0.95, 0.4);
+      this._contact(x, 5.6, 0.95, 0.95, 0.4);
     }
     const lamp = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4de, emissiveIntensity: 2.2 });
     for (let i = 0; i < LANES; i++) {
@@ -592,7 +726,8 @@ export class RangeEngine {
     }
 
     // The lanes: a bench at the firing line in each, with gaps either side
-    // to walk through, and acoustic dividers between lanes.
+    // to walk through. No dividers between them - it's your range alone,
+    // so the whole field is in view from any lane.
     for (let i = 0; i < LANES; i++) {
       const cx = -BAY_HALF + 2.4 + LANE_W * (i + 0.5);
       this._box(1.35, 0.06, 0.62, wood, cx, 1.0, -0.62, { collide: true });
@@ -610,11 +745,7 @@ export class RangeEngine {
       num.position.set(cx, 0.014, 0.35);
       num.receiveShadow = true;
       this.scene.add(num);
-    }
-    for (let i = 0; i <= LANES; i++) {
-      const x = -BAY_HALF + 2.4 + LANE_W * i;
-      this._box(0.06, 2.1, 1.7, acoustic, x, 1.05, 0.15, { collide: true });
-      this._box(0.1, 0.06, 1.74, steel, x, 2.13, 0.15, { cast: false });
+      this._contact(cx, -0.62, 1.7, 1.0, 0.5);
     }
 
     // Behind the bay: a wall with lockers, a door and a sign.
@@ -627,6 +758,9 @@ export class RangeEngine {
       for (const vy of [1.55, 1.62, 1.69]) this._box(0.3, 0.012, 0.02, darkSteel, lx, vy, 9.245, { cast: false });
     }
     this.colliders.push({ x0: -12.4 - PLAYER_R, x1: -8.1 + PLAYER_R, z0: 9.2 - PLAYER_R, z1: 10 });
+    this._contact(-10.15, 9.45, 5.2, 1.3, 0.5);
+    this._contact(0, 9.8, BAY_HALF * 2, 1.4, 0.35);
+    this._contact(8.5, 9.2, 2.8, 1.4, 0.35);
     // A table with ammo cans.
     this._box(2.2, 0.06, 0.8, wood, 8.5, 0.92, 9.2, { collide: true });
     for (const lx of [7.5, 9.5]) this._box(0.06, 0.9, 0.7, darkSteel, lx, 0.45, 9.2);
@@ -658,6 +792,7 @@ export class RangeEngine {
       }
       // Coping along the top.
       this._box(0.6, 0.12, wallLen, this._mat({ color: 0x8c8a85, roughness: 0.9 }), side * (BAY_HALF + 0.22), 4.46, (10 + wallEnd) / 2, { cast: false });
+      this._contact(side * BAY_HALF, (10 + wallEnd) / 2, 1.5, wallLen, 0.42);
     }
 
     // Back stop: an earth berm in front of a tall wall.
@@ -706,6 +841,7 @@ export class RangeEngine {
       m.position.set(x, 0, z);
       m.rotation.y = a;
       this._solid(m, { collide: true });
+      this._contact(x, z, 3.6, 1.2, 0.5, a);
     }
     const bag = this._mat({ map: this._tex(this.tex.bag, 1), roughness: 0.95 });
     const bagGeo = new THREE.CapsuleGeometry(0.16, 0.42, 4, 10);
@@ -721,12 +857,14 @@ export class RangeEngine {
         }
       }
       this.colliders.push({ x0: cx - n * 0.36 - PLAYER_R, x1: cx + n * 0.36 + PLAYER_R, z0: cz - 0.3 - PLAYER_R, z1: cz + 0.3 + PLAYER_R });
+      this._contact(cx, cz, n * 0.72 + 0.6, 1.1, 0.45);
     };
     sandbags(-3.2, -17, 5, 4);
     sandbags(4, -29, 4, 3);
     const crate = this._mat({ map: this._tex(this.tex.wood, 1), roughness: 0.8 });
     for (const [x, y, z, s] of [[9.5, 0.5, -27, 1], [10.6, 0.5, -27.2, 1], [10, 1.5, -27.1, 1], [-11, 0.45, -46, 0.9]]) {
       this._box(s, s, s, crate, x, y * s, z, { collide: true }).rotation.y = rand(-0.1, 0.1);
+      if (y < 1) this._contact(x, z, s + 0.7, s + 0.7, 0.5);
     }
     const barrelGeo = new THREE.CylinderGeometry(0.29, 0.29, 0.88, 24);
     const barrelMat = this._mat({ color: 0x2f4d6b, metalness: 0.45, roughness: 0.55, map: this._tex(this.tex.steel, 1) });
@@ -734,6 +872,7 @@ export class RangeEngine {
       const m = new THREE.Mesh(barrelGeo, barrelMat);
       m.position.set(x, 0.44, z);
       this._solid(m, { collide: true });
+      this._contact(x, z, 1.0, 1.0, 0.45);
     }
     const tyre = new THREE.TorusGeometry(0.34, 0.13, 10, 24);
     tyre.rotateX(Math.PI / 2);
@@ -744,6 +883,9 @@ export class RangeEngine {
       this._solid(m);
     }
     this.colliders.push({ x0: -11.7 - PLAYER_R, x1: -10.7 + PLAYER_R, z0: -33.5 - PLAYER_R, z1: -32.5 + PLAYER_R });
+    this._contact(-11.2, -33, 1.3, 1.3, 0.45);
+    // Where the berm meets the field.
+    this._contact(0, FIELD_END + 2.5, BAY_HALF * 2, 1.6, 0.3);
 
     // Floodlight poles along the walls.
     const pole = this._mat({ color: 0x3a3d40, metalness: 0.6, roughness: 0.5 });
@@ -755,6 +897,62 @@ export class RangeEngine {
         this._box(0.7, 0.35, 0.4, head, x - side * 0.3, 7.1, z, { cast: false }).rotation.z = side * 0.35;
       }
     }
+  }
+
+  /** Grass and weeds where a real range grows them: thick along the foot of
+   * the walls and the berm, where nobody walks, and in the odd clump out in
+   * the field. Low enough never to hide a dummy. */
+  _buildDetail() {
+    const blades = this._tex(this.tex.blades, 1, 1);
+    blades.wrapS = blades.wrapT = THREE.ClampToEdgeWrapping;
+    // Three cards crossed like a star, so a tuft looks full from any side -
+    // each drawn both ways round as its own face (a double-sided material
+    // would flip the lighting on the back and turn half of them black).
+    const parts = [];
+    for (let i = 0; i < 6; i++) {
+      const g = new THREE.PlaneGeometry(0.5, 0.3);
+      g.translate(0, 0.15, 0);
+      parts.push([g, new THREE.Matrix4().makeRotationY((i * Math.PI) / 3)]);
+    }
+    const geo = mergeGeometries(parts);
+    const uv = [];
+    // In the order toNonIndexed() leaves a plane's two triangles.
+    for (let i = 0; i < 6; i++) uv.push(0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1);
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    // Lit as if they faced the sky, the usual trick for grass - otherwise
+    // each card goes dark edge-on.
+    const nor = geo.attributes.normal;
+    for (let i = 0; i < nor.count; i++) nor.setXYZ(i, 0, 1, 0);
+    const mat = this._mat({ map: blades, alphaTest: 0.45, roughness: 0.92, envMapIntensity: 0.3 });
+
+    const spots = [];
+    const tuft = (x, z, s = 1) => spots.push([x, z, s]);
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 380; i++) {
+        const z = rand(FIELD_END + 2.4, -1.8);
+        tuft(side * (BAY_HALF - 0.08 - Math.pow(Math.random(), 2) * 1.4), z, rand(0.8, 1.5));
+      }
+    }
+    for (let i = 0; i < 230; i++) tuft(rand(-BAY_HALF + 0.2, BAY_HALF - 0.2), FIELD_END + 2.5 + rand(-0.9, 0.35), rand(0.9, 1.6));
+    for (let c = 0; c < 55; c++) {
+      const cx = rand(-BAY_HALF + 1, BAY_HALF - 1);
+      const cz = rand(FIELD_END + 4, -4);
+      const n = 2 + ((Math.random() * 4) | 0);
+      for (let i = 0; i < n; i++) tuft(cx + rand(-0.35, 0.35), cz + rand(-0.35, 0.35), rand(0.5, 0.95));
+    }
+    const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const col = new THREE.Color();
+    spots.forEach(([x, z, s], i) => {
+      q.setFromAxisAngle(up, rand(0, Math.PI));
+      m.compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(s, s * rand(0.7, 1.3), s));
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, col.setHSL(rand(0.14, 0.2), rand(0.2, 0.4), rand(0.78, 0.98)));
+    });
+    mesh.receiveShadow = true;
+    this.scene.add(mesh);
   }
 
   _buildSurroundings() {
@@ -773,32 +971,61 @@ export class RangeEngine {
     const hillMat = new THREE.MeshStandardMaterial({ color: 0x55664a, roughness: 1, side: THREE.BackSide });
     this.scene.add(new THREE.Mesh(hills, hillMat));
 
-    const trunkGeo = new THREE.CylinderGeometry(0.14, 0.2, 2.4, 6);
-    const crownGeo = new THREE.ConeGeometry(1.6, 5.2, 7);
-    const trunks = new THREE.InstancedMesh(trunkGeo, this._mat({ color: 0x4a3a2a, roughness: 1 }), 90);
-    const crowns = new THREE.InstancedMesh(crownGeo, this._mat({ color: 0x33472c, roughness: 1 }), 90);
+    // Two kinds of tree, each shade of green a little different: firs
+    // (tiers of ragged boughs) and broadleaves (a lumpy canopy on a taller
+    // trunk). Each is built from the ground up, so it stands at y = 0.
+    const T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z);
+    const firGeo = mergeGeometries([
+      [roughen(new THREE.ConeGeometry(1.9, 2.8, 10, 3), 0.07), T(0, 2.6, 0)],
+      [roughen(new THREE.ConeGeometry(1.5, 2.6, 10, 3), 0.07), T(0, 3.9, 0)],
+      [roughen(new THREE.ConeGeometry(1.05, 2.4, 9, 3), 0.07), T(0, 5.1, 0)],
+      [roughen(new THREE.ConeGeometry(0.6, 1.8, 8, 2), 0.06), T(0, 6.2, 0)],
+    ]);
+    const firTrunk = new THREE.CylinderGeometry(0.12, 0.2, 2.2, 7).translate(0, 1.1, 0);
+    // A broadleaf canopy: a few lumpy clumps of leaves bunched together.
+    const clump = (r) => softNormals(roughen(new THREE.IcosahedronGeometry(r, 3), 0.1), 0.65);
+    const leafGeo = mergeGeometries([
+      [clump(1.7), T(0, 4.7, 0)],
+      [clump(1.25), T(1.05, 4.1, 0.3)],
+      [clump(1.2), T(-0.95, 4.25, -0.35)],
+      [clump(1.1), T(0.2, 5.6, -0.6)],
+      [clump(1.0), T(-0.3, 4.0, 1.0)],
+    ]);
+    const leafTrunk = new THREE.CylinderGeometry(0.14, 0.24, 3.4, 7).translate(0, 1.7, 0);
+    const bark = this._mat({ color: 0x4a3b2c, roughness: 1 });
+    const foliage = () => this._mat({ color: 0xffffff, roughness: 0.95, envMapIntensity: 0.25 });
+    const kinds = [
+      { crown: new THREE.InstancedMesh(firGeo, foliage(), 70), trunk: new THREE.InstancedMesh(firTrunk, bark, 70), hsl: [0.27, 0.33, 0.28, 0.42, 0.13, 0.2] },
+      { crown: new THREE.InstancedMesh(leafGeo, foliage(), 50), trunk: new THREE.InstancedMesh(leafTrunk, bark, 50), hsl: [0.19, 0.25, 0.32, 0.48, 0.19, 0.28] },
+    ];
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const sc = new THREE.Vector3();
-    let n = 0;
-    const place = (x, z) => {
-      const s = rand(0.8, 1.5);
+    const col = new THREE.Color();
+    const place = (kind, x, z) => {
+      const n = kind.n || 0;
+      if (n >= kind.crown.count) return;
+      const s = rand(0.8, 1.45);
       sc.set(s, s * rand(0.9, 1.25), s);
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, Math.PI));
-      m.compose(new THREE.Vector3(x, 1.2 * sc.y, z), q, sc);
-      trunks.setMatrixAt(n, m);
-      m.compose(new THREE.Vector3(x, (2.4 + 2.4) * sc.y, z), q, sc);
-      crowns.setMatrixAt(n, m);
-      n++;
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, Math.PI * 2));
+      m.compose(new THREE.Vector3(x, 0, z), q, sc);
+      kind.crown.setMatrixAt(n, m);
+      kind.trunk.setMatrixAt(n, m);
+      const [h0, h1, s0, s1, l0, l1] = kind.hsl;
+      kind.crown.setColorAt(n, col.setHSL(rand(h0, h1), rand(s0, s1), rand(l0, l1)));
+      kind.n = n + 1;
     };
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 120; i++) {
+      const kind = kinds[Math.random() < 0.6 ? 0 : 1];
       const band = i % 3;
-      if (band === 0) place(rand(-60, 60), rand(FIELD_END - 16, FIELD_END - 40));
-      else place((band === 1 ? -1 : 1) * rand(BAY_HALF + 8, BAY_HALF + 40), rand(FIELD_END - 20, 30));
+      if (band === 0) place(kind, rand(-60, 60), rand(FIELD_END - 16, FIELD_END - 40));
+      else place(kind, (band === 1 ? -1 : 1) * rand(BAY_HALF + 8, BAY_HALF + 40), rand(FIELD_END - 20, 30));
     }
-    trunks.count = crowns.count = n;
-    trunks.castShadow = crowns.castShadow = true;
-    this.scene.add(trunks, crowns);
+    for (const kind of kinds) {
+      kind.crown.count = kind.trunk.count = kind.n || 0;
+      kind.crown.castShadow = kind.trunk.castShadow = true;
+      this.scene.add(kind.crown, kind.trunk);
+    }
   }
 
   // ---------- Dummies ----------
@@ -834,10 +1061,12 @@ export class RangeEngine {
   _dummyMaterials() {
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#a50fec';
     return {
-      shell: this._mat({ color: 0xd9dbdf, roughness: 0.5, metalness: 0.05 }),
-      joint: this._mat({ color: 0x2c3036, roughness: 0.65, metalness: 0.2 }),
-      visor: this._mat({ color: 0x0c0d10, roughness: 0.12, metalness: 0.6, envMapIntensity: 1.2 }),
-      strip: new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 1.4 }),
+      // Moulded polymer, scuffed from use, rather than a clean glossy toy.
+      shell: this._mat({ color: 0xd8d4cc, map: (this.shellTex ||= this._tex(this.tex.shell, 1)), roughness: 0.62, metalness: 0.02 }),
+      joint: this._mat({ color: 0x2c3036, roughness: 0.7, metalness: 0.15 }),
+      visor: this._mat({ color: 0x0c0d10, roughness: 0.14, metalness: 0.6, envMapIntensity: 1.1 }),
+      // A painted band that catches the light, not a glowing one.
+      strip: this._mat({ color: accent, emissive: accent, emissiveIntensity: 0.18, roughness: 0.5 }),
       base: this._mat({ color: 0x3d4146, metalness: 0.6, roughness: 0.45 }),
     };
   }
@@ -980,7 +1209,7 @@ export class RangeEngine {
       }
       if (d.flash > 0) {
         d.flash = Math.max(0, d.flash - dt);
-        d.mats.shell.emissive.setScalar(d.flash * 4);
+        d.mats.shell.emissive.setScalar(d.flash * 2.5);
       }
       if (d.jolt) {
         d.jolt *= Math.exp(-dt * 14);
@@ -1033,13 +1262,18 @@ export class RangeEngine {
     this.vmScene = new THREE.Scene();
     this.vmScene.environment = this.envMap;
     this.vmCamera = new THREE.PerspectiveCamera(50, 16 / 9, 0.01, 10);
-    this.vmScene.add(new THREE.HemisphereLight(0xcfe0f0, 0x5a5046, 0.9));
-    const key = new THREE.DirectionalLight(0xfff0dc, 2.2);
-    key.position.set(0.5, 1.2, 0.6);
-    this.vmScene.add(key);
-    const rim = new THREE.DirectionalLight(0xbcd0ff, 0.6);
+    // Lit by the same sky and sun as the world: the key light follows the
+    // sun round as you turn, and dims when you walk in under the roof.
+    this.vmHemi = new THREE.HemisphereLight(0xcfe0f0, 0x5a5046, 0.9);
+    this.vmScene.add(this.vmHemi);
+    this.vmKey = new THREE.DirectionalLight(0xfff0dc, 2.2);
+    this.vmKey.position.set(0.5, 1.2, 0.6);
+    this.vmScene.add(this.vmKey);
+    const rim = new THREE.DirectionalLight(0xbcd0ff, 0.45);
     rim.position.set(-0.8, 0.4, -1);
     this.vmScene.add(rim);
+    this.shade = 0;
+    this._invQ = new THREE.Quaternion();
 
     const metal = new THREE.MeshStandardMaterial({ color: 0x2b2d31, metalness: 0.7, roughness: 0.36, envMapIntensity: 0.9 });
     const black = new THREE.MeshStandardMaterial({ color: 0x17181b, metalness: 0.15, roughness: 0.62, envMapIntensity: 0.6 });
@@ -1080,9 +1314,6 @@ export class RangeEngine {
     add(new THREE.Mesh(new THREE.CylinderGeometry(0.0105, 0.0105, 0.16, 16), steel), 0, 0.03, -0.56, Math.PI / 2);
     add(new THREE.Mesh(new THREE.CylinderGeometry(0.0165, 0.0165, 0.06, 16), black), 0, 0.03, -0.665, Math.PI / 2);
     for (let i = 0; i < 3; i++) add(new THREE.Mesh(new THREE.CylinderGeometry(0.0168, 0.0168, 0.005, 16), steel), 0, 0.03, -0.645 - i * 0.015, Math.PI / 2);
-    this.muzzle = new THREE.Object3D();
-    this.muzzle.position.set(0, 0.03, -0.7);
-    gun.add(this.muzzle);
     // Magazine: a curved box mag.
     const mag = [];
     for (let i = 0; i <= 8; i++) {
@@ -1102,20 +1333,54 @@ export class RangeEngine {
     // Stock and buffer tube.
     add(new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.16, 16), black), 0, 0.02, 0.2, Math.PI / 2);
     add(this._profile([[-0.14, 0.05], [-0.34, 0.05], [-0.36, 0.035], [-0.36, -0.07], [-0.33, -0.08], [-0.2, -0.02], [-0.14, -0.005]], 0.042, black, 0.006), 0, -0.005, 0);
-    // A red dot sight.
-    add(this._rbox(0.03, 0.018, 0.06, 0.004, black), 0, 0.08, -0.02);
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.075, 24, 1, true), metal), 0, 0.106, -0.02, Math.PI / 2);
-    for (const z of [0.018, -0.058]) add(new THREE.Mesh(new THREE.TorusGeometry(0.02, 0.003, 8, 24), metal), 0, 0.106, z);
-    add(
+    // Two sights for the rail, shown by which one the game's sight uses: a
+    // red dot (1× and the light zooms) and a scope (the magnified ones).
+    const sightGroup = (name) => {
+      const g = new THREE.Group();
+      g.name = name;
+      gun.add(g);
+      return (m, x, y, z, rx = 0, ry = 0, rz = 0) => {
+        m.position.set(x, y, z);
+        m.rotation.set(rx, ry, rz);
+        g.add(m);
+        return m;
+      };
+    };
+    const glass = (color, opacity) =>
+      new THREE.MeshStandardMaterial({ color, metalness: 0.9, roughness: 0.05, transparent: true, opacity, envMapIntensity: 1.5 });
+    // The red dot: a short tube on a mount, a lightly tinted lens. Its dot
+    // is drawn at the centre of the screen while you aim (see reticle), the
+    // way a real one has no parallax.
+    const dot = sightGroup('dot');
+    dot(this._rbox(0.03, 0.018, 0.06, 0.004, black), 0, 0.08, -0.02);
+    // Open at both ends and drawn inside too, so aiming through it you see
+    // the tube round the picture rather than two floating rings.
+    dot(
       new THREE.Mesh(
-        new THREE.CircleGeometry(0.019, 24),
-        new THREE.MeshStandardMaterial({ color: 0x7fa6c9, metalness: 0.9, roughness: 0.05, transparent: true, opacity: 0.35, envMapIntensity: 1.5 })
+        new THREE.CylinderGeometry(0.02, 0.02, 0.075, 32, 1, true),
+        new THREE.MeshStandardMaterial({ color: 0x2b2d31, metalness: 0.7, roughness: 0.4, envMapIntensity: 0.9, side: THREE.DoubleSide })
       ),
       0,
       0.106,
-      -0.056
+      -0.02,
+      Math.PI / 2
     );
-    add(new THREE.Mesh(new THREE.SphereGeometry(0.0016, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2a2a })), 0, 0.106, -0.05);
+    for (const z of [0.018, -0.058]) dot(new THREE.Mesh(new THREE.TorusGeometry(0.0205, 0.0022, 8, 32), metal), 0, 0.106, z);
+    dot(new THREE.Mesh(new THREE.CircleGeometry(0.019, 24), glass(0x7fa6c9, 0.16)), 0, 0.106, -0.056);
+    // The scope: a tube in two rings, a wider objective bell at the front,
+    // turrets, and a rubber eyecup at the back.
+    const scope = sightGroup('scope');
+    for (const z of [0.03, -0.075]) scope(this._rbox(0.028, 0.026, 0.02, 0.004, black), 0, 0.088, z);
+    scope(new THREE.Mesh(new THREE.CylinderGeometry(0.0155, 0.0155, 0.16, 24), metal), 0, 0.112, -0.02, Math.PI / 2);
+    scope(new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.0155, 0.058, 24), metal), 0, 0.112, 0.089, Math.PI / 2);
+    scope(new THREE.Mesh(new THREE.CylinderGeometry(0.0155, 0.023, 0.06, 24), metal), 0, 0.112, -0.13, Math.PI / 2);
+    scope(new THREE.Mesh(new THREE.CylinderGeometry(0.0095, 0.0095, 0.016, 16), black), 0, 0.134, -0.02);
+    scope(new THREE.Mesh(new THREE.CylinderGeometry(0.0095, 0.0095, 0.016, 16), black), 0.0225, 0.112, -0.02, 0, 0, Math.PI / 2);
+    scope(new THREE.Mesh(new THREE.TorusGeometry(0.0195, 0.0032, 8, 28), black), 0, 0.112, 0.117);
+    scope(new THREE.Mesh(new THREE.CircleGeometry(0.018, 28), glass(0x1c2c3a, 0.9)), 0, 0.112, 0.116);
+    scope(new THREE.Mesh(new THREE.CircleGeometry(0.022, 28), glass(0x243a4c, 0.95)), 0, 0.112, -0.1605, 0, Math.PI, 0);
+    this.sightModels = { dot: gun.getObjectByName('dot'), scope: gun.getObjectByName('scope') };
+    this.sightModels.scope.visible = false;
 
     // Gloved hands and sleeves. Right hand round the grip, trigger finger
     // on the trigger; left hand under the handguard, fingers over the side.
@@ -1180,36 +1445,46 @@ export class RangeEngine {
     // shooters hold a rifle at the ready in Valorant and CS2.
     this.vmRest = new THREE.Vector3(0.2, -0.235, -0.44);
     this.vmRoot.position.copy(this.vmRest);
-    gun.rotation.set(0.01, -0.035, 0);
+    this.gunRest = { x: 0.01, y: -0.035 };
+    gun.rotation.set(this.gunRest.x, this.gunRest.y, 0);
 
-    // Muzzle flash: a flat star facing the camera plus a burst of light.
-    const flashTex = (() => {
-      const c = document.createElement('canvas');
-      c.width = c.height = 128;
-      const x = c.getContext('2d');
-      const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-      g.addColorStop(0, 'rgba(255,250,230,1)');
-      g.addColorStop(0.25, 'rgba(255,200,110,0.9)');
-      g.addColorStop(1, 'rgba(255,140,40,0)');
-      x.fillStyle = g;
-      x.beginPath();
-      for (let i = 0; i < 16; i++) {
-        const a = (i / 16) * Math.PI * 2;
-        const rr = i % 2 ? 22 : 62;
-        x.lineTo(64 + Math.cos(a) * rr, 64 + Math.sin(a) * rr);
-      }
-      x.fill();
-      const t = new THREE.CanvasTexture(c);
-      t.colorSpace = THREE.SRGBColorSpace;
-      return t;
-    })();
-    this.flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-    this.flash.visible = false;
-    this.vmScene.add(this.flash);
-    this.flashLight = new THREE.PointLight(0xffb566, 0, 1.2, 2);
-    this.vmScene.add(this.flashLight);
-    this.worldFlash = new THREE.PointLight(0xffb566, 0, 7, 2);
-    this.scene.add(this.worldFlash);
+    // The red dot's dot: fixed at the centre of the screen, where the shot
+    // goes, and only drawn once the rifle is up. About 4 px across at
+    // 1080p, with a soft glow.
+    const rc = document.createElement('canvas');
+    rc.width = rc.height = 64;
+    const rx = rc.getContext('2d');
+    const rg = rx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    rg.addColorStop(0, 'rgba(255,225,215,1)');
+    rg.addColorStop(0.1, 'rgba(255,48,36,1)');
+    rg.addColorStop(0.2, 'rgba(255,36,24,0.55)');
+    rg.addColorStop(0.5, 'rgba(255,30,20,0.08)');
+    rg.addColorStop(1, 'rgba(255,30,20,0)');
+    rx.fillStyle = rg;
+    rx.fillRect(0, 0, 64, 64);
+    const rt = new THREE.CanvasTexture(rc);
+    rt.colorSpace = THREE.SRGBColorSpace;
+    this.reticle = new THREE.Sprite(new THREE.SpriteMaterial({ map: rt, depthTest: false, depthWrite: false, transparent: true }));
+    this.reticle.position.set(0, 0, -0.25);
+    this.reticle.scale.set(0.0036, 0.0036, 1);
+    this.reticle.renderOrder = 10;
+    this.reticle.visible = false;
+    this.vmScene.add(this.reticle);
+
+    // Spent brass, thrown out of the ejection port to the right.
+    const brass = new THREE.MeshStandardMaterial({ color: 0xb8903e, metalness: 0.95, roughness: 0.28, envMapIntensity: 1.2 });
+    const caseGeo = new THREE.CylinderGeometry(0.0029, 0.0029, 0.045, 10);
+    this.casings = [];
+    for (let i = 0; i < 14; i++) {
+      const m = new THREE.Mesh(caseGeo, brass);
+      m.visible = false;
+      m.frustumCulled = false;
+      this.vmScene.add(m);
+      this.casings.push({ mesh: m, v: new THREE.Vector3(), spin: new THREE.Vector3(), t: 0 });
+    }
+    this.port = new THREE.Object3D();
+    this.port.position.set(0.028, 0.03, -0.01);
+    gun.add(this.port);
   }
 
   // ---------- Impacts ----------
@@ -1376,6 +1651,50 @@ export class RangeEngine {
     }
   }
 
+  /** A footstep: a scuff of filtered noise - sharper on the concrete
+   * under the roof, duller on the dirt. */
+  _soundStep(concrete, loud = 1) {
+    const vol = this._volume();
+    const ctx = vol > 0 && this._audio();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.playbackRate.value = rand(0.8, 1.1);
+    const f = ctx.createBiquadFilter();
+    f.type = concrete ? 'bandpass' : 'lowpass';
+    f.frequency.value = concrete ? rand(1400, 2000) : rand(480, 760);
+    f.Q.value = concrete ? 1.1 : 0.7;
+    const g = ctx.createGain();
+    const peak = (concrete ? 0.08 : 0.11) * loud * vol;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(peak, now + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + (concrete ? 0.07 : 0.11));
+    src.connect(f).connect(g).connect(ctx.destination);
+    src.start(now, Math.random() * 0.2);
+    src.stop(now + 0.14);
+  }
+
+  /** Brass landing on concrete: a couple of quick bright rings. */
+  _soundTink() {
+    const vol = this._volume();
+    const ctx = vol > 0 && this._audio();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    for (const [at, f, level] of [[0, rand(3800, 4400), 1], [rand(0.07, 0.11), rand(4600, 5400), 0.55]]) {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, now + at);
+      g.gain.exponentialRampToValueAtTime(0.03 * level * vol, now + at + 0.003);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + at + 0.09);
+      o.connect(g).connect(ctx.destination);
+      o.start(now + at);
+      o.stop(now + at + 0.1);
+    }
+  }
+
   _soundClick(pitch = 1) {
     const vol = this._volume();
     const ctx = vol > 0 && this._audio();
@@ -1416,10 +1735,14 @@ export class RangeEngine {
         this.trigger = true;
         this._tryFire(performance.now());
       }
+      if (e.button === 2) this._adsButton(true);
     });
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.trigger = false;
+      if (e.button === 2) this._adsButton(false);
     });
+    // Right-click aims, so it mustn't open the browser's menu.
+    this.overlay.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('keydown', (e) => {
       if (!this.running || this.paused) return;
       if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyC', 'KeyR', 'ShiftLeft', 'ShiftRight'].includes(e.code)) e.preventDefault();
@@ -1434,10 +1757,53 @@ export class RangeEngine {
     window.addEventListener('resize', () => this.active && this._resize());
   }
 
+  /** Right mouse: hold to aim, or click to aim and click again to stop,
+   * whichever the game is set to. */
+  _adsButton(down) {
+    if (!this.sight) return;
+    if (this.cfg.adsMode === 'toggle') {
+      if (down && this.running && !this.paused) this.ads.want = !this.ads.want;
+    } else {
+      this.ads.want = down && this.running && !this.paused;
+    }
+  }
+
+  /** Aiming right now: the button's held (or toggled on) and the rifle
+   * isn't being reloaded. The turn switches the moment you aim, the way it
+   * does in the games. */
+  _aimed(now = performance.now()) {
+    return !!(this.sight && this.ads.want && now >= this.reloadUntil);
+  }
+
   _rotationScale() {
+    return this._aimed() ? this.scaleAds : this.scaleHip;
+  }
+
+  /** The turn per mouse count for hip-fire and for the chosen sight (the
+   * game's own ADS model), and which sight model the rifle carries. */
+  _setupSight() {
     const { game, tab, settings } = this.cfg;
     const d = game.degPerCount(tab, settings);
-    return { x: d.x * DEG, y: d.y * DEG };
+    this.scaleHip = { x: d.x * DEG, y: d.y * DEG };
+    const sights = (game.ads && game.ads.sights) || [];
+    this.sight = sights.find((s) => s.id === this.cfg.sight) || null;
+    this.optic = this.sight ? this.sight.optic : 'dot';
+    if (this.sight) {
+      const a = game.ads.degPerCount(settings, this.sight.id);
+      this.scaleAds = { x: a.x * DEG, y: a.y * DEG };
+      this.adsVFov = game.ads.view(settings, this.sight.id);
+    } else {
+      this.scaleAds = this.scaleHip;
+      this.adsVFov = null;
+    }
+    this.sightModels.dot.visible = this.optic === 'dot';
+    this.sightModels.scope.visible = this.optic === 'scope';
+    const help = this.stage.querySelector('.range-help');
+    if (help) {
+      help.textContent = `WASD move · Shift walk · Space jump · C crouch · R reload${
+        this.sight ? ` · Right-click ${this.cfg.adsMode === 'toggle' ? 'toggles aim' : 'aims'}` : ''
+      } · Esc pause`;
+    }
   }
 
   _look(mx, my, t) {
@@ -1467,6 +1833,7 @@ export class RangeEngine {
     this.el.results.classList.remove('active');
     this.el.pause.classList.remove('active');
     this._reset();
+    this._setupSight();
     this._resize();
     try {
       if (this.overlay.requestFullscreen) await this.overlay.requestFullscreen();
@@ -1482,21 +1849,23 @@ export class RangeEngine {
   }
 
   _reset() {
-    // Free roam starts in a booth; the head test starts out in the open at
-    // the firing line, so the lane dividers never hide a dummy.
-    const start = this.cfg && this.cfg.mode === 'test' ? { x: 0, z: -3.2 } : { x: 1.6, z: 2.6 };
+    // The head test starts at a bench on the firing line, like a real
+    // range; free roam a few steps back under the roof.
+    const start = this.cfg && this.cfg.mode === 'test' ? { x: 1.6, z: 0.2 } : { x: 1.6, z: 2.6 };
     this.player = { ...start, vx: 0, vz: 0, y: 0, vy: 0, onGround: true, yaw: 0, pitch: -1 * DEG, eye: EYE };
     this.punch = { pitch: 0, yaw: 0 };
     this.kick = { z: 0, vz: 0, rx: 0, vrx: 0, ry: 0, vry: 0 };
     this.sway = { x: 0, y: 0, ox: 0, oy: 0 };
+    this.ads = { want: false, t: 0, e: 0 };
     this.bob = 0;
+    this.lastStep = 0;
     this.moving = 0;
+    for (const c of this.casings) c.mesh.visible = false;
     this.trigger = false;
     this.lastShot = 0;
     this.burst = 0;
     this.ammo = MAG_SIZE;
     this.reloadUntil = 0;
-    this.flashUntil = 0;
     this.keys.clear();
     this.flick = null;
     this.test = null;
@@ -1541,6 +1910,7 @@ export class RangeEngine {
   _pause(reason) {
     this.paused = true;
     this.trigger = false;
+    this.ads.want = false;
     this.keys.clear();
     if (this.flick) this.flick.void = true;
     if (this.countdownTimer) {
@@ -1710,7 +2080,14 @@ export class RangeEngine {
       f.path.push({ t: now, yaw: this.player.yaw, pitch: this.player.pitch });
       read = analyseFlick(f.path, f.target, f.misses);
     }
-    t.records.push({ timeMs: now - c.spawned, shots: c.shots, bodies: c.bodies, firstHead: c.first === 'head', flick: read });
+    t.records.push({
+      timeMs: now - c.spawned,
+      shots: c.shots,
+      bodies: c.bodies,
+      firstHead: c.first === 'head',
+      ads: this._aimed(now),
+      flick: read,
+    });
     t.left--;
     t.current = null;
     this.flick = null;
@@ -1743,6 +2120,11 @@ export class RangeEngine {
       landRate: f.n ? f.landRate : null,
       bias: f.n ? f.bias : null,
       corrections: f.n ? f.corrections : null,
+      // How many kills were made aiming down sights, and with which sight
+      // and ADS value, so a history row says what was being tested.
+      adsShare: recs.filter((r) => r.ads).length / recs.length,
+      sight: this.sight ? this.sight.id : null,
+      adsValue: this.sight ? this.cfg.settings[this.sight.key] : null,
       totalMs: performance.now() - t.started,
     };
     this.test = null;
@@ -1756,7 +2138,10 @@ export class RangeEngine {
 
   _showResults(s) {
     const pct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
-    this.el.resultsSub.textContent = `${this.cfg.sensLabel} · ${s.dummies} dummies · ${s.distance} range`;
+    const aimed = Math.round((s.adsShare || 0) * s.kills);
+    this.el.resultsSub.textContent = `${this.cfg.sensLabel} · ${s.dummies} dummies · ${s.distance} range${
+      this.sight ? ` · ${aimed} of ${s.kills} aimed down sights` : ''
+    }`;
     const tiles = [
       ['Time to kill', `${Math.round(s.timeMs)} ms`],
       ['First-shot kills', pct(s.firstShotRate)],
@@ -1862,18 +2247,33 @@ export class RangeEngine {
     if (this.test) this._testShot(result);
 
     // Recoil: the view kicks (applied after the shot, so the shot itself
-    // went where you aimed) and the rifle jolts back.
+    // went where you aimed) and the rifle jolts back - less so when it's
+    // shouldered and aimed.
     const room = 1 - this.punch.pitch / (5 * DEG);
     this.punch.pitch += 0.5 * DEG * Math.max(0.2, room);
     this.punch.yaw += rand(-0.22, 0.22) * DEG * Math.min(1, this.burst / 3);
-    this.kick.vz += 1.6;
-    this.kick.vrx += 22;
-    this.kick.vry += rand(-6, 6);
-    this.flashUntil = now + 45;
-    this.flash.material.rotation = Math.random() * Math.PI;
-    const fs = rand(0.07, 0.1);
-    this.flash.scale.set(fs, fs, 1);
+    const steady = 1 - 0.55 * this.ads.e;
+    this.kick.vz += 1.6 * steady;
+    this.kick.vrx += 22 * steady;
+    this.kick.vry += rand(-6, 6) * steady;
+    this._eject();
     this._soundShot();
+  }
+
+  /** Throws a spent case out of the ejection port, to the right and up. */
+  _eject() {
+    const c = this.casings[(this.caseIdx = ((this.caseIdx || 0) + 1) % this.casings.length)];
+    this.vmRoot.updateMatrixWorld(true);
+    this.port.getWorldPosition(c.mesh.position);
+    c.mesh.rotation.set(0, 0, Math.PI / 2);
+    c.v.set(rand(1.1, 1.7), rand(0.8, 1.3), rand(0.1, 0.5));
+    c.spin.set(rand(-30, 30), rand(-10, 10), rand(15, 35));
+    c.t = 0;
+    c.mesh.visible = true;
+    // It lands a moment later: a tinkle on the concrete under the roof,
+    // nothing on the dirt.
+    const p = this.player;
+    if (p.z > -1.5 && p.onGround) setTimeout(() => this.active && this._soundTink(), rand(430, 620));
   }
 
   _hitmarker(head) {
@@ -1900,7 +2300,7 @@ export class RangeEngine {
     const walk = k.has('ShiftLeft') || k.has('ShiftRight');
     const fwd = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0);
     const side = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0);
-    const speed = crouch ? SPEED.crouch : walk ? SPEED.walk : SPEED.run;
+    const speed = (crouch ? SPEED.crouch : walk ? SPEED.walk : SPEED.run) * (1 - (1 - ADS_MOVE) * this.ads.e);
     let wx = 0;
     let wz = 0;
     if (fwd || side) {
@@ -1932,12 +2332,19 @@ export class RangeEngine {
         p.y = 0;
         p.vy = 0;
         p.onGround = true;
+        this._soundStep(p.z > -1.5, 1.4);
       }
     }
     p.eye += ((crouch ? EYE_CROUCH : EYE) - p.eye) * Math.min(1, dt * 12);
     const moving = Math.hypot(p.vx, p.vz);
     if (p.onGround) this.bob += moving * dt * 1.9;
     this.moving = moving;
+    // Footsteps when running; walking and crouching are quiet, as in CS.
+    const step = Math.floor(this.bob / Math.PI);
+    if (step !== this.lastStep) {
+      this.lastStep = step;
+      if (p.onGround && !crouch && !walk && moving > SPEED.walk + 0.3) this._soundStep(p.z > -1.5);
+    }
   }
 
   _updateRecoil(dt, now) {
@@ -1984,18 +2391,83 @@ export class RangeEngine {
       this.reloadUntil = 0;
     }
     this.mag.position.y = -magDrop;
-    r.position.set(this.vmRest.x + bx - s.ox * 0.25, this.vmRest.y + by + breathe - dip + s.oy * 0.18, this.vmRest.z + this.kick.z * 0.05);
-    r.rotation.set(this.kick.rx * 0.012 + s.oy * 0.8 - dip * 2, this.kick.ry * 0.006 + s.ox * 0.9, roll + s.ox * 0.5);
+    // Aiming: the rifle comes up from the hip until the sight sits on the
+    // line of sight, and steadies - most of the sway and bob go.
+    const e = this.ads.e;
+    const eye = SIGHT_EYE[this.optic];
+    const loose = 1 - 0.85 * e;
+    const steady = 1 - 0.55 * e;
+    const lerp = (a, b) => a + (b - a) * e;
+    r.position.set(
+      lerp(this.vmRest.x, 0) + (bx - s.ox * 0.25) * loose,
+      lerp(this.vmRest.y, -eye.y) + (by + breathe + s.oy * 0.18) * loose - dip,
+      lerp(this.vmRest.z, -eye.z) + this.kick.z * 0.05 * steady
+    );
+    r.rotation.set(
+      this.kick.rx * 0.012 * steady + s.oy * 0.8 * loose - dip * 2,
+      this.kick.ry * 0.006 * steady + s.ox * 0.9 * loose,
+      roll + s.ox * 0.5 * loose
+    );
+    this.gun.rotation.set(this.gunRest.x * (1 - e), this.gunRest.y * (1 - e), 0);
 
-    const on = now < this.flashUntil;
-    this.flash.visible = on;
-    if (on) {
-      this.muzzle.getWorldPosition(this.flash.position);
-      this.flashLight.position.copy(this.flash.position);
+    // Brass in the air.
+    for (const c of this.casings) {
+      if (!c.mesh.visible) continue;
+      c.t += dt;
+      if (c.t > 0.8) {
+        c.mesh.visible = false;
+        continue;
+      }
+      c.v.y -= 9.8 * dt;
+      c.mesh.position.addScaledVector(c.v, dt);
+      c.mesh.rotation.x += c.spin.x * dt;
+      c.mesh.rotation.y += c.spin.y * dt;
+      c.mesh.rotation.z += c.spin.z * dt;
     }
-    this.flashLight.intensity = on ? 3 : 0;
-    this.worldFlash.intensity = on ? 12 : 0;
-    this.worldFlash.position.copy(this.camera.position).addScaledVector(this.camera.getWorldDirection(new THREE.Vector3()), 1.2);
+
+    // Light the rifle like the world round it: the sun from wherever it is
+    // relative to where you're facing, and shade under the roof.
+    this.vmKey.position.copy(this.sunDir).applyQuaternion(this._invQ.copy(this.camera.quaternion).invert());
+    const p = this.player;
+    const under = p.z > ROOF.zMin + 0.4 && p.z < ROOF.zMax && Math.abs(p.x) < BAY_HALF ? 1 : 0;
+    this.shade += (under - this.shade) * Math.min(1, dt * 4);
+    this.vmKey.intensity = 2.3 * (1 - 0.8 * this.shade);
+    this.vmHemi.intensity = 0.9 * (1 - 0.3 * this.shade);
+  }
+
+  /** Brings the rifle up or down, zooms the view to the sight's FOV (in
+   * focal length, as a lens does), and swaps the crosshair for the sight:
+   * the red dot's dot, or the scope's picture once it's at your eye. */
+  _updateAds(dt, now) {
+    const a = this.ads;
+    const want = this.running && !this.paused && this._aimed(now);
+    a.t = clamp(a.t + (want ? dt : -dt) / (ADS_MS[this.optic] / 1000), 0, 1);
+    a.e = a.t * a.t * (3 - 2 * a.t);
+    this._applyFov();
+    const scoped = this.optic === 'scope' && this.sight ? clamp((a.e - 0.55) / 0.4, 0, 1) : 0;
+    if (scoped !== this.scopedShown) {
+      this.scopedShown = scoped;
+      this.scopeCanvas.style.opacity = String(scoped);
+      this.scopeCanvas.style.visibility = scoped > 0 ? 'visible' : 'hidden';
+    }
+    this.vmRoot.visible = scoped < 0.99;
+    this.reticle.visible = !!this.sight && this.optic === 'dot' && a.e > 0.8;
+    const cross = !this.sight || a.e < 0.25;
+    if (cross !== this.crossShown && this.crosshairEl) {
+      this.crossShown = cross;
+      this.crosshairEl.style.visibility = cross ? '' : 'hidden';
+    }
+  }
+
+  _applyFov() {
+    if (!this.hipVFov) return;
+    const th = Math.tan((this.hipVFov * DEG) / 2);
+    const ta = Math.tan(((this.adsVFov || this.hipVFov) * DEG) / 2);
+    const fov = (2 * Math.atan(th + (ta - th) * this.ads.e)) / DEG;
+    if (Math.abs(fov - this.camera.fov) > 1e-5) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   _frame() {
@@ -2004,6 +2476,7 @@ export class RangeEngine {
     const dt = Math.min(0.05, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
     if (!this.active) return;
+    this._updateAds(dt, now);
     if (this.running && !this.paused) {
       this._move(dt);
       if (this.trigger) this._tryFire(now);
@@ -2067,11 +2540,104 @@ export class RangeEngine {
       this.renderer.setSize(w, h, false);
     }
     for (const cam of [this.camera, this.vmCamera]) cam.aspect = view.aspect;
-    this.camera.fov = view.vFovDeg;
+    this.hipVFov = view.vFovDeg;
+    this._applyFov();
     this.camera.updateProjectionMatrix();
     this.vmCamera.updateProjectionMatrix();
     this.halfHFov = Math.atan(Math.tan((view.vFovDeg * DEG) / 2) * view.aspect);
     this._drawCrosshair(w, h, view.aspect, view.stretch);
+    this._drawScope(rect.width, rect.height, h, view.stretch ? w / h / view.aspect : 1);
+  }
+
+  /**
+   * The scope's picture, drawn once per size: black (a sniper scope) or the
+   * scope body (a rifle scope) round a round lens, darkening towards its
+   * rim, and the reticle - fine crosshairs with thicker outer posts, a red
+   * dot, or a red chevron. Stretched resolutions stretch it too, as in the
+   * game. h is the height of the picture; sx the stretch.
+   */
+  _drawScope(stageW, stageH, h, sx) {
+    const c = this.scopeCanvas;
+    const dpr = window.devicePixelRatio || 1;
+    c.width = Math.round(stageW * dpr);
+    c.height = Math.round(stageH * dpr);
+    const x = c.getContext('2d');
+    x.clearRect(0, 0, c.width, c.height);
+    if (!this.sight || this.optic !== 'scope') return;
+    const reticle = this.sight.reticle || 'sniper';
+    const sniper = reticle === 'sniper';
+    const u = (h * dpr) / 1080; // one 1080p pixel
+    const R = h * dpr * (sniper ? 0.5 : 0.45);
+    x.save();
+    x.translate(c.width / 2, c.height / 2);
+    x.scale(sx, 1);
+    const far = (c.width + c.height) * 2;
+    x.fillStyle = sniper ? '#030303' : '#0b0c0d';
+    x.beginPath();
+    x.rect(-far, -far, far * 2, far * 2);
+    x.arc(0, 0, R, 0, Math.PI * 2, true);
+    x.fill('evenodd');
+    const edge = x.createRadialGradient(0, 0, R * 0.78, 0, 0, R);
+    edge.addColorStop(0, 'rgba(0,0,0,0)');
+    edge.addColorStop(0.75, 'rgba(0,0,0,0.35)');
+    edge.addColorStop(1, 'rgba(0,0,0,0.95)');
+    x.fillStyle = edge;
+    x.beginPath();
+    x.arc(0, 0, R + 1, 0, Math.PI * 2);
+    x.fill();
+    // A faint cool tint from the glass.
+    x.fillStyle = 'rgba(40,70,90,0.05)';
+    x.beginPath();
+    x.arc(0, 0, R, 0, Math.PI * 2);
+    x.fill();
+
+    x.lineCap = 'butt';
+    const line = (x0, y0, x1, y1, width, color = '#050505') => {
+      x.strokeStyle = color;
+      x.lineWidth = width;
+      x.beginPath();
+      x.moveTo(x0, y0);
+      x.lineTo(x1, y1);
+      x.stroke();
+    };
+    if (reticle === 'sniper') {
+      const thin = Math.max(1, 1.3 * u);
+      line(-R, 0, R, 0, thin);
+      line(0, -R, 0, R, thin);
+      const post = Math.max(2, 5 * u);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) line(dx * R * 0.55, dy * R * 0.55, dx * R, dy * R, post);
+    } else if (reticle === 'dot') {
+      x.strokeStyle = 'rgba(5,5,5,0.8)';
+      x.lineWidth = Math.max(1, 1.2 * u);
+      x.beginPath();
+      x.arc(0, 0, R * 0.16, 0, Math.PI * 2);
+      x.stroke();
+    } else {
+      // Stadia lines out to the edge, and the chevron's point on the aim.
+      const thin = Math.max(1, 1.4 * u);
+      line(-R, 0, -R * 0.3, 0, thin);
+      line(R * 0.3, 0, R, 0, thin);
+      line(0, 30 * u, 0, R, thin);
+      x.shadowColor = 'rgba(255,40,30,0.8)';
+      x.shadowBlur = 6 * u;
+      x.strokeStyle = '#ff3a2a';
+      x.lineWidth = Math.max(1.5, 2.6 * u);
+      x.lineJoin = 'miter';
+      x.beginPath();
+      x.moveTo(-15 * u, 17 * u);
+      x.lineTo(0, 0);
+      x.lineTo(15 * u, 17 * u);
+      x.stroke();
+    }
+    if (reticle === 'dot') {
+      x.shadowColor = 'rgba(255,40,30,0.9)';
+      x.shadowBlur = 7 * u;
+      x.fillStyle = '#ff3a2a';
+      x.beginPath();
+      x.arc(0, 0, Math.max(1.5, 2.4 * u), 0, Math.PI * 2);
+      x.fill();
+    }
+    x.restore();
   }
 
   _drawCrosshair(w, h, selected, stretch) {

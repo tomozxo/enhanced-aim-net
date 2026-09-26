@@ -358,9 +358,10 @@
           <span class="comparison-tag">3D · walk around</span>
         </div>
         <p class="convert-intro">
-          An outdoor range with a covered firing line, lanes marked to 50 m, and pop-up training dummies with
-          real-sized heads. You carry a rifle that kicks. The head test drops 30 dummies one at a time and reads
-          each flick to the head - past it or short of it - so you can run it at two sensitivities and compare.
+          An outdoor range with an open firing line, lanes marked to 50 m, and pop-up training dummies with
+          real-sized heads. You carry a rifle that kicks, and right-click aims down its sight with your game's
+          own ADS setting. The head test drops 30 dummies one at a time and reads each flick to the head - past
+          it or short of it - so you can run it at two sensitivities and compare.
         </p>
         <div class="range-options">
           <label class="range-field">
@@ -387,7 +388,27 @@
               <option value="mixed">Mixed</option>
             </select></span>
           </label>
+          <label class="range-field" data-ads-field>
+            <span class="convert-mini" id="rangeAdsLabel">ADS sensitivity</span>
+            <input type="number" id="rangeAdsSens" step="any" min="0" inputmode="decimal" />
+          </label>
+          <div class="range-field" data-ads-field>
+            <span class="convert-mini">cm/360° aimed</span>
+            <output class="range-cm" id="rangeAdsCm">—</output>
+          </div>
+          <label class="range-field" data-ads-field>
+            <span class="convert-mini">Right-click</span>
+            <span class="select-wrap"><select id="rangeAdsMode">
+              <option value="hold">Hold to aim</option>
+              <option value="toggle">Toggle aim</option>
+            </select></span>
+          </label>
+          <label class="range-field" data-ads-field>
+            <span class="convert-mini">Sight</span>
+            <span class="select-wrap"><select id="rangeSight"></select></span>
+          </label>
         </div>
+        <p class="range-ads-note" id="rangeAdsNote"></p>
         <div class="rec-actions">
           <button class="btn-accent" id="rangeTestBtn">Start head test</button>
           <button class="plain-btn" id="rangeFreeBtn">Free roam</button>
@@ -395,6 +416,7 @@
         <p class="range-keys">
           <span class="kbd">WASD</span> move <span class="kbd">Shift</span> walk <span class="kbd">Space</span> jump
           <span class="kbd">C</span> crouch <span class="kbd">R</span> reload <span class="kbd">LMB</span> shoot · hold for auto
+          <span class="kbd">RMB</span> aim down sights
           <span class="kbd">Esc</span> pause
         </p>
       </div>
@@ -425,7 +447,7 @@
     <div class="range-hitmarker" id="rangeHitmarker" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="range-hud-top"><div class="range-hud-main" id="rangeHudMain"></div><div class="range-hud-sub" id="rangeHudSub"></div></div>
     <div class="range-ammo" id="rangeAmmo"></div>
-    <div class="range-help">WASD move · Shift walk · Space jump · C crouch · R reload · Esc pause</div>
+    <div class="range-help">WASD move · Shift walk · Space jump · C crouch · R reload · Right-click aims · Esc pause</div>
     <div class="getready" id="rangeGetReady"><div class="big" id="rangeGetReadyLabel">Head test</div><div class="num" id="rangeGetReadyNum">3</div></div>
     <div class="pause-overlay" id="rangePause">
       <div class="pause-card">

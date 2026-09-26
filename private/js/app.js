@@ -154,7 +154,64 @@ function renderRangePanel() {
   const data = loadRange();
   $('rangeDummies').value = data.dummies || 'standing';
   $('rangeDistance').value = data.distance || 'mid';
+  renderRangeAds(game, data);
   renderRangeHistory(game);
+}
+
+// ---------- The Range: aiming down sights ----------
+// Which sight you aim with is the range's own choice (saved per game);
+// the ADS value is your real in-game setting, so it's saved with your
+// settings - for Siege it's the same number as the 1× / 2.5× tabs.
+
+/** The chosen sight for this game, or null for a game without ADS. */
+function rangeSight(game, data = loadRange()) {
+  const sights = (game.ads && game.ads.sights) || [];
+  return sights.find((s) => s.id === (data.sights || {})[game.id]) || sights[0] || null;
+}
+
+const fmtAds = (sight, v) => (v == null || !isFinite(v) ? '' : String(Number(Number(v).toFixed(sight.rules.decimals))));
+
+function quantizeAds(sight, v) {
+  const { step, decimals, min, max } = sight.rules;
+  return Math.max(min, Math.min(max, Number((Math.round(v / step) * step).toFixed(decimals))));
+}
+
+/** cm/360 while aimed with this sight, with an ADS value swapped in (the
+ * box being typed in) or the saved one. */
+function rangeAdsCm(game, sight, settings, adsValue) {
+  const s = adsValue > 0 ? { ...settings, [sight.key]: adsValue } : settings;
+  const d = game.ads.degPerCount(s, sight.id).x;
+  return d > 0 && s.dpi > 0 ? (2.54 * 360) / (d * s.dpi) : NaN;
+}
+
+const ADS_NOTES = {
+  r6: 'Right-click aims with your ADS value for that sight - the same numbers as the 1× and 2.5× tabs.',
+  valorant: 'Right-click aims: the Vandal and Phantom zoom 1.25× and use your ADS multiplier, the Operator 2.5× and your scoped multiplier.',
+  cs2: "CS2's AK and M4 don't aim down sights, so right-click scopes in like the AUG / SG 553 or the AWP, with your Zoom sensitivity (zoom_sensitivity_ratio).",
+  apex: 'Right-click aims down a 2× HCOG with your ADS sensitivity multiplier.',
+  cod: 'Right-click aims down a reflex sight with your ADS sensitivity multiplier (Relative, coefficient 1.33 - the defaults).',
+  overwatch: "Right-click scopes in like Widowmaker or Ana, with your Relative aim sensitivity while zoomed.",
+};
+
+function renderRangeAds(game, data) {
+  const sight = rangeSight(game, data);
+  document.querySelectorAll('[data-ads-field]').forEach((el) => (el.hidden = !sight));
+  $('rangeAdsNote').textContent = sight
+    ? ADS_NOTES[game.id] || ''
+    : `Most ${game.name} heroes don't aim down sights, so right-click does nothing in the range.`;
+  if (!sight) return;
+  const select = $('rangeSight');
+  if (select.dataset.game !== game.id) {
+    select.dataset.game = game.id;
+    select.innerHTML = game.ads.sights.map((s) => `<option value="${s.id}">${s.label}</option>`).join('');
+  }
+  select.value = sight.id;
+  $('rangeAdsLabel').textContent = sight.setting;
+  const input = $('rangeAdsSens');
+  const { settings } = rangeSettings(game);
+  if (document.activeElement !== input) input.value = fmtAds(sight, settings[sight.key]);
+  $('rangeAdsCm').textContent = formatCm360(rangeAdsCm(game, sight, settings, Number(input.value)));
+  $('rangeAdsMode').value = data.adsMode === 'toggle' ? 'toggle' : 'hold';
 }
 
 const LANDS = {
@@ -173,7 +230,9 @@ function renderRangeHistory(game) {
         .map(
           (h) => `<tr>
             <td>${formatGameSens(game, h.sens)} <span class="comparison-tag">${formatCm360(h.cm360)} cm</span></td>
-            <td>${h.dummies === 'strafing' ? 'Strafing' : 'Standing'} · ${distance[h.distance] || h.distance}</td>
+            <td>${h.dummies === 'strafing' ? 'Strafing' : 'Standing'} · ${distance[h.distance] || h.distance}${
+              h.adsShare >= 0.5 ? ' · aimed' : ''
+            }</td>
             <td>${fmtMs(h.timeMs)}</td>
             <td>${fmtPct(h.firstShotRate)}</td>
             <td>${fmtPct(h.landRate)}</td>
@@ -223,6 +282,7 @@ function bindRange() {
     data.dummies = $('rangeDummies').value;
     data.distance = $('rangeDistance').value;
     saveRange(data);
+    const sight = rangeSight(game, data);
     engine.start({
       game,
       tab,
@@ -232,6 +292,8 @@ function bindRange() {
       mode,
       dummies: data.dummies,
       distance: data.distance,
+      sight: sight ? sight.id : null,
+      adsMode: data.adsMode === 'toggle' ? 'toggle' : 'hold',
     });
   };
 
@@ -240,6 +302,34 @@ function bindRange() {
     const game = currentGame();
     const { tab, settings } = rangeSettings(game);
     $('rangeCm').textContent = formatCm360(game.cm360(tab, settings));
+    const sight = rangeSight(game);
+    if (sight) $('rangeAdsCm').textContent = formatCm360(rangeAdsCm(game, sight, settings, Number($('rangeAdsSens').value)));
+  });
+  $('rangeSight').addEventListener('change', () => {
+    const data = loadRange();
+    data.sights = { ...(data.sights || {}), [currentGame().id]: $('rangeSight').value };
+    saveRange(data);
+    renderRangePanel();
+  });
+  $('rangeAdsMode').addEventListener('change', () => {
+    const data = loadRange();
+    data.adsMode = $('rangeAdsMode').value;
+    saveRange(data);
+  });
+  $('rangeAdsSens').addEventListener('input', () => {
+    const game = currentGame();
+    const sight = rangeSight(game);
+    if (!sight) return;
+    const { settings } = rangeSettings(game);
+    $('rangeAdsCm').textContent = formatCm360(rangeAdsCm(game, sight, settings, Number($('rangeAdsSens').value)));
+  });
+  $('rangeAdsSens').addEventListener('change', () => {
+    const game = currentGame();
+    const sight = rangeSight(game);
+    const v = Number($('rangeAdsSens').value);
+    if (!sight) return;
+    if (!(v > 0)) return renderRangePanel(); // put the saved value back
+    updateSettings({ [sight.key]: quantizeAds(sight, v) });
   });
   for (const id of ['rangeDummies', 'rangeDistance']) {
     $(id).addEventListener('change', () => {
