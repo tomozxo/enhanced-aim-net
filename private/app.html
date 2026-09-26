@@ -38,6 +38,7 @@
     <div class="view-switch" id="viewSwitch" role="tablist" aria-label="What to show">
       <button class="view-btn active" data-view="calibrate" role="tab" aria-selected="true">Calibrate</button>
       <button class="view-btn" data-view="convert" role="tab" aria-selected="false">Converter</button>
+      <button class="view-btn" data-view="range" role="tab" aria-selected="false">The Range</button>
     </div>
   </div>
 
@@ -228,9 +229,9 @@
       <div class="main-panel" id="mainPanel">
         <div class="main-panel-center" id="idleState">
           <h3>Make every movement count.</h3>
-          <p>Compare three sensitivities across flicking, target clearing and tracking. Repeated rounds help check whether a setting performs consistently.</p>
+          <p>Flick onto head-sized targets at three sensitivities. It reads where each flick first lands - past the head or short of it - and finds the one where you land on it.</p>
           <button class="btn-accent" id="startCalibrationBtn">Start calibration</button>
-          <p class="caption" id="calibrationHint">36 × 7-second blocks + warm-up · about 6 minutes per optic · runs fullscreen</p>
+          <p class="caption" id="calibrationHint">60 flicks at 3 sensitivities · about 1½ minutes · fullscreen</p>
         </div>
         <div class="panel-footer">
           <div class="kbd-hint"><span class="kbd">LMB</span> Shoot in flick &amp; targets drills</div>
@@ -241,8 +242,8 @@
       <div class="statsbar">
         <div class="stat"><div class="stat-label">Active sensitivity</div><div class="stat-value" id="statActiveSens">4</div></div>
         <div class="stat"><div class="stat-label" id="cm360Label">Estimated cm/360°</div><div class="stat-value" id="statCm360">—</div></div>
-        <div class="stat"><div class="stat-label">Hit accuracy</div><div class="stat-value" id="statAccuracy">—</div></div>
-        <div class="stat"><div class="stat-label" title="Share of your hits that landed on the centre of the target, inside the white ring. Hits anywhere else on it still count - this is just for reference.">Inner hits</div><div class="stat-value" id="statTargets">—</div></div>
+        <div class="stat"><div class="stat-label" title="Flicks whose first movement stopped on the head, at the recommended sensitivity">Lands on head</div><div class="stat-value" id="statAccuracy">—</div></div>
+        <div class="stat"><div class="stat-label" title="Corrections after the first movement, per flick, at the recommended sensitivity">Fixes per flick</div><div class="stat-value" id="statTargets">—</div></div>
       </div>
       <p class="model-note" id="modelNote">ADS speed depends on each sight's zoom, which Ubisoft doesn't publish, so this optic is a close estimate. To make it exact, <button class="linklike" id="modelNoteLink">calibrate it</button>. <span id="modelNoteCheck"></span></p>
 
@@ -282,10 +283,10 @@
             <span class="comparison-tag" id="comparisonTag">1× ADS</span>
           </div>
           <table class="comparison" id="comparisonTable">
-            <thead><tr><th>Sens</th><th title="Hits per second">Flick</th><th title="Hits per second on the sliding target">Bounce</th><th title="Dots cleared per second">Targets</th><th title="Time on the dot">Tracking</th><th>Score</th></tr></thead>
+            <thead><tr><th>Sens</th><th title="First movement stopped on the head">On head</th><th title="First movement stopped past the head">Past</th><th title="First movement stopped short of the head">Short</th><th title="Corrections per flick">Fixes</th><th title="Typical time from the target appearing to the hit">Time</th></tr></thead>
             <tbody id="comparisonBody"><tr><td colspan="5" class="card-empty">No results yet.</td></tr></tbody>
           </table>
-          <p class="comparison-footnote" id="comparisonFootnote">Run a calibration to populate this table. Score: flicking, bounce, targets and tracking weighted equally, relative to the best in each drill.</p>
+          <p class="comparison-footnote" id="comparisonFootnote">Run a calibration to fill this in.</p>
           <button class="clear-link" id="clearComparisonBtn">Clear comparison</button>
         </div>
       </div>
@@ -347,7 +348,112 @@
         </p>
       </div>
       </div><!-- /viewConvert -->
+
+      <!-- The Range: a separate 3D range to walk around and flick onto
+           heads (range.js). Its settings and head-test history live here. -->
+      <div class="view" id="viewRange" hidden>
+      <div class="card range-card">
+        <div class="card-header">
+          <h3>The Range</h3>
+          <span class="comparison-tag">3D · walk around</span>
+        </div>
+        <p class="convert-intro">
+          An outdoor range with a covered firing line, lanes marked to 50 m, and pop-up training dummies with
+          real-sized heads. You carry a rifle that kicks. The head test drops 30 dummies one at a time and reads
+          each flick to the head - past it or short of it - so you can run it at two sensitivities and compare.
+        </p>
+        <div class="range-options">
+          <label class="range-field">
+            <span class="convert-mini">Sensitivity</span>
+            <input type="number" id="rangeSens" step="any" min="0" inputmode="decimal" />
+          </label>
+          <div class="range-field">
+            <span class="convert-mini">cm/360°</span>
+            <output class="range-cm" id="rangeCm">—</output>
+          </div>
+          <label class="range-field">
+            <span class="convert-mini">Dummies</span>
+            <span class="select-wrap"><select id="rangeDummies">
+              <option value="standing">Standing</option>
+              <option value="strafing">Strafing</option>
+            </select></span>
+          </label>
+          <label class="range-field">
+            <span class="convert-mini">Distance</span>
+            <span class="select-wrap"><select id="rangeDistance">
+              <option value="close">Close · 8–14 m</option>
+              <option value="mid">Mid · 14–24 m</option>
+              <option value="far">Far · 24–38 m</option>
+              <option value="mixed">Mixed</option>
+            </select></span>
+          </label>
+        </div>
+        <div class="rec-actions">
+          <button class="btn-accent" id="rangeTestBtn">Start head test</button>
+          <button class="plain-btn" id="rangeFreeBtn">Free roam</button>
+        </div>
+        <p class="range-keys">
+          <span class="kbd">WASD</span> move <span class="kbd">Shift</span> walk <span class="kbd">Space</span> jump
+          <span class="kbd">C</span> crouch <span class="kbd">R</span> reload <span class="kbd">LMB</span> shoot · hold for auto
+          <span class="kbd">Esc</span> pause
+        </p>
+      </div>
+      <div class="card range-history">
+        <div class="card-header">
+          <h3>Head test results</h3>
+          <button class="clear-link" id="rangeClearBtn" style="padding:0">Clear</button>
+        </div>
+        <table class="comparison">
+          <thead><tr><th>Sens</th><th>Dummies</th><th title="Typical time from a dummy popping up to the headshot">Time to kill</th><th title="Dummies dropped with the first shot">First shot</th><th title="Flicks whose first movement stopped on the head">On head</th><th title="Where your first movement landed on average">Lands</th></tr></thead>
+          <tbody id="rangeHistoryBody"></tbody>
+        </table>
+        <p class="comparison-footnote">
+          Run the head test at your current sensitivity, then at another, and compare. A sensitivity that suits you
+          lands on the head more often, needs fewer shots, and doesn't pull past or short of the head.
+        </p>
+      </div>
+      </div><!-- /viewRange -->
     </main>
+  </div>
+</div>
+
+<!-- The Range, fullscreen (range.js). Uses the drill overlay's look. -->
+<div class="drill-overlay range-overlay" id="rangeOverlay">
+  <div class="drill-stage" id="rangeStage">
+    <canvas id="rangeCanvas"></canvas>
+    <div class="drill-crosshair" aria-hidden="true"></div>
+    <div class="range-hitmarker" id="rangeHitmarker" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="range-hud-top"><div class="range-hud-main" id="rangeHudMain"></div><div class="range-hud-sub" id="rangeHudSub"></div></div>
+    <div class="range-ammo" id="rangeAmmo"></div>
+    <div class="range-help">WASD move · Shift walk · Space jump · C crouch · R reload · Esc pause</div>
+    <div class="getready" id="rangeGetReady"><div class="big" id="rangeGetReadyLabel">Head test</div><div class="num" id="rangeGetReadyNum">3</div></div>
+    <div class="pause-overlay" id="rangePause">
+      <div class="pause-card">
+        <h3>Paused</h3>
+        <p id="rangePauseReason">Paused. Click Resume to carry on.</p>
+        <button class="btn-accent" id="rangeResumeBtn">Resume</button>
+        <div class="pause-secondary-actions">
+          <button class="clear-link" id="rangeLeaveBtn">Leave the range</button>
+        </div>
+      </div>
+    </div>
+    <div class="results-overlay" id="rangeResults">
+      <div class="results-card">
+        <h3>Head test complete</h3>
+        <p id="rangeResultsSub"></p>
+        <div class="range-tiles" id="rangeResultsGrid"></div>
+        <div class="aim-read" id="rangeAimRead" hidden>
+          <div class="aim-read-head"><span class="aim-read-title" id="rangeAimTitle"></span><span class="aim-read-tag" id="rangeAimTag"></span></div>
+          <div class="aim-bar"><span class="aim-bar-mid"></span><span class="aim-bar-dot" id="rangeAimDot"></span></div>
+          <div class="aim-bar-labels"><span>stops short</span><span>lands past</span></div>
+          <p class="aim-read-text" id="rangeAimText"></p>
+        </div>
+        <div class="results-actions">
+          <button class="btn-accent" id="rangeAgainBtn">Run it again</button>
+          <button class="plain-btn" id="rangeDoneBtn">Done</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -397,7 +503,7 @@
           <div class="results-rec-value" id="resultsRecValue">—</div>
           <span class="badge" id="resultsConfidence"></span>
           <table class="comparison results-table">
-            <thead><tr><th>Sens</th><th>Flick</th><th>Bounce</th><th>Targets</th><th>Tracking</th><th>Score</th></tr></thead>
+            <thead><tr><th>Sens</th><th title="First movement stopped on the head">On head</th><th title="First movement stopped past the head">Past</th><th title="First movement stopped short of the head">Short</th><th title="Corrections per flick">Fixes</th><th title="Typical time from the target appearing to the hit">Time</th></tr></thead>
             <tbody id="resultsTableBody"></tbody>
           </table>
           <p class="results-hint" id="resultsHint"></p>

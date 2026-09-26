@@ -12,7 +12,7 @@ const SHARED_DEFAULTS = {
   accentColor: '#a50fec',
   hitVolume: 100, // 0-100; 0 mutes the pop when a target is hit
   crosshair: 'default', // an id from crosshairs.js
-  crosshairColor: null, // null = the crosshair's own colour
+  crosshairColor: null, // null = white
   // Sensitivity converter panel. The sens/DPI keys are deliberately absent
   // rather than null: absent means "never touched", which seeds the fields
   // from the main settings, while an explicit null means the user emptied
@@ -272,7 +272,8 @@ export function basisFor(tab) {
     // v4: targets sized to the screen (smaller), room further back.
     // v5: 3D balls at aim-trainer size (~6% of the screen).
     // v6: flat bullseyes at ~3.5% - head-sized, micro-adjustment scale.
-    scoring: 6,
+    // v7: the flick check - where each flick lands, not four timed drills.
+    scoring: 7,
   });
 }
 

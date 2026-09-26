@@ -33,6 +33,7 @@ import {
 } from './sensMath.js';
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine, previewHitSound } from './drills.js';
+import { RangeEngine } from './range.js';
 import { CROSSHAIRS, CROSSHAIR_COLORS, DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
 import {
   buildCandidates,
@@ -44,8 +45,9 @@ import {
   AIM_VERDICTS,
   CONFIDENCE_TEXT,
   INITIAL_SPREAD_PCT,
-  TOTAL_SCORED_BLOCKS,
-  BLOCK_SECONDS,
+  TOTAL_SCORED_FLICKS,
+  PASS_SECONDS,
+  verdictFor,
 } from './calibration.js';
 import {
   buildGameList,
@@ -95,6 +97,176 @@ function bindViewSwitch() {
     });
     $('viewCalibrate').hidden = btn.dataset.view !== 'calibrate';
     $('viewConvert').hidden = btn.dataset.view !== 'convert';
+    $('viewRange').hidden = btn.dataset.view !== 'range';
+    if (btn.dataset.view === 'range') renderRangePanel();
+  });
+}
+
+// ---------- The Range ----------
+// Its settings and head-test history are this browser's own, kept apart
+// from the calibration state: { dummies, distance, history: [...] }.
+
+const RANGE_KEY = 'r6sf_range_v1';
+function loadRange() {
+  try {
+    return JSON.parse(localStorage.getItem(RANGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+function saveRange(data) {
+  try {
+    localStorage.setItem(RANGE_KEY, JSON.stringify(data));
+  } catch {
+    /* private window etc. - it just won't be remembered */
+  }
+}
+
+/** The range always uses a game's main sens: hip-fire for Siege. */
+const rangeTab = (game) => game.tabs[0].id;
+let rangeSensFor = null; // the game the sens box was filled in for
+let rangeSensEdited = false; // typed in by hand, so leave it alone
+
+/** The session's settings: yours, with the range's sens swapped in. */
+function rangeSettings(game) {
+  const state = getState();
+  const tab = rangeTab(game);
+  let sens = Number($('rangeSens').value);
+  if (!(sens > 0)) sens = currentSens(game, tab, state.settings);
+  sens = quantizeSens(game, sens);
+  return { tab, sens, settings: game.withCandidate(state.settings, tab, sens) };
+}
+
+function renderRangePanel() {
+  if ($('viewRange').hidden) return;
+  const state = getState();
+  const game = getGame(state.game);
+  const input = $('rangeSens');
+  if (rangeSensFor !== game.id) {
+    rangeSensFor = game.id;
+    rangeSensEdited = false;
+  }
+  if (!rangeSensEdited && document.activeElement !== input) {
+    input.value = formatGameSens(game, currentSens(game, rangeTab(game), state.settings));
+  }
+  const { tab, settings } = rangeSettings(game);
+  $('rangeCm').textContent = formatCm360(game.cm360(tab, settings));
+  const data = loadRange();
+  $('rangeDummies').value = data.dummies || 'standing';
+  $('rangeDistance').value = data.distance || 'mid';
+  renderRangeHistory(game);
+}
+
+const LANDS = {
+  over: 'Past',
+  'slightly-over': 'Slightly past',
+  balanced: 'On target',
+  'slightly-under': 'Slightly short',
+  under: 'Short',
+};
+
+function renderRangeHistory(game) {
+  const rows = (loadRange().history || []).filter((h) => h.game === game.id);
+  const distance = { close: 'close', mid: 'mid', far: 'far', mixed: 'mixed' };
+  $('rangeHistoryBody').innerHTML = rows.length
+    ? rows
+        .map(
+          (h) => `<tr>
+            <td>${formatGameSens(game, h.sens)} <span class="comparison-tag">${formatCm360(h.cm360)} cm</span></td>
+            <td>${h.dummies === 'strafing' ? 'Strafing' : 'Standing'} · ${distance[h.distance] || h.distance}</td>
+            <td>${fmtMs(h.timeMs)}</td>
+            <td>${fmtPct(h.firstShotRate)}</td>
+            <td>${fmtPct(h.landRate)}</td>
+            <td>${h.bias == null ? '—' : LANDS[verdictFor(h.bias)]}</td>
+          </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="6" class="card-empty">No head tests yet.</td></tr>';
+}
+
+function bindRange() {
+  const engine = new RangeEngine({
+    overlayEl: $('rangeOverlay'),
+    stageEl: $('rangeStage'),
+    canvasEl: $('rangeCanvas'),
+    el: {
+      pause: $('rangePause'),
+      pauseReason: $('rangePauseReason'),
+      results: $('rangeResults'),
+      resultsSub: $('rangeResultsSub'),
+      resultsGrid: $('rangeResultsGrid'),
+      aim: $('rangeAimRead'),
+      aimTitle: $('rangeAimTitle'),
+      aimTag: $('rangeAimTag'),
+      aimText: $('rangeAimText'),
+      aimDot: $('rangeAimDot'),
+      getReady: $('rangeGetReady'),
+      getReadyLabel: $('rangeGetReadyLabel'),
+      getReadyNum: $('rangeGetReadyNum'),
+      hitmarker: $('rangeHitmarker'),
+      hudMain: $('rangeHudMain'),
+      hudSub: $('rangeHudSub'),
+      ammo: $('rangeAmmo'),
+    },
+    onFinish: (summary) => {
+      const data = loadRange();
+      data.history = [summary, ...(data.history || [])].slice(0, 30);
+      saveRange(data);
+      renderRangePanel();
+    },
+  });
+
+  const start = (mode) => {
+    const game = currentGame();
+    const { tab, sens, settings } = rangeSettings(game);
+    const data = loadRange();
+    data.dummies = $('rangeDummies').value;
+    data.distance = $('rangeDistance').value;
+    saveRange(data);
+    engine.start({
+      game,
+      tab,
+      settings,
+      sens,
+      sensLabel: `${game.short} ${formatGameSens(game, sens)}`,
+      mode,
+      dummies: data.dummies,
+      distance: data.distance,
+    });
+  };
+
+  $('rangeSens').addEventListener('input', () => {
+    rangeSensEdited = true;
+    const game = currentGame();
+    const { tab, settings } = rangeSettings(game);
+    $('rangeCm').textContent = formatCm360(game.cm360(tab, settings));
+  });
+  for (const id of ['rangeDummies', 'rangeDistance']) {
+    $(id).addEventListener('change', () => {
+      const data = loadRange();
+      data.dummies = $('rangeDummies').value;
+      data.distance = $('rangeDistance').value;
+      saveRange(data);
+    });
+  }
+  $('rangeTestBtn').addEventListener('click', () => start('test'));
+  $('rangeFreeBtn').addEventListener('click', () => start('free'));
+  $('rangeResumeBtn').addEventListener('click', () => engine.resume());
+  $('rangeLeaveBtn').addEventListener('click', () => {
+    engine.exit();
+    renderRangePanel();
+  });
+  $('rangeAgainBtn').addEventListener('click', () => start('test'));
+  $('rangeDoneBtn').addEventListener('click', () => {
+    engine.exit();
+    renderRangePanel();
+  });
+  $('rangeClearBtn').addEventListener('click', () => {
+    const data = loadRange();
+    const game = currentGame();
+    data.history = (data.history || []).filter((h) => h.game !== game.id);
+    saveRange(data);
+    renderRangePanel();
   });
 }
 
@@ -106,6 +278,8 @@ function bindViewSwitch() {
  */
 function renderAimRead(aim) {
   const box = $('aimRead');
+  box.querySelectorAll('.aim-bar-dot.extra').forEach((el) => el.remove());
+  $('aimBarDot').hidden = false;
   if (!aim) {
     box.hidden = true;
     return;
@@ -119,6 +293,40 @@ function renderAimRead(aim) {
   const pos = Math.max(-1, Math.min(1, aim.mean));
   $('aimBarDot').style.left = `${50 + pos * 50}%`;
   box.dataset.verdict = aim.verdict;
+}
+
+/**
+ * The flick check's read-out: where your first movement landed at each
+ * sensitivity tested, on one bar from "short of the head" to "past it" -
+ * one marker per sensitivity, the current one in the accent colour. The
+ * verdict is for your current setting; the text says where it balances.
+ */
+function renderBalanceRead(result, game) {
+  const box = $('aimRead');
+  box.querySelectorAll('.aim-bar-dot.extra').forEach((el) => el.remove());
+  const rows = (result.candidates || []).filter((c) => c.n > 0 && isFinite(c.bias));
+  if (!rows.length) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  $('aimBarDot').hidden = true;
+  const fmt = (v) => formatGameSens(game, v);
+  const current = rows.find((c) => c.isBase) || rows[Math.floor(rows.length / 2)];
+  const verdict = AIM_VERDICTS[verdictFor(current.bias)];
+  $('aimReadTitle').textContent = `At ${fmt(current.sens)}: ${verdict.title.charAt(0).toLowerCase()}${verdict.title.slice(1)}`;
+  $('aimReadTag').textContent = `${result.totalFlicks} flicks read`;
+  const balance = result.balance && !result.balance.clamped ? ` Your flicks balance out at ${fmt(result.best.sens)}.` : '';
+  $('aimReadText').textContent = verdict.text + balance;
+  const bar = box.querySelector('.aim-bar');
+  for (const c of rows) {
+    const dot = document.createElement('span');
+    dot.className = `aim-bar-dot extra${c === current ? '' : ' other'}`;
+    // A full head-width (two radii) either way fills the bar.
+    dot.style.left = `${50 + (Math.max(-2, Math.min(2, c.bias)) / 2) * 50}%`;
+    dot.dataset.label = fmt(c.sens);
+    bar.appendChild(dot);
+  }
 }
 
 /** An admin key is an ordinary key that can also hand out keys, so it gets
@@ -154,6 +362,7 @@ async function main() {
   bindExpanders();
   bindHitVolume();
   bindCrosshair();
+  bindRange();
   bindMouseCheck();
   bindTabs();
   bindConvert();
@@ -296,11 +505,9 @@ async function main() {
       renderAimRead(analyseAim(results, 12));
     } else {
       const pooled = capPooledResults([...run.carryOver, ...results]);
-      const scored = scoreResults(run.candidates, pooled);
+      const scored = scoreResults(run.candidates, pooled, currentGame().rules);
       const saved = {
         ...scored,
-        // How your shots landed across the whole run, over- or under-aiming.
-        aim: analyseAim(pooled),
         spreadPct: run.spreadPct,
         delta: run.delta,
         centeredValue: run.centeredValue,
@@ -332,7 +539,7 @@ async function main() {
     $('resultsConfidence').textContent = conf.label;
     $('resultsTableBody').innerHTML = comparisonRowsHtml(result, game);
     $('resultsHint').textContent = fineTuneHint(result, game);
-    renderAimRead(result.aim);
+    renderBalanceRead(result, game);
 
     // Whichever action makes more sense right now gets the accent colour: a
     // clear winner you're not already on is ready to apply; anything closer,
@@ -547,8 +754,7 @@ function renderGameChrome(state) {
     el.hidden = !el.dataset.gameOnly.split(' ').includes(game.id);
   });
   $('sidebarTitle').textContent = `Your ${game.short} settings`;
-  const minutes = Math.round((TOTAL_SCORED_BLOCKS * (BLOCK_SECONDS + 3)) / 60);
-  $('calibrationHint').textContent = `${TOTAL_SCORED_BLOCKS} × ${BLOCK_SECONDS}s blocks · about ${minutes} min${
+  $('calibrationHint').textContent = `${TOTAL_SCORED_FLICKS} flicks at 3 sensitivities · about ${Math.round(PASS_SECONDS / 30) / 2} min${
     game.tabs.length > 1 ? ' per optic' : ''
   } · fullscreen`;
   renderSimpleGameFields(game, state.settings);
@@ -947,61 +1153,65 @@ function bindTabs() {
 
 const CONFIDENCE_BADGE = { clear: 'ok', close: 'close', tie: 'retest' };
 
-const fmtRate = (v) => (v == null || !isFinite(v) ? '—' : `${v.toFixed(2)}/s`);
 const fmtPct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
 
 function poolNote(result) {
-  return result.pooledPasses > 1
-    ? ` · ${result.best.roundsPerDrill} rounds per drill, pooled over ${result.pooledPasses} passes`
-    : '';
+  return result.pooledPasses > 1 ? ` · ${result.totalFlicks} flicks from ${result.pooledPasses} passes` : '';
 }
+
+/** Results saved by the old four-drill calibration have none of the flick
+ * check's numbers; they're shown as needing a retest. */
+const isFlickCheck = (result) => result && result.method === 'flick-check';
 
 function fineTuneHint(result, game) {
-  const finest = result.atFinestStep ?? result.candidates?.[0]?.finest ?? result.delta <= game.rules.step;
+  const edge = result.balance && result.balance.clamped;
+  if (edge) {
+    const way = edge === 'low' ? 'lower' : 'higher';
+    return `You ${edge === 'low' ? 'went past the head' : 'stopped short'} even at the ${
+      edge === 'low' ? 'lowest' : 'highest'
+    } value tested, so the balance point is ${way} still. Another pass tests around ${formatGameSens(game, result.best.sens)}.`;
+  }
+  const finest = result.atFinestStep ?? result.candidates?.[0]?.finest;
   if (finest) {
-    const step =
-      game.rules.decimals === 0
-        ? `±1, the finest step ${game.short}'s slider has`
-        : `±${Math.round(game.rules.minSpreadPct * 100)}%, about the smallest change you can feel`;
-    return (
-      `You're down to ${step}. Fine-tuning again re-tests these same values and pools ` +
-      `the rounds, so the answer gets more reliable each pass.`
-    );
+    return `You're down to the finest step ${game.short} allows. Another pass adds more flicks around this value, so the answer gets steadier.`;
   }
   const next = buildCandidates(result.best.sens, result.spreadPct * 0.5, game.rules)[0].delta;
-  return `${CONFIDENCE_TEXT[result.confidence].hint} Next pass tests ±${formatGameSens(game, next)} around ${formatGameSens(
+  return `${CONFIDENCE_TEXT[result.confidence].hint} Another pass tests ±${formatGameSens(game, next)} around ${formatGameSens(
     game,
     result.best.sens
-  )}.`;
+  )} and keeps these flicks.`;
 }
 
-/** Table rows shared by the results screen and the comparison card. Matches
- * the winner by sens rather than object identity, since results reloaded
- * from localStorage are fresh copies. */
+const fmtMs = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v)} ms`);
+const fmtFix = (v) => (v == null || !isFinite(v) ? '—' : v.toFixed(1));
+
+/** Table rows shared by the results screen and the comparison card. */
 function comparisonRowsHtml(result, game) {
-  const tag = result.centeredOn === 'previous-best' ? 'last best' : 'current';
+  const tag = result.centeredOn === 'previous-best' ? 'last pick' : 'current';
   return result.candidates
     .map((c) => {
       const cls = [c.isBase ? 'base' : '', c.sens === result.best.sens ? 'best' : ''].filter(Boolean).join(' ');
       return `<tr class="${cls}">
         <td>${formatGameSens(game, c.sens)}${c.isBase ? ` · ${tag}` : ''}</td>
-        <td>${fmtRate(c.flickHitsPerSec)}</td>
-        <td>${fmtRate(c.bounceHitsPerSec)}</td>
-        <td>${fmtRate(c.clearedPerSec)}</td>
-        <td>${fmtPct(c.onTargetPct)}</td>
-        <td>${c.score}</td>
+        <td>${fmtPct(c.landRate)}</td>
+        <td>${fmtPct(c.pastRate)}</td>
+        <td>${fmtPct(c.shortRate)}</td>
+        <td>${fmtFix(c.corrections)}</td>
+        <td>${fmtMs(c.timeMs)}</td>
       </tr>`;
     })
     .join('');
 }
 
 const SCORING_FOOTNOTE =
-  'Flick: hits per second. Targets: dots cleared per second. Tracking: time on the dot. ' +
-  'A hit anywhere on a target counts, inside or outside the ring. Each of the four drills is a quarter of the score, relative to the best in that drill.';
+  'On head: flicks whose first movement stopped on the head. Past / Short: stopped beyond it or before it. ' +
+  'Fixes: corrections per flick. Time: typical time from the target appearing to the hit. ' +
+  'The pick is the sensitivity where your first movement balances out - neither past the head nor short of it.';
 
 function renderAll() {
   const state = getState();
   renderGameChrome(state);
+  renderRangePanel();
   renderSettingsInputs(state);
   renderTabsUI(state);
   renderStats(state);
@@ -1225,11 +1435,11 @@ function renderTabsUI(state) {
         : `Check it in R6: this sight should feel exactly like your hip-fire at ${Math.round(expected)}.`;
   }
 
-  // "Start calibration" is always a fresh ±15% pass - the narrower passes are
-  // what "Fine-tune further" does - so this doesn't depend on past results.
+  // "Start calibration" is always a fresh pass around your current setting -
+  // the narrower passes are what "Fine-tune further" does.
   $('refineSub').textContent =
-    `We test your current setting and about ${Math.round(INITIAL_SPREAD_PCT * 100)}% either side, ` +
-    `then "Fine-tune further" narrows it down.`;
+    `Flicks at your current setting and ${Math.round(INITIAL_SPREAD_PCT * 100)}% either side, ` +
+    `to find where your flicks land on the head instead of past or short of it.`;
 }
 
 function renderStats(state) {
@@ -1254,9 +1464,9 @@ function renderStats(state) {
   }
 
   const result = state.results[tab];
-  if (result) {
-    $('statAccuracy').textContent = result.best.accuracy != null ? `${Math.round(result.best.accuracy * 100)}%` : '—';
-    $('statTargets').textContent = fmtPct(result.best.innerHitPct);
+  if (isFlickCheck(result)) {
+    $('statAccuracy').textContent = fmtPct(result.best.landRate);
+    $('statTargets').textContent = fmtFix(result.best.corrections);
   } else {
     $('statAccuracy').textContent = '—';
     $('statTargets').textContent = '—';
@@ -1273,13 +1483,14 @@ function renderRecommendation(state) {
   if (!result) {
     badge.style.display = 'inline-block';
     badge.className = 'badge incomplete';
-    badge.textContent = 'INCOMPLETE';
+    badge.textContent = 'NOT RUN YET';
     body.innerHTML =
-      `<p class="card-empty">0 of ${TOTAL_SCORED_BLOCKS} scored rounds recorded. Every setting needs every drill before a recommendation.</p>`;
+      `<p class="card-empty">No flick check yet. It takes about ${Math.round(PASS_SECONDS / 30) / 2} minutes: ` +
+      `${TOTAL_SCORED_FLICKS} flicks onto head-sized targets, read for where each one lands.</p>`;
     return;
   }
 
-  if (stale) {
+  if (stale || !isFlickCheck(result)) {
     badge.style.display = 'inline-block';
     badge.className = 'badge retest';
     badge.textContent = 'RETEST REQUIRED';
@@ -1302,10 +1513,11 @@ function renderRecommendation(state) {
     ? 'Matches your current setting.'
     : `${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))} from your current ${fmt(current)}.`;
   const refinedText = result.passCount > 1 ? ` · fine-tuned ×${result.passCount - 1}` : '';
+  const landed = isFinite(result.best.landRate) ? ` First flick on the head ${fmtPct(result.best.landRate)} of the time` : '';
 
   body.innerHTML = `
     <div class="rec-value">${fmt(result.best.sens)}</div>
-    <p class="rec-sub">${deltaText} Scored ${result.best.score}/100${refinedText}.</p>
+    <p class="rec-sub">${deltaText}${landed}${refinedText}.</p>
     <p class="rec-sub rec-hint">${fineTuneHint(result, game)}</p>
     <div class="rec-actions">
       <button id="applyRecBtn" class="btn-accent"${same ? ' disabled' : ''}>Apply to ${scopeLabel(game, tab)}</button>
@@ -1322,7 +1534,7 @@ function renderComparison(state) {
   const tbody = $('comparisonBody');
   const footnote = $('comparisonFootnote');
 
-  if (!result) {
+  if (!isFlickCheck(result)) {
     // Preview which sensitivities a fresh run would test, before any data exists.
     const preview = buildCandidates(currentSens(game, tab, state.settings), INITIAL_SPREAD_PCT, game.rules);
     tbody.innerHTML = preview

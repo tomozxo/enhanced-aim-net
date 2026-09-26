@@ -1,7 +1,21 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 import { DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
+import { analyseFlick } from './calibration.js';
 
-const DRILL_LABELS = { flick: 'FLICK', bounce: 'BOUNCE', targets: 'TARGETS', tracking: 'TRACKING' };
+const DRILL_LABELS = { flick: 'FLICK', bounce: 'BOUNCE', targets: 'TARGETS', tracking: 'TRACKING', check: 'FLICK CHECK' };
+const DEG = Math.PI / 180;
+
+// The flick check (calibration): head-sized targets at the angles you meet
+// in a real game - NVIDIA's sensitivity study used 7-25° to the side and up
+// to ~3° up or down - from a short nudge to a proper flick, never a long
+// one. Sizes are real angles, like a head at mid range, rather than a share
+// of the screen, because the precision a sensitivity has to deliver is an
+// angle. No flick needs more than CHECK_MAX_CM of mouse movement, even at
+// the slowest sensitivity in the run.
+const CHECK_DIST_DEG = { min: 4, max: 22 };
+const CHECK_PITCH_DEG = 3;
+const CHECK_SIZE_DEG = { min: 1.4, max: 2.6 }; // diameter
+const CHECK_MAX_CM = 7;
 const TARGET_DISTANCE = 60; // world units targets sit out in front of the camera
 const TRACK_YAW_RANGE = (22 * Math.PI) / 180; // how far the tracking target swings left/right
 const TRACK_PITCH_RANGE = (7 * Math.PI) / 180;
@@ -327,7 +341,7 @@ export class DrillEngine {
     document.addEventListener('mousemove', (e) => {
       if (!this.running || this.paused) return;
       if (document.pointerLockElement !== this.canvas) return;
-      this._applyMovement(e.movementX, e.movementY);
+      this._applyMovement(e.movementX, e.movementY, e.timeStamp);
     });
     document.addEventListener('mousedown', (e) => {
       if (!this.running || this.paused || e.button !== 0) return;
@@ -482,7 +496,7 @@ export class DrillEngine {
     return { x: d.x * (Math.PI / 180), y: d.y * (Math.PI / 180) };
   }
 
-  _applyMovement(mx, my) {
+  _applyMovement(mx, my, t) {
     const scale = this._rotationScale();
     this.yaw -= mx * scale.x;
     this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch - my * scale.y));
@@ -492,6 +506,9 @@ export class DrillEngine {
     // next render - a click (_handleShoot) or a target spawn can happen
     // between animation frames and both rely on an up-to-date camera transform.
     this.camera.updateMatrixWorld(true);
+    // The flick check reads the whole path of each flick, at the timestamp
+    // of every mouse reading (the same clock as performance.now()).
+    if (this.flick) this.flick.path.push({ t: t ?? performance.now(), yaw: this.yaw, pitch: this.pitch });
   }
 
   /** queueBlocks: [{ type, durationSec, scored, phaseLabel, getReadyLabel, candidateSens }] */
@@ -499,6 +516,11 @@ export class DrillEngine {
     this.queue = queueBlocks;
     this.queueIndex = -1;
     this.results = [];
+    this.flick = null;
+    // Flick-check distances are capped by mouse travel at the slowest
+    // sensitivity in the run, so every sensitivity gets the same angles.
+    const tested = queueBlocks.map((b) => b.candidateSens).filter((v) => v != null);
+    this.slowestSens = tested.length ? Math.min(...tested) : null;
     this.sessionActive = true;
     // A run can start straight from the results screen ("Fine-tune further"),
     // which left the OS cursor showing - hide it again for aiming.
@@ -619,6 +641,9 @@ export class DrillEngine {
       clearTimeout(this.getReadyTimer);
       this.getReadyTimer = null;
     }
+    // A flick interrupted by a pause isn't a real flick - its timing would
+    // include however long the pause lasted.
+    if (this.flick) this.flick.void = true;
   }
 
   _next() {
@@ -638,7 +663,7 @@ export class DrillEngine {
     this.pendingBlock = block;
     this.el.getReadyLabel.textContent = block.getReadyLabel;
     this.el.getReady.classList.add('active');
-    this.getReadyCount = 3;
+    this.getReadyCount = block.countdown ?? 3;
     this.el.getReadyNum.textContent = this.getReadyCount;
     // If the mouse couldn't be captured at the start, this runs while paused;
     // the countdown starts once they click back in (see _requestLock).
@@ -673,7 +698,10 @@ export class DrillEngine {
       cleared: 0,
       onTargetMs: 0, // tracking: time the crosshair was anywhere on the dot
       aim: [], // per shot: how far past (+) or short of (-) the target you landed
+      flicks: [], // flick check: each scored flick, read by analyseFlick()
     };
+    this.checkDone = 0; // flick check: targets hit so far this round
+    this.flick = null;
     this.shotFromYaw = 0; // where the view was when the current target appeared
     // Recentre the view at the start of every block so a candidate never
     // inherits wherever the last block happened to leave the camera aimed.
@@ -684,6 +712,7 @@ export class DrillEngine {
     this.camera.updateMatrixWorld(true);
     this.trackPhase = Math.random() * 1000;
     this._refreshBand(); // each candidate sens gets its own flick distances
+    if (block.type === 'check') this.checkBand = this._checkBand();
     this._spawnForBlock(block);
     this.phase = 'running';
     this.running = true;
@@ -718,7 +747,74 @@ export class DrillEngine {
       for (let i = 0; i < TARGETS_ON_SCREEN; i++) this.targets.push(this._replacementTarget(this._targetRadius('targets')));
     } else if (block.type === 'tracking') {
       this.targets = [this._targetAtAngles(0, 0, this._targetRadius('tracking'))];
+    } else if (block.type === 'check') {
+      this.targets = [this._checkTarget()];
     }
+  }
+
+  /** Flick-check distances as angles: CHECK_DIST_DEG, kept on screen, and
+   * short enough that the slowest sensitivity in the run never needs more
+   * than CHECK_MAX_CM of mouse movement - the same angles for every
+   * sensitivity, so they're compared on equal terms. */
+  _checkBand() {
+    let max = Math.min(CHECK_DIST_DEG.max * DEG, this.area.spawnYaw);
+    try {
+      const { game, tab, settings } = this.sensSettings;
+      const slow = this.slowestSens == null ? settings : game.withCandidate(settings, tab, this.slowestSens);
+      const cm360 = game.cm360(tab, slow);
+      if (cm360 > 0) max = Math.min(max, (CHECK_MAX_CM / cm360) * 2 * Math.PI);
+    } catch {
+      /* no settings - the on-screen limit stands */
+    }
+    return {
+      min: Math.min(CHECK_DIST_DEG.min * DEG, max * 0.5),
+      max,
+      pitch: Math.min(CHECK_PITCH_DEG * DEG, this.area.spawnPitch),
+    };
+  }
+
+  /** The next flick-check target, and the start of recording the flick to
+   * it. Distances are spread evenly on a log scale, so short precise flicks
+   * come up as often as longer ones; heights are absolute (near eye level),
+   * so a run never drifts up or down. */
+  _checkTarget() {
+    const band = this.checkBand;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const dist = Math.exp(rand(Math.log(band.min), Math.log(band.max)));
+    const rAng = (rand(CHECK_SIZE_DEG.min, CHECK_SIZE_DEG.max) / 2) * DEG;
+    const target = this._targetAtAngles(this.yaw + side * dist, rand(-band.pitch, band.pitch), Math.tan(rAng) * TARGET_DISTANCE);
+    target.rAng = rAng;
+    this.flick = { path: [{ t: performance.now(), yaw: this.yaw, pitch: this.pitch }], misses: 0, void: false };
+    return target;
+  }
+
+  /** A shot in the flick check. A miss is counted against the flick; a hit
+   * ends it, reads it (unless it's one of the first few after a change of
+   * sensitivity), and brings up the next target - or ends the round. */
+  _shootCheck() {
+    this.metrics.clicks += 1;
+    const f = this.flick;
+    if (!this._aimedTarget()) {
+      if (f) f.misses += 1;
+      return;
+    }
+    this.metrics.hits += 1;
+    const target = this.targets[0];
+    this._wave(target);
+    if (f && !f.void && this.checkDone >= (this.currentBlock.settle || 0)) {
+      f.path.push({ t: performance.now(), yaw: this.yaw, pitch: this.pitch });
+      const read = analyseFlick(f.path, { yaw: target.yaw, pitch: target.pitch, r: target.rAng }, f.misses);
+      if (read) this.metrics.flicks.push(read);
+    }
+    this.checkDone += 1;
+    this.scene.remove(target.mesh);
+    this.flick = null;
+    this.targets = [];
+    if (this.checkDone >= this.currentBlock.flicks) {
+      this._endBlock();
+      return;
+    }
+    this.targets = [this._checkTarget()];
   }
 
   /** Bounce drill: one target off to `side` (-1 left, +1 right) of where
@@ -868,6 +964,10 @@ export class DrillEngine {
 
   _handleShoot() {
     const block = this.currentBlock;
+    if (block && block.type === 'check') {
+      this._shootCheck();
+      return;
+    }
     if (!block || (block.type !== 'flick' && block.type !== 'targets' && block.type !== 'bounce')) return;
     this.metrics.clicks += 1;
     const aimed = this._aimedTarget();
@@ -974,6 +1074,13 @@ export class DrillEngine {
 
     this.renderer.render(this.scene, this.camera);
 
+    // The flick check ends on a number of targets, not a clock (see
+    // _shootCheck), so it counts those down instead.
+    if (this.currentBlock.type === 'check') {
+      this.el.timer.textContent = `${Math.max(0, this.currentBlock.flicks - this.checkDone)} left`;
+      this.rafId = requestAnimationFrame(() => this._loop());
+      return;
+    }
     const remaining = this.blockDurationMs - this.blockElapsedMs;
     if (this.blockDurationMs >= 300000) {
       // Open-ended (freeform practice) block: count elapsed time up as m:ss
@@ -995,6 +1102,10 @@ export class DrillEngine {
 
   _endBlock() {
     this.running = false;
+    // A flick-check round can end from a click between frames; make sure no
+    // frame of it is still queued.
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    this.flick = null;
     const block = this.currentBlock;
     const elapsedSec = this.blockDurationMs / 1000;
     const m = this.metrics;
@@ -1011,6 +1122,7 @@ export class DrillEngine {
       innerHits: m.innerHits,
       clicks: m.clicks,
       aim: m.aim.slice(),
+      flicks: m.flicks.slice(),
     };
     if (block.scored) this.results.push(result);
     this.onBlockComplete?.(result, this.queueIndex, this.queue.length);
@@ -1044,6 +1156,7 @@ export class DrillEngine {
     this.el.getReady.classList.remove('active');
     this.el.pauseOverlay.classList.remove('active');
     this.stage.classList.remove('show-cursor');
+    this.flick = null;
     this._clearTargets();
   }
 

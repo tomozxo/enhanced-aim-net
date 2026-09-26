@@ -590,6 +590,76 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
 .aim-bar-labels { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-dim); }
 .aim-read-text { font-size: 13px; line-height: 1.65; color: var(--text-sub); margin: 10px 0 0; }
 
+/* The flick check marks where each sensitivity's flicks landed, labelled
+   above the bar; the current one is in the accent colour. */
+.aim-read:has(.aim-bar-dot.extra) .aim-bar { margin-top: 32px; }
+.aim-bar-dot.other { width: 11px; height: 11px; background: var(--text-sub); border-width: 2px; }
+.aim-bar-dot[data-label]::after {
+  content: attr(data-label); position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  font-size: 11.5px; font-weight: 600; color: var(--text-sub); white-space: nowrap;
+}
+.aim-bar-dot.extra:not(.other)::after { color: var(--accent-text); }
+
+/* ---------- The Range: panel ---------- */
+#viewRange .range-card { flex: 0 0 auto; }
+#viewRange .range-history { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.range-options { display: grid; grid-template-columns: 1fr 0.8fr 1fr 1.25fr; gap: 10px; margin: 0 0 16px; }
+@media (max-width: 1100px) { .range-options { grid-template-columns: 1fr 1fr; } }
+.range-field { display: flex; flex-direction: column; min-width: 0; }
+.range-field input {
+  width: 100%; height: 36px; padding: 0 10px;
+  background: var(--surface-2); border: 1px solid transparent; border-radius: 8px;
+  color: var(--text); font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; transition: border-color 0.15s;
+}
+.range-field input:focus { outline: none; border-color: var(--accent); }
+.range-field .select-wrap select { width: 100%; height: 36px; }
+.range-cm {
+  display: flex; align-items: center; height: 36px;
+  font-size: 20px; font-weight: 600; letter-spacing: -0.02em; color: var(--accent-text); font-variant-numeric: tabular-nums;
+}
+.range-keys { margin: 14px 0 0; font-size: 12px; line-height: 2.2; color: var(--text-dim); }
+.range-keys .kbd { margin: 0 4px 0 10px; }
+.range-keys .kbd:first-child { margin-left: 0; }
+
+/* ---------- The Range: in the range ---------- */
+.range-hud-top {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 4;
+  text-align: center; pointer-events: none; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.range-hud-main { font-size: 20px; font-weight: 600; color: #f2f2f2; font-variant-numeric: tabular-nums; }
+.range-hud-sub {
+  margin-top: 3px; font-size: 10.5px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase;
+  color: rgba(242, 242, 242, 0.62); font-variant-numeric: tabular-nums;
+}
+.range-ammo {
+  position: absolute; right: 28px; bottom: 24px; z-index: 4; pointer-events: none;
+  font-size: 26px; font-weight: 600; color: #f2f2f2; font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.range-help {
+  position: absolute; left: 24px; bottom: 26px; z-index: 4; pointer-events: none;
+  font-size: 12px; color: rgba(242, 242, 242, 0.55); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+/* Hit marker: four short diagonal ticks round the crosshair - white for the
+   body, red for a headshot. */
+.range-hitmarker {
+  position: absolute; top: 50%; left: 50%; width: 0; height: 0; z-index: 4; pointer-events: none; opacity: 0;
+}
+.range-hitmarker i {
+  position: absolute; left: 0; top: 0; width: 8px; height: 2px; margin: -1px 0 0 -4px;
+  background: #ffffff; box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+.range-hitmarker i:nth-child(1) { transform: rotate(45deg) translateX(9px); }
+.range-hitmarker i:nth-child(2) { transform: rotate(135deg) translateX(9px); }
+.range-hitmarker i:nth-child(3) { transform: rotate(225deg) translateX(9px); }
+.range-hitmarker i:nth-child(4) { transform: rotate(315deg) translateX(9px); }
+.range-hitmarker.head i { background: #ff3b3b; }
+.range-hitmarker.show { animation: range-hit 0.24s ease-out; }
+@keyframes range-hit { from { opacity: 1; transform: scale(1.3); } to { opacity: 0; transform: scale(1); } }
+.range-tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 4px 0 2px; text-align: left; }
+.range-tile { padding: 12px 14px; background: var(--surface-2); border-radius: 12px; }
+.range-tile .stat-value { font-size: 22px; }
+
 /* ---------- Mouse check dialog ---------- */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 900; display: none; align-items: center; justify-content: center; padding: 24px;
