@@ -6,11 +6,12 @@ const STORAGE_KEY = 'r6sf_state_v1'; // name kept; the shape inside is versioned
 // Settings that belong to you rather than to a game: the same mouse (DPI),
 // the site's accent colour, the hit sound's volume, the drill crosshair, and
 // the sens converter card.
-const SHARED_KEYS = ['dpi', 'accentColor', 'hitVolume', 'crosshair', 'crosshairColor', 'convert'];
+const SHARED_KEYS = ['dpi', 'accentColor', 'hitVolume', 'dotSize', 'crosshair', 'crosshairColor', 'convert'];
 const SHARED_DEFAULTS = {
   dpi: 800,
   accentColor: '#a50fec',
   hitVolume: 100, // 0-100; 0 mutes the pop when a target is hit
+  dotSize: 'small', // the calibration's dots: small | medium | large (drills.js)
   crosshair: 'default', // an id from crosshairs.js
   crosshairColor: null, // null = white
   // Sensitivity converter panel. The sens/DPI keys are deliberately absent

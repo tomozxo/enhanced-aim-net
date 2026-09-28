@@ -451,6 +451,7 @@ async function main() {
   bindSimpleGameFields();
   bindExpanders();
   bindHitVolume();
+  bindDotSize();
   bindCrosshair();
   bindRange();
   bindMouseCheck();
@@ -1041,6 +1042,23 @@ function hitVolumeText(v) {
   return v > 0 ? `${v}%` : 'Off';
 }
 
+/** The calibration's dot size (drills.js CHECK_SIZES). */
+function bindDotSize() {
+  $('dotSize').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-size]');
+    if (btn) updateSettings({ dotSize: btn.dataset.size });
+  });
+}
+
+function renderDotSize(s) {
+  const size = ['small', 'medium', 'large'].includes(s.dotSize) ? s.dotSize : 'small';
+  document.querySelectorAll('#dotSize [data-size]').forEach((b) => {
+    const on = b.dataset.size === size;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+}
+
 function bindHitVolume() {
   const slider = $('hitVolume');
   slider.addEventListener('input', () => {
@@ -1469,6 +1487,7 @@ function renderSettingsInputs(state) {
   const hitVolume = s.hitVolume ?? 100;
   if (document.activeElement !== $('hitVolume')) $('hitVolume').value = hitVolume;
   $('hitVolumeValue').textContent = hitVolumeText(hitVolume);
+  renderDotSize(s);
   renderCrosshair(s);
   $('keepAdsSpeed').checked = s.keepAdsSpeed;
   $('useCustomMultiplier').checked = s.useCustomMultiplier;

@@ -189,6 +189,17 @@
         </div>
       </div>
 
+      <!-- How big the calibration's dots are. Shared by every game. -->
+      <div class="field-row">
+        <div class="field-label">Dot size</div>
+        <div class="size-toggle" id="dotSize" role="radiogroup" aria-label="Dot size">
+          <button type="button" class="size-btn" data-size="small" role="radio">Small</button>
+          <button type="button" class="size-btn" data-size="medium" role="radio">Medium</button>
+          <button type="button" class="size-btn" data-size="large" role="radio">Large</button>
+        </div>
+      </div>
+      <p class="sidebar-note size-note">The smaller the dots, the more accurate the test.</p>
+
       <!-- The drill crosshair, picked from a dropdown of pictures, in any
            colour. Shared by every game. Filled in by app.js from crosshairs.js. -->
       <div class="crosshair-tile">

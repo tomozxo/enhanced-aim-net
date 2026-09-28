@@ -198,20 +198,22 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
 
 /* Segmented controls: light/dark, calibrate/converter and the optic tabs.
    A quiet track with the chosen option lifted out of it. */
-.mode-toggle, .view-switch, .tabs {
+.mode-toggle, .view-switch, .tabs, .size-toggle {
   display: flex; align-items: center; gap: 2px; padding: 3px;
   background: var(--track); border-radius: 999px;
 }
-.mode-btn, .view-btn, .tab {
+.mode-btn, .view-btn, .tab, .size-btn {
   height: 100%; padding: 0 14px; cursor: pointer; white-space: nowrap;
   background: none; border: none; border-radius: 999px;
   color: var(--text-sub); font-size: 12.5px; font-weight: 500; transition: color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 .mode-btn { height: 26px; padding: 0 12px; font-size: 12px; }
+.size-btn { height: 26px; padding: 0 9px; font-size: 12px; }
+.size-note { padding-top: 0; margin-top: -2px; }
 .view-switch, .tabs { height: var(--control-h); }
-.mode-btn:hover, .view-btn:hover, .tab:hover { color: var(--text); }
-.mode-btn.active, .view-btn.active, .tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
-:root[data-theme="dark"] :is(.mode-btn.active, .view-btn.active, .tab.active) { background: var(--surface-2); }
+.mode-btn:hover, .view-btn:hover, .tab:hover, .size-btn:hover { color: var(--text); }
+.mode-btn.active, .view-btn.active, .tab.active, .size-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+:root[data-theme="dark"] :is(.mode-btn.active, .view-btn.active, .tab.active, .size-btn.active) { background: var(--surface-2); }
 
 /* ---------- App shell ---------- */
 /* The page is sized to the window and never scrolls as a whole: the sidebar

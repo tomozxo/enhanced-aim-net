@@ -14,9 +14,15 @@ const DEG = Math.PI / 180;
 // the slowest sensitivity in the run.
 const CHECK_DIST_DEG = { min: 4, max: 22 };
 const CHECK_PITCH_DEG = 3;
-// Diameter: about a head at 5.5-10 m. A touch smaller than it first was
-// (1.4-2.6°), so landing on it asks a little more precision of the flick.
-const CHECK_SIZE_DEG = { min: 1.2, max: 2.2 };
+// Dot diameters, picked in the sidebar (Dot size). Small is about a head at
+// 5.5-10 m, and each size up is the same step bigger. The smaller the dot,
+// the less a flick can be off and still land on it, so the finer the read
+// on past and short.
+const CHECK_SIZES = {
+  small: { min: 1.2, max: 2.2 },
+  medium: { min: 1.4, max: 2.6 },
+  large: { min: 1.6, max: 3.0 },
+};
 const CHECK_MAX_CM = 7;
 const TARGET_DISTANCE = 60; // world units targets sit out in front of the camera
 const TRACK_YAW_RANGE = (22 * Math.PI) / 180; // how far the tracking target swings left/right
@@ -783,7 +789,8 @@ export class DrillEngine {
     const band = this.checkBand;
     const side = Math.random() < 0.5 ? -1 : 1;
     const dist = Math.exp(rand(Math.log(band.min), Math.log(band.max)));
-    const rAng = (rand(CHECK_SIZE_DEG.min, CHECK_SIZE_DEG.max) / 2) * DEG;
+    const size = CHECK_SIZES[this.sensSettings?.settings?.dotSize] || CHECK_SIZES.small;
+    const rAng = (rand(size.min, size.max) / 2) * DEG;
     const target = this._targetAtAngles(this.yaw + side * dist, rand(-band.pitch, band.pitch), Math.tan(rAng) * TARGET_DISTANCE);
     target.rAng = rAng;
     this.flick = { path: [{ t: performance.now(), yaw: this.yaw, pitch: this.pitch }], misses: 0, void: false };
