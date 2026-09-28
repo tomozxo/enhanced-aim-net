@@ -14,7 +14,9 @@ const DEG = Math.PI / 180;
 // the slowest sensitivity in the run.
 const CHECK_DIST_DEG = { min: 4, max: 22 };
 const CHECK_PITCH_DEG = 3;
-const CHECK_SIZE_DEG = { min: 1.4, max: 2.6 }; // diameter
+// Diameter: about a head at 5.5-10 m. A touch smaller than it first was
+// (1.4-2.6°), so landing on it asks a little more precision of the flick.
+const CHECK_SIZE_DEG = { min: 1.2, max: 2.2 };
 const CHECK_MAX_CM = 7;
 const TARGET_DISTANCE = 60; // world units targets sit out in front of the camera
 const TRACK_YAW_RANGE = (22 * Math.PI) / 180; // how far the tracking target swings left/right
