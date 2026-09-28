@@ -65,7 +65,7 @@ async function tryEnter() {
   gateMsg.textContent = 'Checking...';
   gateMsg.className = 'gate-msg';
   try {
-    if (/^R6S-/i.test(raw)) {
+    if (/^(AIM|R6S)-/i.test(raw)) {
       // An admin key signs in like any key (same browser + PC lock); the
       // session comes back as a cookie.
       const res = await fetch('/api/auth/activate', {

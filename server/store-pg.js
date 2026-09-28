@@ -166,6 +166,20 @@ module.exports = {
     return rowCount > 0;
   },
 
+  /** Renames every key starting `from` to start `to` instead (everything
+   * else in the row stays as it is), skipping any whose new name is somehow
+   * already taken. Returns how many were renamed; 0 once they all have. */
+  async renamePrefix(from, to) {
+    const { rowCount } = await pool.query(
+      `UPDATE license_keys k
+          SET key = $2::text || substr(k.key, $3::int)
+        WHERE left(k.key, $4::int) = $1::text
+          AND NOT EXISTS (SELECT 1 FROM license_keys o WHERE o.key = $2::text || substr(k.key, $3::int))`,
+      [from, to, from.length + 1, from.length]
+    );
+    return rowCount;
+  },
+
   /** Locks an unlocked, non-revoked key to this browser and machine and
    * starts its session, in a single statement - so two browsers activating
    * the same fresh key at the same moment can't both win; the second one's

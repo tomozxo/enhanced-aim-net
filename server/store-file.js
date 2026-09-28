@@ -84,6 +84,24 @@ module.exports = {
     return db.keys.length < before;
   },
 
+  /** Renames every key starting `from` to start `to` instead, skipping any
+   * whose new name is somehow already taken. Returns how many. */
+  async renamePrefix(from, to) {
+    const db = readAll();
+    const taken = new Set(db.keys.map((k) => k.key));
+    let renamed = 0;
+    for (const rec of db.keys) {
+      if (!rec.key.startsWith(from)) continue;
+      const next = to + rec.key.slice(from.length);
+      if (taken.has(next)) continue;
+      taken.add(next);
+      rec.key = next;
+      renamed++;
+    }
+    if (renamed) writeAll(db);
+    return renamed;
+  },
+
   /** Locks an unlocked, non-revoked key to this browser and machine and
    * starts its session. Returns the updated record, or null if it was
    * already locked (or revoked) by the time we got here. */

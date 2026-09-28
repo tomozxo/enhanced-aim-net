@@ -50,7 +50,7 @@ block like:
 ```
 ============================================================
 No keys found - created a bootstrap ADMIN key:
-  R6S-XXXX-XXXX-XXXX-XXXX
+  AIM-XXXX-XXXX-XXXX-XXXX
 Enter it on the site's activation screen to reach /admin.html.
 ============================================================
 ```

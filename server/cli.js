@@ -2,8 +2,8 @@
 //   node server/cli.js new "buyer note" 30      (30-day expiry, optional)
 //   node server/cli.js admin "your name"        (mint an admin key - bootstraps panel access)
 //   node server/cli.js list
-//   node server/cli.js unlock R6S-XXXX-XXXX-XXXX-XXXX
-//   node server/cli.js revoke R6S-XXXX-XXXX-XXXX-XXXX
+//   node server/cli.js unlock AIM-XXXX-XXXX-XXXX-XXXX
+//   node server/cli.js revoke AIM-XXXX-XXXX-XXXX-XXXX
 //
 // Uses the same storage as the server: with DATABASE_URL set (in .env or the
 // shell), it manages the keys in that database.

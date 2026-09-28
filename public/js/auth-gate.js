@@ -32,19 +32,23 @@
     sessionStorage.removeItem('r6sf_gate_msg');
   }
 
-  const PREFIX = 'R6S';
+  // Keys start AIM-. Older ones started R6S- and still work, so an old key
+  // keeps its own prefix as it's typed or pasted rather than getting AIM-
+  // stuck in front of it.
+  const PREFIXES = ['AIM', 'R6S'];
 
   function formatAsTyped(value) {
     const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!clean) return '';
-    // Backspacing down into the prefix itself leaves a fragment like "R" or
-    // "R6" - that's a partial prefix, not typed body content. Leave it
-    // exactly as-is instead of slapping a fresh "R6S-" in front of it (that
-    // was the bug: deleting down to "R6" kept re-expanding into "R6S-R6").
-    if (clean.length <= PREFIX.length && PREFIX.startsWith(clean)) return clean;
-    const body = clean.startsWith(PREFIX) ? clean.slice(PREFIX.length) : clean;
+    // Backspacing down into the prefix itself leaves a fragment like "A" or
+    // "AI" - that's a partial prefix, not typed body content. Leave it
+    // exactly as-is instead of slapping a fresh "AIM-" in front of it (that
+    // was the bug: deleting down to "AI" kept re-expanding into "AIM-AI").
+    if (clean.length <= 3 && PREFIXES.some((p) => p.startsWith(clean))) return clean;
+    const prefix = PREFIXES.find((p) => clean.startsWith(p)) || PREFIXES[0];
+    const body = clean.startsWith(prefix) ? clean.slice(prefix.length) : clean;
     const groups = body.match(/.{1,4}/g) || [];
-    return [PREFIX, ...groups].join('-');
+    return [prefix, ...groups].join('-');
   }
 
   input.addEventListener('input', () => {

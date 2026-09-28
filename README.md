@@ -73,7 +73,7 @@ two ways in:
 node server/cli.js admin "your name"
 ```
 
-That prints an `R6S-...` key. Enter it in the **same key box everyone else
+That prints an `AIM-...` key. Enter it in the **same key box everyone else
 uses** on the main site (http://localhost:3000/) — the activation screen
 recognizes it's an admin key and sends you straight to `/admin.html`
 instead of the sensitivity tool. It's a real license key under the hood
@@ -94,12 +94,14 @@ unchecked, click Generate), or from the command line:
 ```bash
 node server/cli.js new "buyer note" 30   # 30-day expiry, omit for no expiry
 node server/cli.js list
-node server/cli.js unlock R6S-XXXX-XXXX-XXXX-XXXX   # after a buyer clears cookies/switches browsers
-node server/cli.js revoke R6S-XXXX-XXXX-XXXX-XXXX
+node server/cli.js unlock AIM-XXXX-XXXX-XXXX-XXXX   # after a buyer clears cookies/switches browsers
+node server/cli.js revoke AIM-XXXX-XXXX-XXXX-XXXX
 ```
 
-Keys look like `R6S-AB12-C3D4-E5F6-G7H8`. Hand one to each user — it
+Keys look like `AIM-AB12-C3D4-E5F6-G7H8`. Hand one to each user — it
 locks itself to their browser the first time they activate it.
+Keys made before September 2026 start `R6S-`; the server renames them to
+`AIM-` when it starts, and they still work typed the old way.
 
 ## Troubleshooting: "Start calibration" does nothing
 

@@ -31,10 +31,24 @@ function planMinutes(plan) {
   return isPlan(plan) ? PLANS[plan].minutes : null;
 }
 
+// Keys start AIM-. They used to start R6S- (from when this was a Siege sens
+// finder); those are renamed when the store starts (see init), and a key
+// typed the old way still finds its record - see findKey.
+const PREFIX = 'AIM-';
+const OLD_PREFIX = 'R6S-';
+
 function formatKey(raw) {
-  // raw: 16 chars -> R6S-XXXX-XXXX-XXXX-XXXX
+  // raw: 16 chars -> AIM-XXXX-XXXX-XXXX-XXXX
   const groups = raw.match(/.{1,4}/g);
-  return 'R6S-' + groups.join('-');
+  return PREFIX + groups.join('-');
+}
+
+/** A key as it's typed, tidied: upper case, and the old R6S- prefix read as
+ * AIM-. So an old key typed in, an old session cookie or a CLI command
+ * with the old name all reach the renamed record. */
+function canonicalKey(key) {
+  const k = String(key || '').trim().toUpperCase();
+  return k.startsWith(OLD_PREFIX) ? PREFIX + k.slice(OLD_PREFIX.length) : k;
 }
 
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I/L ambiguity
@@ -48,9 +62,18 @@ function generateRawKey() {
   return out;
 }
 
-/** Creates the storage (table or file) if it isn't there yet. */
+/** Creates the storage (table or file) if it isn't there yet, and renames
+ * any R6S- keys to AIM- (the rest of each record is untouched). */
 async function init() {
   await backend.init();
+  // A nicety, not a requirement: if the rename ever fails, keys are still
+  // found under their old name (findKey), so it mustn't stop the store.
+  try {
+    const renamed = await backend.renamePrefix(OLD_PREFIX, PREFIX);
+    if (renamed > 0) console.log(`[store] renamed ${renamed} key(s) from ${OLD_PREFIX} to ${PREFIX}`);
+  } catch (err) {
+    console.error(`[store] couldn't rename ${OLD_PREFIX} keys to ${PREFIX} (they still work): ${err.message}`);
+  }
 }
 
 async function createKey({ note = '', plan = 'lifetime', expiresInDays = null, isAdmin = false } = {}) {
@@ -86,9 +109,25 @@ async function createKey({ note = '', plan = 'lifetime', expiresInDays = null, i
 }
 
 const listKeys = () => backend.listKeys();
-const findKey = (key) => backend.findKey(key);
-const updateKey = (key, patch) => backend.updateKey(key, patch);
-const deleteKey = (key) => backend.deleteKey(key);
+
+/** The record for a key typed either way, AIM- or the old R6S-, under
+ * whichever name it's stored - old keys are renamed at start-up, but if
+ * that ever failed they're still found. record.key is the stored name. */
+async function findKey(key) {
+  const k = canonicalKey(key);
+  const record = await backend.findKey(k);
+  if (record || !k.startsWith(PREFIX)) return record;
+  return backend.findKey(OLD_PREFIX + k.slice(PREFIX.length));
+}
+
+/** The name a typed key is stored under, for changing or removing it. */
+async function storedName(key) {
+  const record = await findKey(key);
+  return record ? record.key : canonicalKey(key);
+}
+
+const updateKey = async (key, patch) => backend.updateKey(await storedName(key), patch);
+const deleteKey = async (key) => backend.deleteKey(await storedName(key));
 
 function revokeKey(key) {
   return updateKey(key, { status: 'revoked' });
@@ -124,7 +163,7 @@ function unusableReason(record) {
 /** Counts an attempt to use a key from a browser or PC it isn't locked to -
  * the main sign of a key being shared. Shown in the admin panel. */
 async function noteBlocked(record) {
-  await updateKey(record.key, {
+  await backend.updateKey(record.key, {
     blockedAttempts: (record.blockedAttempts || 0) + 1,
     lastBlockedAt: new Date().toISOString(),
   });
@@ -157,7 +196,8 @@ async function checkLocks(record, deviceId, fp) {
  * `rawFp` is the hardware fingerprint the browser sent.
  * Returns { ok: true, record, sessionId } or { ok: false, code, message }.
  */
-async function tryActivate(key, deviceId, rawFp) {
+async function tryActivate(typedKey, deviceId, rawFp) {
+  const key = canonicalKey(typedKey);
   const fp = fingerprint.fromClient(rawFp);
   let record = await findKey(key);
   const reason = unusableReason(record);
@@ -168,7 +208,7 @@ async function tryActivate(key, deviceId, rawFp) {
 
   if (!record.lockedDeviceId) {
     const lock = fingerprint.check(null, fp, { sameBrowser: true }).lock;
-    const claimed = await backend.claimDevice(key, { deviceId, lock, sessionId, nowIso: now });
+    const claimed = await backend.claimDevice(record.key, { deviceId, lock, sessionId, nowIso: now });
     if (claimed) return { ok: true, record: claimed, sessionId };
     // Someone else locked it (or it was revoked) between reading and
     // claiming - re-read and fall through to the normal checks below.
@@ -180,7 +220,7 @@ async function tryActivate(key, deviceId, rawFp) {
   const locks = await checkLocks(record, deviceId, fp);
   if (!locks.ok) return locks;
 
-  const updated = await updateKey(key, {
+  const updated = await backend.updateKey(record.key, {
     lastSeenAt: now,
     lastSeenDeviceId: deviceId,
     lockedFingerprint: locks.lock,
@@ -207,7 +247,7 @@ async function checkSession(key, sessionId, deviceId, rawFp) {
 
   const locks = await checkLocks(record, deviceId, fingerprint.fromClient(rawFp));
   if (!locks.ok) return locks;
-  const updated = await updateKey(record.key, {
+  const updated = await backend.updateKey(record.key, {
     lastSeenAt: new Date().toISOString(),
     lastSeenDeviceId: deviceId,
     lockedFingerprint: locks.lock,
