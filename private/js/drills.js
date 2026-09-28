@@ -553,6 +553,7 @@ export class DrillEngine {
     // nothing at all.
     this.overlay.classList.add('active');
     this._resizeCanvas();
+    this.overlay.dataset.wantFs = '1';
     try {
       if (this.overlay.requestFullscreen) await this.overlay.requestFullscreen();
     } catch (err) {
@@ -606,6 +607,16 @@ export class DrillEngine {
 
   async _requestLock() {
     this.el.pauseOverlay.classList.remove('active');
+    // Pausing with Esc drops out of fullscreen too. Resuming goes back in,
+    // unless it was switched off on the pause screen (app.js).
+    if (this.sessionActive && this.overlay.dataset.wantFs !== '0' && !document.fullscreenElement) {
+      try {
+        await this.overlay.requestFullscreen?.();
+      } catch {
+        /* carry on windowed */
+      }
+      this._resizeCanvas();
+    }
     const locked = await this._lockPointer();
     if (!locked) {
       // Without the mouse captured nothing registers, so running on would

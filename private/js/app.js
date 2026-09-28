@@ -452,6 +452,7 @@ async function main() {
   bindExpanders();
   bindHitVolume();
   bindDotSize();
+  bindFullscreenToggles();
   bindCrosshair();
   bindRange();
   bindMouseCheck();
@@ -678,12 +679,6 @@ async function main() {
     run = null;
     $('pauseOverlay').classList.remove('active');
     renderAll();
-  });
-
-  $('exitFullscreenBtn').addEventListener('click', () => {
-    // Leaves fullscreen but keeps the session paused (not ended) - "Resume
-    // round" continues windowed. Separate from End session on purpose.
-    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   });
 
   document.addEventListener('click', (e) => {
@@ -1040,6 +1035,46 @@ function bindMouseCheck() {
  * Letting go of the slider plays the pop once at the new level. */
 function hitVolumeText(v) {
   return v > 0 ? `${v}%` : 'Off';
+}
+
+// ---------- Fullscreen toggle on the pause screens ----------
+// Pausing with Esc also takes the browser out of fullscreen. The corner
+// button on each pause screen switches fullscreen on or off, and remembers
+// which you picked (overlay.dataset.wantFs) so Resume puts you back the way
+// you wanted it.
+
+const FS_ICONS = {
+  enter:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>',
+  exit:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg>',
+};
+
+function bindFullscreenToggles() {
+  const buttons = document.querySelectorAll('[data-fs-toggle]');
+  const render = () => {
+    const on = !!document.fullscreenElement;
+    buttons.forEach((b) => {
+      b.innerHTML = `${on ? FS_ICONS.exit : FS_ICONS.enter}<span>${on ? 'Exit fullscreen' : 'Fullscreen'}</span>`;
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  };
+  buttons.forEach((b) => {
+    // No Fullscreen API here (some embedded browsers) - nothing to toggle.
+    if (!document.fullscreenEnabled) b.hidden = true;
+    b.addEventListener('click', async () => {
+      const overlay = b.closest('.drill-overlay');
+      if (document.fullscreenElement) {
+        overlay.dataset.wantFs = '0';
+        await document.exitFullscreen?.().catch(() => {});
+      } else {
+        overlay.dataset.wantFs = '1';
+        await overlay.requestFullscreen?.().catch(() => {});
+      }
+    });
+  });
+  document.addEventListener('fullscreenchange', render);
+  render();
 }
 
 /** The calibration's dot size (drills.js CHECK_SIZES). */

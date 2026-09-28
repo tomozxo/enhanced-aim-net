@@ -1835,6 +1835,7 @@ export class RangeEngine {
     this._reset();
     this._setupSight();
     this._resize();
+    this.overlay.dataset.wantFs = '1';
     try {
       if (this.overlay.requestFullscreen) await this.overlay.requestFullscreen();
     } catch {
@@ -1927,6 +1928,16 @@ export class RangeEngine {
 
   async resume() {
     this.el.pause.classList.remove('active');
+    // Pausing with Esc drops out of fullscreen too. Resuming goes back in,
+    // unless it was switched off on the pause screen (app.js).
+    if (this.overlay.dataset.wantFs !== '0' && !document.fullscreenElement) {
+      try {
+        await this.overlay.requestFullscreen?.();
+      } catch {
+        /* carry on windowed */
+      }
+      this._resize();
+    }
     const locked = await this._lock();
     if (!locked) {
       this._pause('nolock');
