@@ -37,14 +37,12 @@ import {
   analyseAim,
   AIM_VERDICTS,
   CONFIDENCE_TEXT,
-  FEEL_OPTIONS,
   PASS_MINUTES,
-  compactFlicks,
-  feelBlock,
-  feelDone,
-  feelPosterior,
-  feelResult,
-  nextFeelSens,
+  TOTAL_FLICKS,
+  LADDER,
+  aiQueue,
+  aiRecords,
+  aiResult,
   verdictFor,
 } from './calibration.js';
 import {
@@ -406,80 +404,74 @@ function renderAccuracyRead(result, game) {
   $('aimBarDot').style.left = `${50 + (Math.max(-2, Math.min(2, b.bias)) / 2) * 50}%`;
 }
 
-const feelLabel = (v) => (FEEL_OPTIONS.find((o) => o.value === Math.round(v)) || {}).label || '—';
-
 /**
- * The picture of a calibration: every round you rated, placed by its
- * sensitivity (across) and how it felt (up: too slow at the bottom, too
- * fast at the top), over the model's belief about where "just right" is,
- * with the recommendation marked. Inline SVG, coloured by the page's own
- * colours so it follows light and dark mode.
+ * The picture of a calibration: how much slower you were onto heads at
+ * each sensitivity tested (dots, with their margin of error), the AI's
+ * fitted curve through them, the range you aim about equally well across
+ * (shaded), and the pick - plus your current setting when that's
+ * different. Lower is better. Inline SVG in the page's own colours, so it
+ * follows light and dark mode.
  */
-function renderFeelChart(el, result, game) {
-  const rounds = result.rounds || [];
-  if (!rounds.length) {
+function renderAiChart(el, result, game) {
+  const pts = result.points || [];
+  if (!pts.length) {
     el.hidden = true;
     return;
   }
   el.hidden = false;
   const W = 480;
-  const H = 168;
-  const left = 74;
-  const right = W - 14;
-  const top = 22;
-  const rowGap = 22;
-  const rowY = (r) => top + (5 - r) * rowGap; // 5 (too fast) at the top
-  const base = rowY(1) + 18;
-  const xs = [...rounds.map((r) => r.sens), result.range.lo, result.range.hi, result.best.sens];
-  let lo = Math.log(Math.min(...xs)) - 0.05;
-  let hi = Math.log(Math.max(...xs)) + 0.05;
-  if (hi - lo < 0.2) {
-    const mid = (hi + lo) / 2;
-    lo = mid - 0.1;
-    hi = mid + 0.1;
-  }
-  const X = (lnv) => left + ((lnv - lo) / (hi - lo)) * (right - left);
+  const H = 176;
+  const left = 50;
+  const right = W - 16;
+  const top = 16;
+  const bottom = 138;
   const fmt = (v) => formatGameSens(game, v);
+  const sensAll = [...pts.map((p) => p[0]), result.best.sens, result.current];
+  const lo = Math.log(Math.min(...sensAll)) - 0.06;
+  const hi = Math.log(Math.max(...sensAll)) + 0.06;
+  const X = (s) => left + ((Math.log(s) - lo) / (hi - lo)) * (right - left);
+  const peak = Math.max(0.1, ...pts.map((p) => p[1] + p[2]), ...result.curve.filter(([s]) => Math.log(s) >= lo && Math.log(s) <= hi).map(([, v]) => v));
+  const yMax = Math.min(0.45, peak * 1.1);
+  const Y = (v) => bottom - (Math.max(-0.05, Math.min(yMax, v)) / yMax) * (bottom - top);
 
-  // The belief: a soft hill, tallest where "just right" most likely is.
-  const pts = (result.curve || []).filter(([t]) => t >= lo && t <= hi);
-  const curve = pts.length
-    ? `<path class="fc-curve" d="M${X(pts[0][0]).toFixed(1)},${base} ${pts
-        .map(([t, h]) => `L${X(t).toFixed(1)},${(base - h * (base - top + 6)).toFixed(1)}`)
-        .join(' ')} L${X(pts[pts.length - 1][0]).toFixed(1)},${base} Z"/>`
+  // Gridlines far enough apart that their labels never touch.
+  const grid = (yMax > 0.16 ? [0, 0.1, 0.2, 0.3, 0.4] : [0, 0.05, 0.1, 0.15])
+    .filter((v) => v <= yMax)
+    .map(
+      (v) =>
+        `<line class="fc-row" x1="${left}" x2="${right}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/>` +
+        `<text class="fc-label" x="${left - 7}" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end">${v ? `+${Math.round(v * 100)}%` : 'quickest'}</text>`
+    )
+    .join('');
+  const z = result.zone;
+  const zx1 = Math.max(left, X(z.lo));
+  const zx2 = Math.min(right, X(z.hi));
+  const band = zx2 > zx1 ? `<rect class="fc-band" x="${zx1.toFixed(1)}" y="${top}" width="${(zx2 - zx1).toFixed(1)}" height="${bottom - top}"/>` : '';
+  const curvePts = result.curve.filter(([s]) => Math.log(s) >= lo && Math.log(s) <= hi);
+  const curve = curvePts.length
+    ? `<path class="fc-fit" d="${curvePts.map(([s, v], i) => `${i ? 'L' : 'M'}${X(s).toFixed(1)},${Y(v).toFixed(1)}`).join(' ')}"/>`
     : '';
-  const rows = FEEL_OPTIONS.map(
-    (o) =>
-      `<line class="fc-row" x1="${left}" x2="${right}" y1="${rowY(o.value)}" y2="${rowY(o.value)}"/>` +
-      `<text class="fc-label${o.value === 3 ? ' fc-mid' : ''}" x="${left - 8}" y="${rowY(o.value) + 4}" text-anchor="end">${o.label}</text>`
-  ).join('');
-  // Rounds at the same sens and rating sit side by side rather than on top
-  // of each other.
-  const seen = new Map();
-  const dots = rounds
-    .map((r) => {
-      const key = `${r.sens}|${r.rating}`;
-      const k = seen.get(key) || 0;
-      seen.set(key, k + 1);
-      const x = X(Math.log(r.sens)) + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 7;
-      return `<circle class="fc-dot${r.rating === 3 ? ' fc-right' : ''}" cx="${x.toFixed(1)}" cy="${rowY(r.rating)}" r="4.5"/>`;
+  const dots = pts
+    .map(([s, v, se]) => {
+      const x = X(s).toFixed(1);
+      return (
+        `<line class="fc-err" x1="${x}" x2="${x}" y1="${Y(v - se).toFixed(1)}" y2="${Y(v + se).toFixed(1)}"/>` +
+        `<circle class="fc-dot${s === result.best.sens ? ' fc-right' : ''}" cx="${x}" cy="${Y(v).toFixed(1)}" r="4.5"/>` +
+        `<text class="fc-tick" x="${x}" y="${H - 4}" text-anchor="middle">${fmt(s)}</text>`
+      );
     })
     .join('');
-  const bx = X(Math.log(result.best.sens));
-  const band =
-    result.range.hi > result.range.lo
-      ? `<rect class="fc-band" x="${X(Math.log(result.range.lo)).toFixed(1)}" y="${top - 10}" width="${(
-          X(Math.log(result.range.hi)) - X(Math.log(result.range.lo))
-        ).toFixed(1)}" height="${base - top + 10}"/>`
+  const bx = X(result.best.sens).toFixed(1);
+  const cur =
+    result.current !== result.best.sens
+      ? `<line class="fc-cur" x1="${X(result.current).toFixed(1)}" x2="${X(result.current).toFixed(1)}" y1="${top}" y2="${bottom}"/>` +
+        `<text class="fc-cur-label" x="${X(result.current).toFixed(1)}" y="${top - 4}" text-anchor="middle">yours</text>`
       : '';
-  const ticks = [Math.exp(lo + 0.05), Math.exp(hi - 0.05)]
-    .map((v, i) => `<text class="fc-tick" x="${X(Math.log(v)).toFixed(1)}" y="${H - 4}" text-anchor="${i ? 'end' : 'start'}">${fmt(v)}</text>`)
-    .join('');
-  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="How each round felt, and the recommendation">
-    ${band}${curve}${rows}
-    <line class="fc-best" x1="${bx.toFixed(1)}" x2="${bx.toFixed(1)}" y1="${top - 10}" y2="${base}"/>
-    <text class="fc-best-label" x="${bx.toFixed(1)}" y="${H - 4}" text-anchor="middle">${fmt(result.best.sens)}</text>
-    ${dots}${ticks}
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="How quickly you hit the head at each sensitivity, and the AI's pick">
+    ${band}${grid}${cur}
+    <line class="fc-best" x1="${bx}" x2="${bx}" y1="${top}" y2="${bottom}"/>
+    <text class="fc-best-label" x="${bx}" y="${top - 4}" text-anchor="middle">${result.keep ? 'keep' : 'best'}</text>
+    ${curve}${dots}
   </svg>`;
 }
 
@@ -543,12 +535,10 @@ async function main() {
       pauseOverlay: $('pauseOverlay'),
       pauseReason: $('pauseReason'),
       resumeBtn: $('resumeBtn'),
-      rate: $('rateOverlay'),
     },
-    onBlockComplete: (result, index) => {
-      if (run && !run.isPractice) $('drillStatus').textContent = `Round ${index + 1}`;
+    onBlockComplete: (result, index, total) => {
+      if (run && !run.isPractice && index > 0) $('drillStatus').textContent = `Round ${index} / ${total - 1}`;
     },
-    onRated: (result) => handleRated(result),
     onQueueComplete: (results) => handleQueueComplete(engine, results),
     onPauseChange: (paused) => {
       if (paused) $('drillStatus').textContent = 'Paused';
@@ -571,7 +561,7 @@ async function main() {
     },
   });
 
-  let run = null; // { tab, base, rounds, passRounds, passCount, isPractice }
+  let run = null; // { tab, base, records, orderFrom, passCount, isPractice }
 
   function setDrillTabsHighlight(tab) {
     $('drillTabs').querySelectorAll('.tab').forEach((el) => {
@@ -580,10 +570,10 @@ async function main() {
   }
 
   /**
-   * A calibration pass: short blind rounds, each rated for how it felt,
-   * until the feel model (calibration.js) has pinned down where "just
-   * right" is for you. A fresh pass starts at your current setting; Refine
-   * keeps every earlier round and adds more, so the answer only sharpens.
+   * A calibration pass: flicks onto heads at five sensitivities around the
+   * centre, in a blind order, read by the AI (calibration.js). A fresh pass
+   * centres on your current setting; Refine centres on the last pick and
+   * keeps every earlier flick, so the AI has more to go on each time.
    */
   function startCalibration({ refine = false } = {}) {
     if (run) return;
@@ -591,30 +581,22 @@ async function main() {
     const tab = getState().activeTab;
     const settings = getState().settings;
     const prev = getState().results[tab];
-    const canRefine = refine && isFeel(prev) && !isStale(tab);
-    const base = canRefine ? prev.base : currentSens(game, tab, settings);
-    const rounds = canRefine ? prev.rounds.slice() : [];
-    run = { tab, base, rounds, passRounds: 0, passCount: canRefine ? (prev.passCount || 1) + 1 : 1, isPractice: false };
-    // A fresh pass opens at your current setting; a refine pass wherever the
-    // model wants to look first. Either way the value isn't shown.
-    const first = canRefine ? nextFeelSens(feelPosterior(base, rounds), game.rules, null) : base;
+    const canRefine = refine && isAi(prev) && !isStale(tab);
+    const records = canRefine ? prev.records.slice() : [];
+    run = {
+      tab,
+      base: canRefine ? prev.base : currentSens(game, tab, settings),
+      records,
+      orderFrom: records.length ? Math.max(...records.map((r) => r.order)) + 1 : 0,
+      passCount: canRefine ? (prev.passCount || 1) + 1 : 1,
+      isPractice: false,
+    };
+    const center = canRefine ? prev.best.sens : currentSens(game, tab, settings);
 
     setDrillTabsHighlight(tab);
     $('drillStatus').textContent = canRefine ? `Refining · pass ${run.passCount}` : 'Finding your sens';
     engine.configure({ game, tab, settings });
-    engine.run([feelBlock(first, 0)], { slowestSens: Math.max(game.rules.min, base / 1.6) });
-  }
-
-  /** After each rated round: note it, update the model, and queue the round
-   * it wants next - or nothing, which ends the pass. */
-  function handleRated(result) {
-    if (!run || run.isPractice || !(result.rating >= 1)) return;
-    const game = currentGame();
-    run.rounds.push({ sens: result.candidateSens, rating: result.rating, flicks: compactFlicks(result.flicks) });
-    run.passRounds += 1;
-    const post = feelPosterior(run.base, run.rounds);
-    if (feelDone(post, run.passRounds)) return;
-    engine.queue.push(feelBlock(nextFeelSens(post, game.rules, result.candidateSens), run.passRounds));
+    engine.run(aiQueue(center, game.rules));
   }
 
   // "Practice": a quick 20s feel-check of the selected drill at your current
@@ -649,13 +631,19 @@ async function main() {
       $('resultsTitle').textContent = 'Practice complete';
       $('resultsSub').textContent = 'No scoring in practice mode - just a feel check.';
       $('resultsRec').hidden = true;
-      $('resultsChart').hidden = true;
       $('fineTuneBtn').hidden = true;
       $('applyResultsBtn').hidden = true;
       // Practice still has shots to read, just fewer, so it asks for less.
       renderAimRead(analyseAim(results, 12));
     } else {
-      const saved = feelResult({ base: run.base, rounds: run.rounds, rules: currentGame().rules, passCount: run.passCount });
+      const game = currentGame();
+      const saved = aiResult({
+        base: run.base,
+        records: [...run.records, ...aiRecords(results, run.orderFrom)],
+        rules: game.rules,
+        passCount: run.passCount,
+        current: currentSens(game, run.tab, getState().settings),
+      });
       setResult(run.tab, saved, basisFor(run.tab));
       showCalibrationResults(saved, run.tab);
     }
@@ -668,16 +656,16 @@ async function main() {
     const fmt = (v) => formatGameSens(game, v);
     const conf = CONFIDENCE_TEXT[result.confidence];
     $('resultsTitle').textContent = result.passCount > 1 ? `Refine pass ${result.passCount - 1} complete` : 'Calibration complete';
-    $('resultsSub').textContent = `${scopeLabel(game, tab)} · ${roundsNote(result)}`;
+    $('resultsSub').textContent = `${scopeLabel(game, tab)} · ${flicksNote(result)}`;
 
     $('resultsRec').hidden = false;
     $('resultsRecValue').textContent = fmt(result.best.sens);
-    $('resultsRange').textContent = rangeText(result, game);
+    $('resultsRange').textContent = verdictText(result, game);
     $('resultsConfidence').className = `badge ${CONFIDENCE_BADGE[result.confidence]}`;
     $('resultsConfidence').textContent = conf.label;
-    renderFeelChart($('resultsChart'), result, game);
+    renderAiChart($('resultsChart'), result, game);
     $('resultsTableBody').innerHTML = comparisonRowsHtml(result, game);
-    $('resultsHint').textContent = refineHint(result, game);
+    $('resultsHint').textContent = aiHint(result, game);
     renderAccuracyRead(result, game);
 
     // Whichever action makes more sense right now gets the accent colour: a
@@ -887,7 +875,9 @@ function renderGameChrome(state) {
     el.hidden = !el.dataset.gameOnly.split(' ').includes(game.id);
   });
   $('sidebarTitle').textContent = `Your ${game.short} settings`;
-  $('calibrationHint').textContent = `Short rounds, rated 1-5 · about ${PASS_MINUTES} min${game.tabs.length > 1 ? ' per optic' : ''} · fullscreen`;
+  $('calibrationHint').textContent = `${TOTAL_FLICKS} flicks at ${LADDER.length} sensitivities · about ${PASS_MINUTES} min${
+    game.tabs.length > 1 ? ' per optic' : ''
+  } · fullscreen`;
   $('tabbarStatus').textContent = setupLine(game, state.activeTab, state.settings);
   renderSimpleGameFields(game, state.settings);
 }
@@ -1333,26 +1323,45 @@ const CONFIDENCE_BADGE = { clear: 'ok', close: 'close', tie: 'retest' };
 
 const fmtPct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
 
-function roundsNote(result) {
-  return `${result.totalRounds} rounds rated${result.passCount > 1 ? ` over ${result.passCount} passes` : ''}`;
+function flicksNote(result) {
+  const sens = (result.candidates || []).length;
+  return `${result.totalFlicks} flicks at ${sens} sensitivities${result.passCount > 1 ? ` over ${result.passCount} passes` : ''}`;
 }
 
-/** Results from older versions of the test (timed drills, then the flick
- * check's balance point) aren't comparable; they show as needing a retest. */
-const isFeel = (result) => result && result.method === 'feel';
+/** Results from older versions of the test (timed drills, the flick
+ * check's balance point, rated rounds) aren't comparable; they show as
+ * needing a retest. */
+const isAi = (result) => result && result.method === 'ai';
 
-/** "Likely 31-33" - the range it's 80% sure of - or "Pinned to 32". */
-function rangeText(result, game) {
+/** The range you aim about equally well across, e.g. "28 to 35 or higher". */
+function zoneText(result, game) {
   const fmt = (v) => formatGameSens(game, v);
-  return result.range.hi > result.range.lo ? `Likely ${fmt(result.range.lo)}–${fmt(result.range.hi)}` : `Pinned to ${fmt(result.best.sens)}`;
+  const z = result.zone;
+  if (z.hi <= z.lo) return null;
+  return `${fmt(z.lo)}${z.openLo ? ' or lower' : ''} to ${fmt(z.hi)}${z.openHi ? ' or higher' : ''}`;
 }
 
-function refineHint(result, game) {
-  const conf = CONFIDENCE_TEXT[result.confidence] || CONFIDENCE_TEXT.close;
-  if (result.confidence === 'clear') {
-    return `${conf.hint} Refine adds a few more rounds if you want to be sure.`;
+/** The AI's verdict in a line. */
+function verdictText(result, game) {
+  const zone = zoneText(result, game);
+  if (result.keep) return zone ? `Keep it - you aim about equally well from ${zone}` : 'Keep it - nothing nearby is better';
+  const pct = Math.max(1, Math.round(result.gain * 100));
+  return `About ${pct}% quicker onto heads than your ${formatGameSens(game, result.current)}`;
+}
+
+function aiHint(result, game) {
+  const fmt = (v) => formatGameSens(game, v);
+  if (result.keep) {
+    if (result.confidence === 'tie') return CONFIDENCE_TEXT.tie.hint;
+    return `${
+      result.confidence === 'clear' ? 'Your flicks show' : 'Your flicks suggest'
+    } no sensitivity nearby that's worth switching to - you hit heads as quickly and cleanly on ${fmt(result.best.sens)} as on anything around it.${
+      result.confidence === 'clear' ? '' : ' A refine pass adds more flicks to make sure.'
+    }`;
   }
-  return `${conf.hint} It keeps these ${result.totalRounds} rounds and tests more around ${formatGameSens(game, result.best.sens)}.`;
+  return `Your flicks were quicker and cleaner around ${fmt(result.best.sens)}${
+    result.confidence === 'clear' ? '.' : ' - likely, but a refine pass would make sure.'
+  } Refine keeps these ${result.totalFlicks} flicks and tests around it.`;
 }
 
 /** The settings the drill is about to use, so a mismatch with the game is
@@ -1370,14 +1379,14 @@ const fmtMs = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v)} ms`)
 const fmtFix = (v) => (v == null || !isFinite(v) ? '—' : v.toFixed(1));
 
 /** Table rows shared by the results screen and the comparison card: every
- * sensitivity tested, how it felt and how the flicks went. */
+ * sensitivity tested and how the flicks went at it. */
 function comparisonRowsHtml(result, game) {
   return result.candidates
     .map((c) => {
       const cls = [c.isBase ? 'base' : '', c.sens === result.best.sens ? 'best' : ''].filter(Boolean).join(' ');
       return `<tr class="${cls}">
-        <td>${formatGameSens(game, c.sens)}${c.isBase ? ' · start' : ''}</td>
-        <td>${feelLabel(c.feel)}${c.rounds > 1 ? ` <span class="rounds-tag">×${c.rounds}</span>` : ''}</td>
+        <td>${formatGameSens(game, c.sens)}${c.isBase ? ' · yours' : ''}</td>
+        <td>${fmtMs(c.timeMs)}</td>
         <td>${fmtPct(c.landRate)}</td>
         <td>${fmtPct(c.pastRate)}</td>
         <td>${fmtPct(c.shortRate)}</td>
@@ -1387,10 +1396,10 @@ function comparisonRowsHtml(result, game) {
     .join('');
 }
 
-const FEEL_FOOTNOTE =
-  'Felt: how you rated each round (the value was hidden while you played). On head / Past / Short: where the first ' +
-  'movement of each flick stopped. Fixes: corrections per flick. The pick is where your ratings put "just right". ' +
-  'Stopping a little short and finishing with a small nudge is how most people aim, so a slight Short lean there is normal.';
+const AI_FOOTNOTE =
+  'Time: typical time from a head appearing to hitting it. On head / Past / Short: where the first movement of each ' +
+  'flick stopped. Fixes: corrections per flick. The AI fits every flick at once - allowing for how far and how small ' +
+  'each head was, and for warming up - and only recommends a change it predicts is worth relearning for.';
 
 function renderAll() {
   const state = getState();
@@ -1604,8 +1613,8 @@ function renderTabsUI(state) {
   // "Start calibration" is always a fresh pass from your current setting -
   // Refine is what builds on the last one.
   $('refineSub').textContent =
-    'Short rounds at different sensitivities, each rated for how it felt. It learns the speed you like - slower or ' +
-    'faster - and checks your flicks stay accurate there.';
+    `${TOTAL_FLICKS} flicks at ${LADDER.length} sensitivities around yours, in a blind order. The AI reads every one and ` +
+    'only recommends a change when your flicks are genuinely better there.';
 }
 
 function renderStats(state) {
@@ -1630,7 +1639,7 @@ function renderStats(state) {
   }
 
   const result = state.results[tab];
-  if (isFeel(result) && !isStale(tab)) {
+  if (isAi(result) && !isStale(tab)) {
     $('statAccuracy').textContent = fmtPct(result.best.landRate);
     $('statTargets').textContent = fmtFix(result.best.corrections);
   } else {
@@ -1651,16 +1660,16 @@ function renderRecommendation(state) {
     badge.className = 'badge incomplete';
     badge.textContent = 'NOT RUN YET';
     body.innerHTML =
-      `<p class="card-empty">Not run yet. It takes about ${PASS_MINUTES} minutes: short rounds of flicks, each rated ` +
-      'for how the sensitivity felt, until it has found the speed you like.</p>';
+      `<p class="card-empty">Not run yet. It takes about ${PASS_MINUTES} minutes: ${TOTAL_FLICKS} flicks at ${LADDER.length} ` +
+      'sensitivities, read by an AI for where you aim best.</p>';
     return;
   }
 
-  if (stale || !isFeel(result)) {
+  if (stale || !isAi(result)) {
     badge.style.display = 'inline-block';
     badge.className = 'badge retest';
     badge.textContent = 'RETEST REQUIRED';
-    body.innerHTML = isFeel(result)
+    body.innerHTML = isAi(result)
       ? '<p class="card-empty">Your settings have changed since this was run (DPI, FOV, hip-fire or another setting that changes how a value feels). Run it again before applying.</p>'
       : '<p class="card-empty">This came from an older version of the test, which could recommend a sensitivity faster than you like and changed a lot between runs. Run the new one before applying.</p>';
     return;
@@ -1688,8 +1697,8 @@ function renderRecommendation(state) {
 
   body.innerHTML = `
     <div class="rec-value">${fmt(b.sens)}</div>
-    <p class="rec-sub">${rangeText(result, game)} · ${deltaText}${refinedText}</p>
-    <p class="rec-sub rec-hint">${landed}${refineHint(result, game)}</p>
+    <p class="rec-sub">${verdictText(result, game)}${result.keep ? '' : ` · ${deltaText}`}${refinedText}</p>
+    <p class="rec-sub rec-hint">${landed}${aiHint(result, game)}</p>
     <div class="rec-actions">
       <button id="applyRecBtn" class="btn-accent"${same ? ' disabled' : ''}>Apply to ${scopeLabel(game, tab)}</button>
       <button id="fineTuneCardBtn" class="plain-btn">Refine</button>
@@ -1704,17 +1713,20 @@ function renderComparison(state) {
   const tbody = $('comparisonBody');
   const footnote = $('comparisonFootnote');
 
-  if (!isFeel(result) || isStale(tab)) {
+  if (!isAi(result) || isStale(tab)) {
     $('feelChartMain').hidden = true;
-    const cur = formatGameSens(game, currentSens(game, tab, state.settings));
-    tbody.innerHTML = `<tr><td colspan="6" class="card-empty">No rounds yet. The first is your current ${cur}; after that each sensitivity is picked from how you rated the rounds before.</td></tr>`;
-    footnote.textContent = FEEL_FOOTNOTE;
+    const preview = aiQueue(currentSens(game, tab, state.settings), game.rules)
+      .filter((b) => b.scored)
+      .map((b) => b.candidateSens);
+    const values = [...new Set(preview)].sort((a, b) => a - b).map((v) => formatGameSens(game, v));
+    tbody.innerHTML = `<tr><td colspan="6" class="card-empty">No flicks yet. The test plays ${values.join(' / ')} - in a blind, shuffled order - and the AI works out where you aim best.</td></tr>`;
+    footnote.textContent = AI_FOOTNOTE;
     return;
   }
 
-  renderFeelChart($('feelChartMain'), result, game);
+  renderAiChart($('feelChartMain'), result, game);
   tbody.innerHTML = comparisonRowsHtml(result, game);
-  footnote.textContent = `${roundsNote(result)}. ${FEEL_FOOTNOTE}`;
+  footnote.textContent = `${flicksNote(result)}. ${AI_FOOTNOTE}`;
 }
 
 main();

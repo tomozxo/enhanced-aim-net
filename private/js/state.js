@@ -281,7 +281,8 @@ export function basisFor(tab) {
     // v6: flat bullseyes at ~3.5% - head-sized, micro-adjustment scale.
     // v7: the flick check - where each flick lands, not four timed drills.
     // v8: rated rounds - the feel model finds the speed you like.
-    scoring: 8,
+    // v9: the AI - fitted from flick times at five sensitivities, no ratings.
+    scoring: 9,
   });
 }
 

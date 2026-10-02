@@ -1,60 +1,57 @@
-// Calibration: finding the sensitivity that feels right to you.
+// Calibration: an AI that learns, from your flicks alone, the sensitivity
+// you aim best at.
 //
-// Why it works this way (researched October 2026):
-// - Across a broad middle range of sensitivities, aiming performance barely
-//   changes. NVIDIA's study of first-person targeting (Boudaoud et al. 2022:
-//   13 FPS players, 4,000 flicks each) found everyone about equally good
-//   anywhere from roughly 20 to 80 cm/360, and pointing research finds the
-//   same flat middle with control-display gain (Casiez et al. 2008). Inside
-//   that range the "best" sensitivity is a matter of preference - some
-//   people like a slower, steadier feel, some a faster one - and no flick
-//   statistic can pick it for them.
-// - The earlier version picked the sensitivity where your first movement
-//   landed dead on the head. Two things made that unreliable. Aimed
-//   movements naturally stop a little short and finish with a small
-//   correction, because overshooting costs more to fix (Elliott et al.,
-//   "Goal-directed aiming: two components but multiple processes", 2010) -
-//   so "lands dead on" sits above the speed that feels natural, which is
-//   why it kept recommending something faster than you play. And your hand
-//   adapts to a new sensitivity within a few flicks, which flattens the
-//   difference between the values tested, so the answer swung with noise
-//   from pass to pass.
-// So now you rate how each short round felt - too slow, a bit slow, just
-// right, a bit fast, too fast - and a Bayesian model of where "just right"
-// sits for you picks every next sensitivity to test and stops once it has
-// pinned it down. That's the approach psychophysics uses to measure a point
-// of subjective equality (QUEST, Watson & Pelli 1983; the psi method,
-// Kontsevich & Tyler 1999): each test is placed where it tells the model
-// the most, so it converges quickly and lands in the same place each time.
-// Rounds are blind - the value isn't shown - so the number can't sway you.
-// Every flick is still read for where it landed, and that's reported
-// alongside as a check on accuracy at the sensitivity you choose.
+// What the research says (checked October 2026):
+// - Across a broad range of sensitivities, aim barely changes. NVIDIA's
+//   study of first-person targeting (Boudaoud, Spjut & Kim 2022: 13 FPS
+//   players, 4,000 flicks each) found everyone performing about equally
+//   well anywhere across roughly a factor of four (20-80 cm/360); 11 of the
+//   13 players' own sensitivities were already inside that range, and the
+//   two outside it were among the weakest. Control-display gain studies in
+//   pointing find the same flat middle (Casiez et al. 2008). So no test can
+//   honestly pull one "magic number" out of that middle - any that claims
+//   to is mostly reading noise, which is what made the earlier versions
+//   swing from one run to the next.
+// - What it can measure reliably is whether your aim gets worse at the
+//   sensitivities around yours: too fast and the flick overshoots, hunts
+//   and misses (your hand's precision, scaled up, outruns the head); too
+//   slow and every flick takes longer to get there. Both show up in one
+//   number - how long a flick takes to put a shot on the head - which
+//   already carries the cost of overshooting and correcting. (The earlier
+//   version looked only at where the first movement stopped, and aimed for
+//   "dead on the head" - but aimed movements naturally stop a little short,
+//   since an overshoot costs more to fix (Elliott et al. 2010), and your
+//   hand adapts to a new sensitivity within a few flicks, which hides that
+//   difference anyway.)
+//
+// So the test plays flicks onto heads at five sensitivities, from about
+// 0.7x to 1.4x yours, in a blind order with each one early, in the middle
+// and late. Every flick is read for how long it took to hit the head from
+// the moment you started moving, with a penalty for each missed shot, and
+// a Bayesian model fits all of them at once: where your aim is quickest
+// (θ) and how sharply it gets worse away from there (κ), allowing for how
+// hard each flick was (its distance and the head's size, Fitts' law) and
+// for warming up or tiring over the run. Then it makes a decision: it
+// recommends a different sensitivity only when the model predicts it's
+// genuinely better than yours - by enough (WORTH_IT) to be worth getting
+// used to - and otherwise tells you to keep yours, with the range you aim
+// equally well across.
 
-// One round: a handful of flicks at one sensitivity, then a rating. The
-// first round is your current setting, as a reference.
-export const FLICKS_PER_ROUND = 8;
-// The first flick after a change of sensitivity is still getting used to
-// it, so it isn't counted in the accuracy figures (it still counts towards
-// how the round felt).
+// The five sensitivities, as steps of ln(sens) around the centre: about
+// 0.70x, 0.84x, 1x, 1.19x and 1.42x.
+export const LADDER = [-0.35, -0.175, 0, 0.175, 0.35];
+export const BLOCKS_PER_SENS = 3;
+export const FLICKS_PER_BLOCK = 8;
+// The first flick after a change is still getting used to it.
 export const SETTLE_FLICKS = 1;
-// Ratings asked for in one pass: at least MIN_ROUNDS, and it stops as soon
-// as the answer is pinned to within PRECISION either way - or at MAX_ROUNDS.
-export const MIN_ROUNDS = 7;
-export const MAX_ROUNDS = 14;
-const PRECISION = 0.045; // ± in ln(sens), so about ±4.5%
-// About how long a pass takes, for the start screen (rounds are ~13 s).
-export const PASS_MINUTES = '2-3';
-// Rounds kept from earlier passes when you refine (so state can't grow
-// forever).
-const MAX_KEPT_ROUNDS = 42;
+export const WARMUP_FLICKS = 6;
+export const TOTAL_FLICKS = LADDER.length * BLOCKS_PER_SENS * FLICKS_PER_BLOCK;
+export const PASS_MINUTES = '2½';
 
-export const FEEL_OPTIONS = [
-  { value: 1, label: 'Too slow' },
-  { value: 2, label: 'A bit slow' },
-  { value: 3, label: 'Just right' },
-  { value: 4, label: 'A bit fast' },
-  { value: 5, label: 'Too fast' },
-];
+const MISS_MS = 250; // each missed shot before the hit counts as this much extra time
+// Flicks kept across passes, so a refine pass builds on the earlier ones
+// (and saved state can't grow forever).
+const MAX_KEPT_FLICKS = 360;
 
 const toStep = (v, rules) => Number((Math.round(v / rules.step) * rules.step).toFixed(rules.decimals));
 const clampSens = (v, rules) => Math.max(rules.min, Math.min(rules.max, toStep(v, rules)));
@@ -219,66 +216,198 @@ export function summariseFlicks(flicks) {
   };
 }
 
-// ---------- The feel model ----------
-//
-// What it learns: your "just right" sensitivity θ - on a log scale, since a
-// 10% change feels the same size at any sensitivity - and how precisely you
-// judge speed, σ. A round at sensitivity x feels like d = ln x - θ plus some
-// noise: beyond about ±5.5% it starts to feel a bit fast or a bit slow, and
-// beyond about ±17% too fast or too slow. A small allowance (LAPSE) covers
-// pressing the wrong key. It's worked out exactly over a grid of θ values
-// (your current setting ÷2.2 to ×2.2) and four levels of σ, starting from a
-// wide guess centred on your current setting - which a few ratings outweigh.
+// ---------- The test ----------
 
-const GRID_N = 241;
-const GRID_HALF = Math.log(2.2);
-const PRIOR_SD = 0.35;
-const CUTS = [-0.17, -0.055, 0.055, 0.17];
-const NOISE = [
-  { s: 0.04, w: 0.2 },
-  { s: 0.07, w: 0.35 },
-  { s: 0.11, w: 0.3 },
-  { s: 0.17, w: 0.15 },
-];
-const LAPSE = 0.04;
-
-/** Standard normal CDF (Abramowitz & Stegun 7.1.26, error under 1.5e-7). */
-function phi(z) {
-  const x = Math.abs(z) / Math.SQRT2;
-  const t = 1 / (1 + 0.3275911 * x);
-  const erf = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-  return z >= 0 ? (1 + erf) / 2 : (1 - erf) / 2;
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
-/** The chance of rating r (1-5) a round that's d (ln units) faster than
- * "just right", for someone who judges with noise s. */
-function ratingChance(r, d, s) {
-  const lo = r === 1 ? 0 : phi((CUTS[r - 2] - d) / s);
-  const hi = r === 5 ? 1 : phi((CUTS[r - 1] - d) / s);
-  return (1 - LAPSE) * Math.max(0, hi - lo) + LAPSE / 5;
+/** The five sensitivities around `center`, as values the game accepts,
+ * lowest first. Where the game's steps are too coarse to keep them apart
+ * (Siege's whole numbers at low values), they're nudged up to stay
+ * distinct. */
+export function aiLadder(center, rules) {
+  const values = [];
+  for (const s of LADDER) {
+    let v = clampSens(center * Math.exp(s), rules);
+    while (values.includes(v) && v < rules.max) v = clampSens(v + rules.step, rules);
+    if (!values.includes(v)) values.push(v);
+  }
+  return values.sort((a, b) => a - b);
 }
 
 /**
- * What the model believes after these rounds ([{ sens, rating }]):
- * { theta: grid of ln(sens), joint: [σ level][grid] probabilities, marg:
- * probabilities over θ alone }. base is the setting the first pass started
- * from - the centre of the starting guess.
+ * The run: a warm-up at the centre, then BLOCKS_PER_SENS rounds of each
+ * sensitivity, in a fresh random order each time round (and never the same
+ * one twice in a row) - so every sensitivity is played early, mid-run and
+ * late, and none is favoured by warming up or tiring. Which one a round
+ * uses isn't shown.
  */
-export function feelPosterior(base, rounds) {
-  const c = Math.log(base);
-  const theta = Array.from({ length: GRID_N }, (_, i) => c - GRID_HALF + (2 * GRID_HALF * i) / (GRID_N - 1));
-  const rated = rounds.filter((r) => r.rating >= 1 && r.rating <= 5 && r.sens > 0);
-  const logJoint = NOISE.map(({ s, w }) =>
+export function aiQueue(center, rules) {
+  const ladder = aiLadder(center, rules);
+  const order = [];
+  for (let rep = 0; rep < BLOCKS_PER_SENS; rep++) {
+    let perm;
+    do perm = shuffle(ladder.map((_, i) => i));
+    while (order.length && perm[0] === order[order.length - 1]);
+    order.push(...perm);
+  }
+  const warm = clampSens(center, rules);
+  return [
+    {
+      type: 'check',
+      flicks: WARMUP_FLICKS,
+      settle: WARMUP_FLICKS,
+      scored: false,
+      phaseLabel: 'WARM-UP',
+      getReadyLabel: 'Warm-up',
+      candidateSens: warm,
+      countdown: 3,
+    },
+    ...order.map((i, k) => ({
+      type: 'check',
+      flicks: FLICKS_PER_BLOCK,
+      settle: SETTLE_FLICKS,
+      scored: true,
+      phaseLabel: `ROUND ${k + 1} OF ${order.length}`,
+      getReadyLabel: `Round ${k + 1} of ${order.length}`,
+      candidateSens: ladder[i],
+      countdown: 2,
+    })),
+  ];
+}
+
+/** What's kept of each flick, from the drill's round results. `orderFrom`
+ * numbers this pass's rounds after an earlier pass's. */
+export function aiRecords(results, orderFrom = 0) {
+  const out = [];
+  results.forEach((r, k) => {
+    for (const f of r.flicks || []) {
+      if (!(f.distDeg > 0) || !(f.radiusDeg > 0) || !(f.timeMs > 0)) continue;
+      out.push({
+        sens: r.candidateSens,
+        // Fitts' index of difficulty: how hard the flick was.
+        id: Math.log2(f.distDeg / (2 * f.radiusDeg) + 1),
+        timeMs: f.timeMs,
+        mt: Math.max(60, f.timeMs - (f.reactionMs || 0)),
+        misses: f.misses || 0,
+        err: f.err,
+        landed: f.landed,
+        corrections: f.corrections,
+        order: orderFrom + k,
+      });
+    }
+  });
+  return out;
+}
+
+// ---------- The model ----------
+//
+// y = ln(movement time to the head + MISS_MS per missed shot), modelled as
+//     y = b0 + b1 * (Fitts ID) + b2 * (position in the run) + κ (x - θ)² + noise
+// where x = ln(sens / base). θ is where your aim is quickest; κ how much
+// slower it gets away from there (κ = 0: it doesn't matter). b0-b2 and the
+// noise are worked out exactly for every (θ, κ) on a grid, and the priors
+// are mild: θ centred on your current setting with an SD of 0.2 (about
+// ±20% - you've trained your hand on it, which counts for something), κ
+// half-normal, with some weight on "flat" (κ = 0).
+
+const PRIOR_SD = 0.2;
+const KAPPA = [0, 0.04, 0.1, 0.2, 0.35, 0.55, 0.8, 1.1, 1.5, 2.2, 3.2];
+const KAPPA_SCALE = 0.9;
+const FLAT_WEIGHT = 0.2;
+const GRID_HALF = 0.9;
+const GRID_N = 181;
+// A change has to be predicted to make you at least this much quicker onto
+// heads (as a fraction) - otherwise relearning muscle memory isn't worth it.
+export const WORTH_IT = 0.015;
+
+
+/** Inverse of a symmetric 3x3 matrix [[a,b,c],[b,d,e],[c,e,f]]. */
+function inv3(m) {
+  const [[a, b, c], [, d, e], [, , f]] = m;
+  const A = d * f - e * e;
+  const B = c * e - b * f;
+  const C = b * e - c * d;
+  const det = a * A + b * B + c * C;
+  const D = a * f - c * c;
+  const E = b * c - a * e;
+  const F = a * d - b * b;
+  return [
+    [A / det, B / det, C / det],
+    [B / det, D / det, E / det],
+    [C / det, E / det, F / det],
+  ];
+}
+
+/**
+ * Fits the model to these flicks. base: the first pass's centre (x = 0);
+ * current: your current setting (the prior's centre). Returns the joint
+ * posterior over (κ, θ) and what the charts and decision need.
+ */
+export function aiModel(base, recs, current = base) {
+  const n = recs.length;
+  const xc = Math.log(current / base);
+  const x = recs.map((r) => Math.log(r.sens / base));
+  const maxOrder = Math.max(1, ...recs.map((r) => r.order));
+  const t = recs.map((r) => r.order / maxOrder);
+  const id = recs.map((r) => r.id);
+  let y = recs.map((r) => Math.log(r.mt + MISS_MS * r.misses));
+  // The odd flick where you looked away shouldn't swing it: clip at the
+  // median ± 3 robust SDs.
+  const med = median(y);
+  const sd = median(y.map((v) => Math.abs(v - med))) * 1.4826 || 0.25;
+  y = y.map((v) => Math.min(med + 3 * sd, Math.max(med - 3 * sd, v)));
+
+  // Everything the grid needs, summed once.
+  const cols = [recs.map(() => 1), id, t];
+  const dot = (u, v) => u.reduce((s, ui, i) => s + ui * v[i], 0);
+  const XtX = cols.map((u) => cols.map((v) => dot(u, v)));
+  XtX[0][0] += 1e-9;
+  XtX[1][1] += 1e-9;
+  XtX[2][2] += 1e-9;
+  const M = inv3(XtX);
+  const x2 = x.map((v) => v * v);
+  const Xy = cols.map((u) => dot(u, y));
+  const X1 = cols.map((u) => u.reduce((s, v) => s + v, 0));
+  const Xx = cols.map((u) => dot(u, x));
+  const Xx2 = cols.map((u) => dot(u, x2));
+  const yy = dot(y, y);
+  const yx = dot(y, x);
+  const yx2 = dot(y, x2);
+  const sy = y.reduce((s, v) => s + v, 0);
+  const s1 = x.reduce((s, v) => s + v, 0);
+  const s2 = x2.reduce((s, v) => s + v, 0);
+  const s3 = x.reduce((s, v) => s + v ** 3, 0);
+  const s4 = x.reduce((s, v) => s + v ** 4, 0);
+
+  const theta = Array.from({ length: GRID_N }, (_, i) => xc - GRID_HALF + (2 * GRID_HALF * i) / (GRID_N - 1));
+  // κ's prior weights: some on flat, the rest half-normal across the grid.
+  const dens = KAPPA.map((k, j) => (j === 0 ? 0 : Math.exp(-(k * k) / (2 * KAPPA_SCALE ** 2)) * ((KAPPA[j + 1] ?? k * 1.4) - KAPPA[j - 1]) / 2));
+  const dsum = dens.reduce((s, v) => s + v, 0);
+  const kw = dens.map((v, j) => (j === 0 ? FLAT_WEIGHT : ((1 - FLAT_WEIGHT) * v) / dsum));
+
+  const logp = KAPPA.map((k, j) =>
     theta.map((th) => {
-      let lp = Math.log(w) - (th - c) ** 2 / (2 * PRIOR_SD ** 2);
-      for (const r of rated) lp += Math.log(ratingChance(r.rating, Math.log(r.sens) - th, s));
-      return lp;
+      const Xq = [0, 1, 2].map((c) => Xx2[c] - 2 * th * Xx[c] + th * th * X1[c]);
+      const Xz = [0, 1, 2].map((c) => Xy[c] - k * Xq[c]);
+      const yq = yx2 - 2 * th * yx + th * th * sy;
+      const qq = s4 - 4 * th * s3 + 6 * th * th * s2 - 4 * th ** 3 * s1 + n * th ** 4;
+      const zz = yy - 2 * k * yq + k * k * qq;
+      let fit = 0;
+      for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) fit += Xz[a] * M[a][b] * Xz[b];
+      const rss = Math.max(1e-9, zz - fit);
+      return -(n / 2) * Math.log(rss / n) - (th - xc) ** 2 / (2 * PRIOR_SD ** 2) + Math.log(kw[j]);
     })
   );
   let max = -Infinity;
-  for (const row of logJoint) for (const v of row) max = Math.max(max, v);
+  for (const row of logp) for (const v of row) max = Math.max(max, v);
   let total = 0;
-  const joint = logJoint.map((row) =>
+  const joint = logp.map((row) =>
     row.map((v) => {
       const p = Math.exp(v - max);
       total += p;
@@ -286,155 +415,154 @@ export function feelPosterior(base, rounds) {
     })
   );
   for (const row of joint) for (let i = 0; i < row.length; i++) row[i] /= total;
-  const marg = theta.map((_, i) => joint.reduce((s, row) => s + row[i], 0));
-  return { theta, joint, marg };
+
+  // Expected slowdown at x: E[κ (x - θ)²] = A (x - x*)² + floor.
+  let A = 0;
+  let B = 0;
+  let C = 0;
+  joint.forEach((row, j) =>
+    row.forEach((p, i) => {
+      A += p * KAPPA[j];
+      B += p * KAPPA[j] * theta[i];
+      C += p * KAPPA[j] * theta[i] ** 2;
+    })
+  );
+  const xBest = A > 1e-12 ? B / A : xc;
+  const slowdown = (xv) => A * xv * xv - 2 * B * xv + C; // E[κ (x - θ)²]
+
+  // The flat fit (κ = 0), for each flick's difficulty-adjusted time.
+  const beta = [0, 1, 2].map((a) => M[a][0] * Xy[0] + M[a][1] * Xy[1] + M[a][2] * Xy[2]);
+  const resid = y.map((v, i) => v - (beta[0] + beta[1] * id[i] + beta[2] * t[i]));
+
+  return { theta, joint, kappa: KAPPA, A, B, C, xBest, xc, slowdown, resid, x };
 }
 
-/** A quantile of θ, as a sensitivity. */
-function quantile(post, q) {
-  const step = post.theta[1] - post.theta[0];
-  let acc = 0;
-  for (let i = 0; i < post.marg.length; i++) {
-    const p = post.marg[i];
-    if (acc + p >= q) {
-      const f = p > 0 ? (q - acc) / p : 0;
-      return Math.exp(post.theta[i] - step / 2 + f * step);
-    }
-    acc += p;
-  }
-  return Math.exp(post.theta[post.theta.length - 1]);
-}
-
-/** Where "just right" is: the median, and the range it's 80% sure of. */
-export function feelEstimate(post) {
-  const lo = quantile(post, 0.1);
-  const hi = quantile(post, 0.9);
-  return { median: quantile(post, 0.5), lo, hi, halfWidth: Math.log(hi / lo) / 2 };
-}
-
-function entropy(p) {
-  let h = 0;
-  for (const v of p) if (v > 0) h -= v * Math.log(v);
-  return h;
-}
-
-/**
- * The next sensitivity to test: of the values the game accepts in the
- * plausible range, the one whose rating should narrow θ down the most (the
- * lowest expected uncertainty afterwards). Never within 2.5% of the last
- * round - a change you can feel is easier to judge - and picked at random
- * among near-equal choices, so the order can't be second-guessed.
- */
-export function nextFeelSens(post, rules, lastSens) {
-  const lo = quantile(post, 0.01) * 0.85;
-  const hi = quantile(post, 0.99) * 1.15;
-  const values = new Set();
-  for (let k = 0; k <= 48; k++) {
-    const v = clampSens(Math.exp(Math.log(lo) + (Math.log(hi / lo) * k) / 48), rules);
-    if (v > 0) values.add(v);
-  }
-  let candidates = [...values].filter((v) => !(lastSens > 0) || Math.abs(Math.log(v / lastSens)) >= 0.025);
-  if (!candidates.length) candidates = [...values];
-  const scored = candidates.map((v) => {
-    const x = Math.log(v);
-    let expected = 0;
-    for (let r = 1; r <= 5; r++) {
-      const after = post.theta.map((th, i) => {
-        let p = 0;
-        for (let k = 0; k < NOISE.length; k++) p += post.joint[k][i] * ratingChance(r, x - th, NOISE[k].s);
-        return p;
-      });
-      const pr = after.reduce((s, q) => s + q, 0);
-      if (pr > 0) expected += pr * entropy(after.map((q) => q / pr));
-    }
-    return { v, expected };
+/** The chance that x is quicker than xRef (posterior over θ and κ). */
+function chanceBetter(m, xv, xRef) {
+  let p = 0;
+  m.joint.forEach((row, j) => {
+    const k = m.kappa[j];
+    if (k === 0) return;
+    row.forEach((q, i) => {
+      if (k * ((xv - m.theta[i]) ** 2 - (xRef - m.theta[i]) ** 2) < 0) p += q;
+    });
   });
-  scored.sort((a, b) => a.expected - b.expected);
-  const near = scored.filter((s) => s.expected <= scored[0].expected + 0.01);
-  return near[(Math.random() * near.length) | 0].v;
+  return p;
 }
 
-/** Whether this pass has pinned it down, or run its course. */
-export function feelDone(post, roundsThisPass) {
-  if (roundsThisPass >= MAX_ROUNDS) return true;
-  return roundsThisPass >= MIN_ROUNDS && feelEstimate(post).halfWidth <= PRECISION;
-}
-
-/** A round for the drill engine: FLICKS_PER_ROUND flicks, then a rating. */
-export function feelBlock(sens, index, label) {
-  return {
-    type: 'check',
-    flicks: FLICKS_PER_ROUND,
-    settle: SETTLE_FLICKS,
-    scored: true,
-    rate: true,
-    phaseLabel: `ROUND ${index + 1}`,
-    getReadyLabel: label || `Round ${index + 1}`,
-    candidateSens: sens,
-    countdown: index === 0 ? 3 : 2,
-  };
-}
-
-/** What's kept of each flick: what the accuracy figures need. */
-export function compactFlicks(flicks) {
-  return (flicks || []).map((f) => ({
-    err: f.err,
-    landed: f.landed,
-    corrections: f.corrections,
-    timeMs: f.timeMs,
-    misses: f.misses,
-  }));
+/** The chance that x is within WORTH_IT of the best there is. */
+function chanceNearBest(m, xv) {
+  let p = 0;
+  m.joint.forEach((row, j) => {
+    const k = m.kappa[j];
+    row.forEach((q, i) => {
+      if (k * (xv - m.theta[i]) ** 2 <= WORTH_IT) p += q;
+    });
+  });
+  return p;
 }
 
 /**
- * Everything the rounds so far add up to: the recommendation (the median
- * of θ, rounded to what the game accepts), the range it's 80% sure of, how
- * sure that is, how each tested sensitivity felt and how your flicks went
- * at it, and accuracy at the answer itself.
+ * The verdict, and everything the results show:
+ *   keep        - your current setting is as good as any (no change is
+ *                 predicted to be WORTH_IT better, with 75% certainty)
+ *   best.sens   - what to use: your current setting when keep, otherwise
+ *                 the model's quickest, in the game's steps
+ *   gain        - how much quicker onto heads the change should make you
+ *   zone        - the range you aim about equally well across (within
+ *                 WORTH_IT of your best); open-ended when the data never
+ *                 got worse that way
+ *   confidence  - clear / close / tie (needs another pass)
+ *   candidates  - per sensitivity tested: time to the head, accuracy
+ *   curve, points - the fitted slowdown and the measured one, for the chart
  */
-export function feelResult({ base, rounds, rules, passCount }) {
-  const kept = rounds.slice(-MAX_KEPT_ROUNDS);
-  const post = feelPosterior(base, kept);
-  const est = feelEstimate(post);
-  const best = clampSens(est.median, rules);
-  const lo = clampSens(est.lo, rules);
-  const hi = clampSens(est.hi, rules);
-  const confidence = est.halfWidth <= PRECISION || lo === hi ? 'clear' : est.halfWidth <= 0.09 ? 'close' : 'tie';
+export function aiResult({ base, records, rules, passCount, current }) {
+  const kept = records.slice(-MAX_KEPT_FLICKS);
+  const cur = clampSens(current, rules);
+  const m = aiModel(base, kept, cur);
+  const xCur = Math.log(cur / base);
+  const bestRaw = clampSens(base * Math.exp(m.xBest), rules);
+  const xB = Math.log(bestRaw / base);
+  const gain = Math.max(0, m.slowdown(xCur) - m.slowdown(xB));
+  const pBetter = bestRaw === cur ? 0 : chanceBetter(m, xB, xCur);
+  const keep = bestRaw === cur || gain < WORTH_IT || pBetter < 0.75;
+  const best = keep ? cur : bestRaw;
 
-  const bySens = new Map();
-  for (const r of kept) bySens.set(r.sens, [...(bySens.get(r.sens) || []), r]);
-  const candidates = [...bySens.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([sens, rs]) => ({
+  let confidence;
+  if (keep) {
+    const pNear = chanceNearBest(m, xCur);
+    confidence = pNear >= 0.8 ? 'clear' : pNear >= 0.6 ? 'close' : 'tie';
+  } else {
+    confidence = pBetter >= 0.9 ? 'clear' : 'close';
+  }
+
+  // Where you aim about equally well.
+  const tested = [...new Set(kept.map((r) => r.sens))].sort((a, b) => a - b);
+  const xs = tested.map((s) => Math.log(s / base));
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  const half = m.A > 1e-9 ? Math.sqrt(WORTH_IT / m.A) : Infinity;
+  const zLo = m.xBest - half;
+  const zHi = m.xBest + half;
+  const zone = {
+    lo: clampSens(base * Math.exp(Math.max(zLo, xMin)), rules),
+    hi: clampSens(base * Math.exp(Math.min(zHi, xMax)), rules),
+    openLo: zLo < xMin,
+    openHi: zHi > xMax,
+  };
+
+  // Per sensitivity: what the table shows, and the measured slowdown.
+  const curveAt = (xv) => m.slowdown(xv) - m.slowdown(m.xBest);
+  const candidates = tested.map((sens) => {
+    const idx = kept.map((r, i) => (r.sens === sens ? i : -1)).filter((i) => i >= 0);
+    const rs = idx.map((i) => kept[i]);
+    const res = idx.map((i) => m.resid[i]);
+    const mean = res.reduce((s, v) => s + v, 0) / res.length;
+    const se = Math.sqrt(res.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(1, res.length - 1) / res.length);
+    const share = (pred) => rs.filter(pred).length / rs.length;
+    return {
       sens,
-      rounds: rs.length,
-      feel: mean(rs.map((r) => r.rating)),
-      isBase: sens === base,
-      ...summariseFlicks(rs.flatMap((r) => r.flicks || [])),
-    }));
-
-  // How accurate you were at the answer: flicks from rounds within ±7%.
-  const near = kept.filter((r) => Math.abs(Math.log(r.sens / best)) <= 0.07);
-  const atBest = summariseFlicks(near.flatMap((r) => r.flicks || []));
-
-  // The belief itself, thinned out for the chart: [ln sens, height 0-1].
-  const peak = Math.max(...post.marg);
+      n: rs.length,
+      isBase: sens === cur,
+      timeMs: median(rs.map((r) => r.timeMs)),
+      landRate: share((r) => r.landed),
+      pastRate: share((r) => r.err > 1),
+      shortRate: share((r) => r.err < -1),
+      corrections: rs.reduce((s, r) => s + r.corrections, 0) / rs.length,
+      missRate: rs.reduce((s, r) => s + r.misses, 0) / rs.length,
+      adj: mean,
+      se,
+    };
+  });
+  // Line the measured points up with the curve (they're relative to the
+  // average flick; the curve to the best).
+  const wsum = candidates.reduce((s, c) => s + c.n, 0);
+  const offset = candidates.reduce((s, c) => s + c.n * (c.adj - curveAt(Math.log(c.sens / base))), 0) / wsum;
+  const points = candidates.map((c) => [c.sens, c.adj - offset, c.se]);
   const curve = [];
-  for (let i = 0; i < post.theta.length; i += 4) curve.push([post.theta[i], post.marg[i] / peak]);
+  for (let k = 0; k <= 40; k++) {
+    const xv = xMin - 0.05 + ((xMax - xMin + 0.1) * k) / 40;
+    curve.push([base * Math.exp(xv), curveAt(xv)]);
+  }
 
+  // Accuracy at the answer: the tested sensitivity nearest it.
+  const nearest = [...candidates].sort((a, b) => Math.abs(Math.log(a.sens / best)) - Math.abs(Math.log(b.sens / best)))[0];
   return {
-    method: 'feel',
+    method: 'ai',
     base,
-    rounds: kept,
+    current: cur,
+    records: kept,
     passCount,
-    best: { ...atBest, sens: best, isBase: best === base },
-    range: { lo, hi },
-    estimate: est.median,
+    keep,
+    gain: keep ? 0 : gain,
+    pBetter,
+    best: { ...nearest, sens: best, isBase: best === cur },
+    zone,
     confidence,
     candidates,
     curve,
-    totalRounds: kept.length,
-    totalFlicks: candidates.reduce((s, c) => s + c.n, 0),
+    points,
+    totalFlicks: kept.length,
   };
 }
 
@@ -487,7 +615,7 @@ export const AIM_VERDICTS = {
 };
 
 export const CONFIDENCE_TEXT = {
-  clear: { label: 'Clear result', hint: 'Your ratings agree on this - it is pinned to within a step or two.' },
-  close: { label: 'Close call', hint: 'Nearly there. A refine pass adds more rounds around it and narrows it down.' },
-  tie: { label: 'Needs another pass', hint: 'Your ratings were mixed, so it is not pinned down yet. Run a refine pass before applying.' },
+  clear: { label: 'Clear result', hint: 'Your flicks show this clearly.' },
+  close: { label: 'Close call', hint: 'Likely, but a refine pass would make sure.' },
+  tie: { label: 'Needs another pass', hint: 'Not enough of a pattern yet - run a refine pass before changing anything.' },
 };

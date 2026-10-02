@@ -142,17 +142,12 @@ const HALF_PI = Math.PI / 2;
 const PITCH_LIMIT = HALF_PI - 0.01;
 
 export class DrillEngine {
-  constructor({ overlayEl, stageEl, canvasEl, elements, onBlockComplete, onRated, onQueueComplete, onPauseChange, onStartError, onRawInputChange }) {
+  constructor({ overlayEl, stageEl, canvasEl, elements, onBlockComplete, onQueueComplete, onPauseChange, onStartError, onRawInputChange }) {
     this.overlay = overlayEl;
     this.stage = stageEl;
     this.canvas = canvasEl;
-    this.el = elements; // { phaseLabel, timer, getReady, getReadyLabel, getReadyNum, pauseOverlay, pauseReason, resumeBtn, rate }
+    this.el = elements; // { phaseLabel, timer, getReady, getReadyLabel, getReadyNum, pauseOverlay, pauseReason, resumeBtn }
     this.onBlockComplete = onBlockComplete;
-    // A round marked `rate` ends by asking how it felt (keys 1-5); the
-    // answer is put on its result and passed here before the next round,
-    // so the caller can decide what that round should be.
-    this.onRated = onRated;
-    this.ratingResult = null;
     this.onQueueComplete = onQueueComplete;
     this.onPauseChange = onPauseChange;
     this.onStartError = onStartError;
@@ -168,7 +163,7 @@ export class DrillEngine {
     // so losing the mouse during "get ready" also surfaces the pause menu
     // instead of leaving no way back to the main page short of a refresh.
     this.sessionActive = false;
-    this.phase = 'idle'; // 'idle' | 'getready' | 'running' | 'rating' - drives what resuming from pause does
+    this.phase = 'idle'; // 'idle' | 'getready' | 'running' - drives what resuming from pause does
     this.getReadyTimer = null;
     this.pendingBlock = null;
     this.getReadyCount = 0;
@@ -362,50 +357,6 @@ export class DrillEngine {
       this._handleShoot();
     });
     window.addEventListener('resize', () => this._resizeCanvas());
-    // Rating a round: keys 1-5 (the mouse stays captured), or a click on
-    // the option when it isn't.
-    document.addEventListener('keydown', (e) => {
-      if (this.phase !== 'rating' || this.paused) return;
-      const n = Number(e.key);
-      if (n >= 1 && n <= 5) {
-        e.preventDefault();
-        this._rate(n);
-      }
-    });
-    this.el.rate?.addEventListener('click', (e) => {
-      const opt = e.target.closest('[data-rate]');
-      if (opt && this.phase === 'rating' && !this.paused) this._rate(Number(opt.dataset.rate));
-    });
-  }
-
-  _askRating(result) {
-    this.phase = 'rating';
-    this.ratingResult = result;
-    this.el.rate.querySelectorAll('[data-rate]').forEach((o) => o.classList.remove('chosen'));
-    this.el.rate.classList.add('active');
-    this.el.timer.textContent = 'How did it feel?';
-  }
-
-  _rate(n) {
-    if (this.ratingPicked) return;
-    this.ratingPicked = true;
-    this.el.rate.querySelector(`[data-rate="${n}"]`)?.classList.add('chosen');
-    // A beat to see which one registered, then on to the next round.
-    setTimeout(() => {
-      this.ratingPicked = false;
-      if (this.phase !== 'rating' || !this.ratingResult) return; // ended meanwhile
-      this.el.rate.classList.remove('active');
-      const result = this.ratingResult;
-      this.ratingResult = null;
-      result.rating = n;
-      this.phase = 'idle';
-      try {
-        this.onRated?.(result, this);
-      } catch (err) {
-        console.error('[DrillEngine] onRated failed:', err);
-      }
-      this._next();
-    }, 170);
   }
 
   /** { game, tab, settings } - `game` is an entry from games.js, which owns
@@ -569,8 +520,7 @@ export class DrillEngine {
   }
 
   /** queueBlocks: [{ type, durationSec, scored, phaseLabel, getReadyLabel,
-   * candidateSens, rate }]. More can be pushed onto engine.queue while it
-   * runs (onRated does). slowestSens: the slowest sensitivity the run may
+   * candidateSens }]. slowestSens: the slowest sensitivity the run may
    * test, when the queue doesn't list them all up front. */
   async run(queueBlocks, { slowestSens } = {}) {
     this.queue = queueBlocks;
@@ -1198,10 +1148,6 @@ export class DrillEngine {
     };
     if (block.scored) this.results.push(result);
     this.onBlockComplete?.(result, this.queueIndex, this.queue.length);
-    if (block.rate) {
-      this._askRating(result);
-      return;
-    }
     this._next();
   }
 
@@ -1232,8 +1178,6 @@ export class DrillEngine {
     this.getReadyTimer = null;
     this.el.getReady.classList.remove('active');
     this.el.pauseOverlay.classList.remove('active');
-    this.el.rate?.classList.remove('active');
-    this.ratingResult = null;
     this.stage.classList.remove('show-cursor');
     this.flick = null;
     this._clearTargets();
