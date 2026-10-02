@@ -65,6 +65,9 @@ function upgradeR6Settings(s) {
   for (const tab of ['ads1x', 'ads25x']) {
     const c = out.calib && out.calib[tab];
     if (c && c.factor > 0 && c.model !== MODEL_VERSION) out.calib = { ...out.calib, [tab]: null };
+    // The retired "ADS value that feels like hip-fire" correction misread a
+    // feel as a turn and sped ADS up (sensMath.js isFeltNeutral) - dropped.
+    if (c && c.neutral != null) out.calib = { ...out.calib, [tab]: null };
   }
   return out;
 }
@@ -267,6 +270,9 @@ export function basisFor(tab) {
     // A game's model version (Siege only so far): results tested under an
     // older formula felt different to the same numbers now.
     model: GAMES[data.game].modelVersion,
+    // Siege's ADS turns relative to hip-fire, so an ADS result only holds
+    // for the hip-fire it was found at.
+    hip: data.game === 'r6' && tab !== 'hipfire' ? (s.hipfireH + s.hipfireV) / 2 : undefined,
     // Bumped whenever scoring changes meaning, so results scored the old way
     // show "retest required" instead of being compared against new ones.
     // v2: bullseye points scoring. v3: back to hit-based, ringed targets.
@@ -274,7 +280,8 @@ export function basisFor(tab) {
     // v5: 3D balls at aim-trainer size (~6% of the screen).
     // v6: flat bullseyes at ~3.5% - head-sized, micro-adjustment scale.
     // v7: the flick check - where each flick lands, not four timed drills.
-    scoring: 7,
+    // v8: rated rounds - the feel model finds the speed you like.
+    scoring: 8,
   });
 }
 

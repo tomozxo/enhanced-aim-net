@@ -146,8 +146,8 @@
         <button class="expander-toggle" id="calibrateToggle"><span class="chev">›</span> Calibrate to your real sens</button>
         <div class="expander-body" id="calibrateBody">
           <p style="font-size:11px;color:var(--text-dim);margin:0 0 10px;line-height:1.55">
-            Hip-fire uses R6's known formula. ADS also depends on how far each sight zooms,
-            which Ubisoft doesn't publish, so ADS is a close estimate. To make an optic exact:
+            Hip-fire uses R6's known formula, and ADS uses Ubisoft's published one: your hip-fire
+            speed × the ADS value × the sight's zoom. To check an optic against your own game:
             in R6, line your crosshair up with a mark, drag your mouse across the pad until
             you've turned exactly one full 360° back to that mark, and measure the distance
             with a ruler. Enter it below and that optic stays exact, even when you change sens.
@@ -159,18 +159,6 @@
           <div class="sub-field">
             <span class="sub-field-label">Measured cm/360° for 1x ADS</span>
             <input type="number" id="measuredAds1xInput" placeholder="e.g. 45.0" step="0.1" min="1" />
-          </div>
-          <p style="font-size:11px;color:var(--text-dim);margin:12px 0 8px;line-height:1.55">
-            No ruler? There's a second way to pin an ADS optic. In R6, find the ADS value
-            for that sight that feels exactly like your hip-fire speed, and enter it here.
-          </p>
-          <div class="sub-field">
-            <span class="sub-field-label">1x ADS value that matches hip-fire</span>
-            <input type="number" id="neutralAds1xInput" placeholder="e.g. 58" step="1" min="1" max="100" />
-          </div>
-          <div class="sub-field">
-            <span class="sub-field-label">2.5x ADS value that matches hip-fire</span>
-            <input type="number" id="neutralAds25xInput" placeholder="e.g. 100" step="1" min="1" max="100" />
           </div>
           <div class="sub-field">
             <span class="sub-field-label">Measured cm/360° for 2.5x ADS</span>
@@ -240,12 +228,12 @@
       <div class="main-panel" id="mainPanel">
         <div class="main-panel-center" id="idleState">
           <h3>Make every movement count.</h3>
-          <p>Flick onto head-sized targets at three sensitivities. It reads where each flick first lands - past the head or short of it - and finds the one where you land on it.</p>
+          <p>Everyone likes a different speed. Play short rounds of flicks, rate how each one feels, and it learns yours.</p>
           <button class="btn-accent" id="startCalibrationBtn">Start calibration</button>
-          <p class="caption" id="calibrationHint">60 flicks at 3 sensitivities · about 1½ minutes · fullscreen</p>
+          <p class="caption" id="calibrationHint">Short rounds, rated 1-5 · about 2-3 min · fullscreen</p>
         </div>
         <div class="panel-footer">
-          <div class="kbd-hint"><span class="kbd">LMB</span> Shoot in flick &amp; targets drills</div>
+          <div class="kbd-hint"><span class="kbd">LMB</span> Shoot <span class="kbd">1–5</span> Rate each round</div>
           <div class="kbd-hint"><span class="kbd">ESC</span> Pause · release mouse</div>
         </div>
       </div>
@@ -256,7 +244,7 @@
         <div class="stat"><div class="stat-label" title="Flicks whose first movement stopped on the head, at the recommended sensitivity">Lands on head</div><div class="stat-value" id="statAccuracy">—</div></div>
         <div class="stat"><div class="stat-label" title="Corrections after the first movement, per flick, at the recommended sensitivity">Fixes per flick</div><div class="stat-value" id="statTargets">—</div></div>
       </div>
-      <p class="model-note" id="modelNote">ADS speed depends on each sight's zoom, which Ubisoft doesn't publish, so this optic is a close estimate. To make it exact, <button class="linklike" id="modelNoteLink">calibrate it</button>. <span id="modelNoteCheck"></span></p>
+      <p class="model-note" id="modelNote">This optic turns by Ubisoft's published ADS formula, built on your hip-fire - so set hip-fire, DPI and FOV exactly as in R6. A quick check in-game: at ADS 50 a sight is designed to feel the same as hip-fire. To make it exact for your setup, <button class="linklike" id="modelNoteLink">measure a 360</button>.</p>
 
       <div class="refine-header">
         <div>
@@ -293,8 +281,9 @@
             <h3>Session comparison</h3>
             <span class="comparison-tag" id="comparisonTag">1× ADS</span>
           </div>
+          <div class="feel-chart" id="feelChartMain" hidden></div>
           <table class="comparison" id="comparisonTable">
-            <thead><tr><th>Sens</th><th title="First movement stopped on the head">On head</th><th title="First movement stopped past the head">Past</th><th title="First movement stopped short of the head">Short</th><th title="Corrections per flick">Fixes</th><th title="Typical time from the target appearing to the hit">Time</th></tr></thead>
+            <thead><tr><th>Sens</th><th title="How you rated it">Felt</th><th title="First movement stopped on the head">On head</th><th title="First movement stopped past the head">Past</th><th title="First movement stopped short of the head">Short</th><th title="Corrections per flick">Fixes</th></tr></thead>
             <tbody id="comparisonBody"><tr><td colspan="5" class="card-empty">No results yet.</td></tr></tbody>
           </table>
           <p class="comparison-footnote" id="comparisonFootnote">Run a calibration to fill this in.</p>
@@ -513,6 +502,22 @@
       <div class="num" id="getReadyNum">3</div>
     </div>
 
+    <!-- After each calibration round: how did that sensitivity feel?
+         Keys 1-5 (drills.js), so the mouse can stay captured. -->
+    <div class="rate-overlay" id="rateOverlay">
+      <div class="rate-card">
+        <div class="rate-q">How did that sensitivity feel?</div>
+        <div class="rate-options">
+          <button type="button" class="rate-opt" data-rate="1"><span class="rate-key">1</span>Too slow</button>
+          <button type="button" class="rate-opt" data-rate="2"><span class="rate-key">2</span>A bit slow</button>
+          <button type="button" class="rate-opt mid" data-rate="3"><span class="rate-key">3</span>Just right</button>
+          <button type="button" class="rate-opt" data-rate="4"><span class="rate-key">4</span>A bit fast</button>
+          <button type="button" class="rate-opt" data-rate="5"><span class="rate-key">5</span>Too fast</button>
+        </div>
+        <div class="rate-note">Press 1–5 · go with your first instinct</div>
+      </div>
+    </div>
+
     <div class="pause-overlay" id="pauseOverlay">
       <div class="pause-card">
         <div class="icon">
@@ -535,9 +540,11 @@
         <p id="resultsSub">Here's how each candidate performed.</p>
         <div class="results-rec" id="resultsRec">
           <div class="results-rec-value" id="resultsRecValue">—</div>
+          <p class="results-range" id="resultsRange"></p>
           <span class="badge" id="resultsConfidence"></span>
+          <div class="feel-chart" id="resultsChart" hidden></div>
           <table class="comparison results-table">
-            <thead><tr><th>Sens</th><th title="First movement stopped on the head">On head</th><th title="First movement stopped past the head">Past</th><th title="First movement stopped short of the head">Short</th><th title="Corrections per flick">Fixes</th><th title="Typical time from the target appearing to the hit">Time</th></tr></thead>
+            <thead><tr><th>Sens</th><th title="How you rated it">Felt</th><th title="First movement stopped on the head">On head</th><th title="First movement stopped past the head">Past</th><th title="First movement stopped short of the head">Short</th><th title="Corrections per flick">Fixes</th></tr></thead>
             <tbody id="resultsTableBody"></tbody>
           </table>
           <p class="results-hint" id="resultsHint"></p>
@@ -552,7 +559,7 @@
           <p class="aim-read-text" id="aimReadText"></p>
         </div>
         <div class="results-actions">
-          <button class="btn-accent" id="fineTuneBtn">Fine-tune further</button>
+          <button class="btn-accent" id="fineTuneBtn">Refine</button>
           <button class="plain-btn" id="applyResultsBtn">Apply</button>
           <button class="plain-btn" id="closeResultsBtn">Done</button>
         </div>
@@ -561,7 +568,7 @@
   </div>
 
   <div class="drill-footer">
-    <div class="kbd-hint"><span class="kbd">LMB</span> Shoot in flick &amp; targets drills</div>
+    <div class="kbd-hint"><span class="kbd">LMB</span> Shoot <span class="kbd">1–5</span> Rate each round</div>
     <div class="raw-input" id="rawInputNote" hidden></div>
     <div class="kbd-hint"><span class="kbd">ESC</span> Pause · release mouse</div>
   </div>

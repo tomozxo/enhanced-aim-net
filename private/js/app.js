@@ -26,8 +26,6 @@ import {
   formatCm360,
   compensateAdsForHipfireChange,
   calibrationFrom,
-  neutralCalibrationFrom,
-  neutralAdsValue,
   isCalibrated,
   hipDegPerSensPoint,
 } from './sensMath.js';
@@ -36,17 +34,17 @@ import { DrillEngine, previewHitSound } from './drills.js';
 import { RangeEngine } from './range.js';
 import { CROSSHAIRS, CROSSHAIR_COLORS, DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
 import {
-  buildCandidates,
-  buildQueue,
-  scoreResults,
-  planFineTune,
-  capPooledResults,
   analyseAim,
   AIM_VERDICTS,
   CONFIDENCE_TEXT,
-  INITIAL_SPREAD_PCT,
-  TOTAL_SCORED_FLICKS,
-  PASS_SECONDS,
+  FEEL_OPTIONS,
+  PASS_MINUTES,
+  compactFlicks,
+  feelBlock,
+  feelDone,
+  feelPosterior,
+  feelResult,
+  nextFeelSens,
   verdictFor,
 } from './calibration.js';
 import {
@@ -386,37 +384,103 @@ function renderAimRead(aim) {
 }
 
 /**
- * The flick check's read-out: where your first movement landed at each
- * sensitivity tested, on one bar from "short of the head" to "past it" -
- * one marker per sensitivity, the current one in the accent colour. The
- * verdict is for your current setting; the text says where it balances.
+ * Accuracy at the answer, on the results card: where the first movement of
+ * your flicks stopped at (or near) the recommended sensitivity, from short
+ * of the head to past it. A small stop-short is how most people aim.
  */
-function renderBalanceRead(result, game) {
+function renderAccuracyRead(result, game) {
   const box = $('aimRead');
   box.querySelectorAll('.aim-bar-dot.extra').forEach((el) => el.remove());
-  const rows = (result.candidates || []).filter((c) => c.n > 0 && isFinite(c.bias));
-  if (!rows.length) {
+  const b = result.best;
+  if (!(b.n >= 4) || !isFinite(b.bias)) {
     box.hidden = true;
     return;
   }
+  const verdict = AIM_VERDICTS[verdictFor(b.bias)];
   box.hidden = false;
-  $('aimBarDot').hidden = true;
-  const fmt = (v) => formatGameSens(game, v);
-  const current = rows.find((c) => c.isBase) || rows[Math.floor(rows.length / 2)];
-  const verdict = AIM_VERDICTS[verdictFor(current.bias)];
-  $('aimReadTitle').textContent = `At ${fmt(current.sens)}: ${verdict.title.charAt(0).toLowerCase()}${verdict.title.slice(1)}`;
-  $('aimReadTag').textContent = `${result.totalFlicks} flicks read`;
-  const balance = result.balance && !result.balance.clamped ? ` Your flicks balance out at ${fmt(result.best.sens)}.` : '';
-  $('aimReadText').textContent = verdict.text + balance;
-  const bar = box.querySelector('.aim-bar');
-  for (const c of rows) {
-    const dot = document.createElement('span');
-    dot.className = `aim-bar-dot extra${c === current ? '' : ' other'}`;
-    // A full head-width (two radii) either way fills the bar.
-    dot.style.left = `${50 + (Math.max(-2, Math.min(2, c.bias)) / 2) * 50}%`;
-    dot.dataset.label = fmt(c.sens);
-    bar.appendChild(dot);
+  $('aimBarDot').hidden = false;
+  $('aimReadTitle').textContent = `At ${formatGameSens(game, b.sens)}: ${verdict.title.charAt(0).toLowerCase()}${verdict.title.slice(1)}`;
+  $('aimReadTag').textContent = `${b.n} flicks read`;
+  $('aimReadText').textContent = verdict.text;
+  // A full head-width (two radii) either way fills the bar.
+  $('aimBarDot').style.left = `${50 + (Math.max(-2, Math.min(2, b.bias)) / 2) * 50}%`;
+}
+
+const feelLabel = (v) => (FEEL_OPTIONS.find((o) => o.value === Math.round(v)) || {}).label || '—';
+
+/**
+ * The picture of a calibration: every round you rated, placed by its
+ * sensitivity (across) and how it felt (up: too slow at the bottom, too
+ * fast at the top), over the model's belief about where "just right" is,
+ * with the recommendation marked. Inline SVG, coloured by the page's own
+ * colours so it follows light and dark mode.
+ */
+function renderFeelChart(el, result, game) {
+  const rounds = result.rounds || [];
+  if (!rounds.length) {
+    el.hidden = true;
+    return;
   }
+  el.hidden = false;
+  const W = 480;
+  const H = 168;
+  const left = 74;
+  const right = W - 14;
+  const top = 22;
+  const rowGap = 22;
+  const rowY = (r) => top + (5 - r) * rowGap; // 5 (too fast) at the top
+  const base = rowY(1) + 18;
+  const xs = [...rounds.map((r) => r.sens), result.range.lo, result.range.hi, result.best.sens];
+  let lo = Math.log(Math.min(...xs)) - 0.05;
+  let hi = Math.log(Math.max(...xs)) + 0.05;
+  if (hi - lo < 0.2) {
+    const mid = (hi + lo) / 2;
+    lo = mid - 0.1;
+    hi = mid + 0.1;
+  }
+  const X = (lnv) => left + ((lnv - lo) / (hi - lo)) * (right - left);
+  const fmt = (v) => formatGameSens(game, v);
+
+  // The belief: a soft hill, tallest where "just right" most likely is.
+  const pts = (result.curve || []).filter(([t]) => t >= lo && t <= hi);
+  const curve = pts.length
+    ? `<path class="fc-curve" d="M${X(pts[0][0]).toFixed(1)},${base} ${pts
+        .map(([t, h]) => `L${X(t).toFixed(1)},${(base - h * (base - top + 6)).toFixed(1)}`)
+        .join(' ')} L${X(pts[pts.length - 1][0]).toFixed(1)},${base} Z"/>`
+    : '';
+  const rows = FEEL_OPTIONS.map(
+    (o) =>
+      `<line class="fc-row" x1="${left}" x2="${right}" y1="${rowY(o.value)}" y2="${rowY(o.value)}"/>` +
+      `<text class="fc-label${o.value === 3 ? ' fc-mid' : ''}" x="${left - 8}" y="${rowY(o.value) + 4}" text-anchor="end">${o.label}</text>`
+  ).join('');
+  // Rounds at the same sens and rating sit side by side rather than on top
+  // of each other.
+  const seen = new Map();
+  const dots = rounds
+    .map((r) => {
+      const key = `${r.sens}|${r.rating}`;
+      const k = seen.get(key) || 0;
+      seen.set(key, k + 1);
+      const x = X(Math.log(r.sens)) + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 7;
+      return `<circle class="fc-dot${r.rating === 3 ? ' fc-right' : ''}" cx="${x.toFixed(1)}" cy="${rowY(r.rating)}" r="4.5"/>`;
+    })
+    .join('');
+  const bx = X(Math.log(result.best.sens));
+  const band =
+    result.range.hi > result.range.lo
+      ? `<rect class="fc-band" x="${X(Math.log(result.range.lo)).toFixed(1)}" y="${top - 10}" width="${(
+          X(Math.log(result.range.hi)) - X(Math.log(result.range.lo))
+        ).toFixed(1)}" height="${base - top + 10}"/>`
+      : '';
+  const ticks = [Math.exp(lo + 0.05), Math.exp(hi - 0.05)]
+    .map((v, i) => `<text class="fc-tick" x="${X(Math.log(v)).toFixed(1)}" y="${H - 4}" text-anchor="${i ? 'end' : 'start'}">${fmt(v)}</text>`)
+    .join('');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="How each round felt, and the recommendation">
+    ${band}${curve}${rows}
+    <line class="fc-best" x1="${bx.toFixed(1)}" x2="${bx.toFixed(1)}" y1="${top - 10}" y2="${base}"/>
+    <text class="fc-best-label" x="${bx.toFixed(1)}" y="${H - 4}" text-anchor="middle">${fmt(result.best.sens)}</text>
+    ${dots}${ticks}
+  </svg>`;
 }
 
 /** An admin key is an ordinary key that can also hand out keys, so it gets
@@ -479,10 +543,12 @@ async function main() {
       pauseOverlay: $('pauseOverlay'),
       pauseReason: $('pauseReason'),
       resumeBtn: $('resumeBtn'),
+      rate: $('rateOverlay'),
     },
-    onBlockComplete: (result, index, total) => {
-      $('drillStatus').textContent = `Block ${index + 1} / ${total}`;
+    onBlockComplete: (result, index) => {
+      if (run && !run.isPractice) $('drillStatus').textContent = `Round ${index + 1}`;
     },
+    onRated: (result) => handleRated(result),
     onQueueComplete: (results) => handleQueueComplete(engine, results),
     onPauseChange: (paused) => {
       if (paused) $('drillStatus').textContent = 'Paused';
@@ -505,7 +571,7 @@ async function main() {
     },
   });
 
-  let run = null; // { candidates, spreadPct, delta, centeredValue, passCount, centeredOn, carryOver, pooledPasses, tab, isPractice }
+  let run = null; // { tab, base, rounds, passRounds, passCount, isPractice }
 
   function setDrillTabsHighlight(tab) {
     $('drillTabs').querySelectorAll('.tab').forEach((el) => {
@@ -513,50 +579,42 @@ async function main() {
     });
   }
 
-  /** A fresh calibration tests your current sens ±15%. A fine-tune pass
-   * centres on the last winner with half the spread; once that's at the
-   * game's finest step (±1 on Siege's sliders, ±2% for Valorant/CS2) it
-   * re-tests the same values and pools the rounds instead, so each extra
-   * pass still adds reliability. */
-  function startCalibration({ fineTune = false } = {}) {
+  /**
+   * A calibration pass: short blind rounds, each rated for how it felt,
+   * until the feel model (calibration.js) has pinned down where "just
+   * right" is for you. A fresh pass starts at your current setting; Refine
+   * keeps every earlier round and adds more, so the answer only sharpens.
+   */
+  function startCalibration({ refine = false } = {}) {
     if (run) return;
     const game = currentGame();
     const tab = getState().activeTab;
     const settings = getState().settings;
     const prev = getState().results[tab];
-    const canFineTune = fineTune && prev && !isStale(tab);
-
-    let candidates, spreadPct, centeredValue, carryOver, pooledPasses;
-    if (canFineTune) {
-      ({ candidates, spreadPct, carryOver, pooledPasses } = planFineTune(prev, game.rules));
-      centeredValue = prev.best.sens;
-    } else {
-      centeredValue = currentSens(game, tab, settings);
-      spreadPct = INITIAL_SPREAD_PCT;
-      candidates = buildCandidates(centeredValue, spreadPct, game.rules);
-      carryOver = [];
-      pooledPasses = 1;
-    }
-
-    const passCount = canFineTune ? (prev.passCount || 1) + 1 : 1;
-    run = {
-      candidates,
-      spreadPct,
-      delta: candidates[0].delta,
-      centeredValue,
-      passCount,
-      centeredOn: canFineTune ? 'previous-best' : 'base',
-      atFinestStep: candidates[0].finest,
-      carryOver,
-      pooledPasses,
-      tab,
-      isPractice: false,
-    };
+    const canRefine = refine && isFeel(prev) && !isStale(tab);
+    const base = canRefine ? prev.base : currentSens(game, tab, settings);
+    const rounds = canRefine ? prev.rounds.slice() : [];
+    run = { tab, base, rounds, passRounds: 0, passCount: canRefine ? (prev.passCount || 1) + 1 : 1, isPractice: false };
+    // A fresh pass opens at your current setting; a refine pass wherever the
+    // model wants to look first. Either way the value isn't shown.
+    const first = canRefine ? nextFeelSens(feelPosterior(base, rounds), game.rules, null) : base;
 
     setDrillTabsHighlight(tab);
-    $('drillStatus').textContent = canFineTune ? `Fine-tuning · pass ${passCount}` : 'Calibrating…';
+    $('drillStatus').textContent = canRefine ? `Refining · pass ${run.passCount}` : 'Finding your sens';
     engine.configure({ game, tab, settings });
-    engine.run(buildQueue(candidates));
+    engine.run([feelBlock(first, 0)], { slowestSens: Math.max(game.rules.min, base / 1.6) });
+  }
+
+  /** After each rated round: note it, update the model, and queue the round
+   * it wants next - or nothing, which ends the pass. */
+  function handleRated(result) {
+    if (!run || run.isPractice || !(result.rating >= 1)) return;
+    const game = currentGame();
+    run.rounds.push({ sens: result.candidateSens, rating: result.rating, flicks: compactFlicks(result.flicks) });
+    run.passRounds += 1;
+    const post = feelPosterior(run.base, run.rounds);
+    if (feelDone(post, run.passRounds)) return;
+    engine.queue.push(feelBlock(nextFeelSens(post, game.rules, result.candidateSens), run.passRounds));
   }
 
   // "Practice": a quick 20s feel-check of the selected drill at your current
@@ -591,24 +649,13 @@ async function main() {
       $('resultsTitle').textContent = 'Practice complete';
       $('resultsSub').textContent = 'No scoring in practice mode - just a feel check.';
       $('resultsRec').hidden = true;
+      $('resultsChart').hidden = true;
       $('fineTuneBtn').hidden = true;
       $('applyResultsBtn').hidden = true;
       // Practice still has shots to read, just fewer, so it asks for less.
       renderAimRead(analyseAim(results, 12));
     } else {
-      const pooled = capPooledResults([...run.carryOver, ...results]);
-      const scored = scoreResults(run.candidates, pooled, currentGame().rules);
-      const saved = {
-        ...scored,
-        spreadPct: run.spreadPct,
-        delta: run.delta,
-        centeredValue: run.centeredValue,
-        passCount: run.passCount,
-        centeredOn: run.centeredOn,
-        atFinestStep: run.atFinestStep,
-        pooledPasses: run.pooledPasses,
-        rawResults: pooled,
-      };
+      const saved = feelResult({ base: run.base, rounds: run.rounds, rules: currentGame().rules, passCount: run.passCount });
       setResult(run.tab, saved, basisFor(run.tab));
       showCalibrationResults(saved, run.tab);
     }
@@ -620,18 +667,18 @@ async function main() {
     const game = currentGame();
     const fmt = (v) => formatGameSens(game, v);
     const conf = CONFIDENCE_TEXT[result.confidence];
-    const values = result.candidates.map((c) => fmt(c.sens)).join(' / ');
-    $('resultsTitle').textContent =
-      result.passCount > 1 ? `Fine-tune pass ${result.passCount - 1} complete` : 'Calibration complete';
-    $('resultsSub').textContent = `${scopeLabel(game, tab)} · tested ${values}${poolNote(result)}`;
+    $('resultsTitle').textContent = result.passCount > 1 ? `Refine pass ${result.passCount - 1} complete` : 'Calibration complete';
+    $('resultsSub').textContent = `${scopeLabel(game, tab)} · ${roundsNote(result)}`;
 
     $('resultsRec').hidden = false;
     $('resultsRecValue').textContent = fmt(result.best.sens);
+    $('resultsRange').textContent = rangeText(result, game);
     $('resultsConfidence').className = `badge ${CONFIDENCE_BADGE[result.confidence]}`;
     $('resultsConfidence').textContent = conf.label;
+    renderFeelChart($('resultsChart'), result, game);
     $('resultsTableBody').innerHTML = comparisonRowsHtml(result, game);
-    $('resultsHint').textContent = fineTuneHint(result, game);
-    renderBalanceRead(result, game);
+    $('resultsHint').textContent = refineHint(result, game);
+    renderAccuracyRead(result, game);
 
     // Whichever action makes more sense right now gets the accent colour: a
     // clear winner you're not already on is ready to apply; anything closer,
@@ -655,11 +702,11 @@ async function main() {
     renderAll();
   });
 
-  // Straight into the next, narrower pass without leaving fullscreen - the
-  // click itself is the user gesture pointer lock needs.
+  // Straight into a refine pass without leaving fullscreen - the click
+  // itself is the user gesture pointer lock needs.
   $('fineTuneBtn').addEventListener('click', () => {
     $('resultsOverlay').classList.remove('active');
-    startCalibration({ fineTune: true });
+    startCalibration({ refine: true });
   });
 
   $('applyResultsBtn').addEventListener('click', () => {
@@ -683,7 +730,7 @@ async function main() {
 
   document.addEventListener('click', (e) => {
     if (e.target.id === 'applyRecBtn') applyRecommendation();
-    if (e.target.id === 'fineTuneCardBtn') startCalibration({ fineTune: true });
+    if (e.target.id === 'fineTuneCardBtn') startCalibration({ refine: true });
   });
 
   $('clearComparisonBtn').addEventListener('click', () => {
@@ -840,9 +887,8 @@ function renderGameChrome(state) {
     el.hidden = !el.dataset.gameOnly.split(' ').includes(game.id);
   });
   $('sidebarTitle').textContent = `Your ${game.short} settings`;
-  $('calibrationHint').textContent = `${TOTAL_SCORED_FLICKS} flicks at 3 sensitivities · about ${Math.round(PASS_SECONDS / 30) / 2} min${
-    game.tabs.length > 1 ? ' per optic' : ''
-  } · fullscreen`;
+  $('calibrationHint').textContent = `Short rounds, rated 1-5 · about ${PASS_MINUTES} min${game.tabs.length > 1 ? ' per optic' : ''} · fullscreen`;
+  $('tabbarStatus').textContent = setupLine(game, state.activeTab, state.settings);
   renderSimpleGameFields(game, state.settings);
 }
 
@@ -923,7 +969,6 @@ function setCalibration(tab, cm360) {
 // The "measured cm/360°" box for each Siege optic, and the ruler-free
 // alternative for the ADS optics ("the value that matches hip-fire").
 const MEASURED_INPUTS = { hipfire: 'measuredHipfireInput', ads1x: 'measuredAds1xInput', ads25x: 'measuredAds25xInput' };
-const NEUTRAL_INPUTS = { ads1x: 'neutralAds1xInput', ads25x: 'neutralAds25xInput' };
 
 /**
  * Mouse check: counts the movement the browser is given over a distance you
@@ -1272,16 +1317,6 @@ function bindExpanders() {
       setCalibration(tab, v ? Number(v) : null);
     });
   }
-
-  // Each optic holds one correction, so entering one of these replaces
-  // whatever was in the other box for that optic.
-  for (const [tab, id] of Object.entries(NEUTRAL_INPUTS)) {
-    $(id).addEventListener('change', (e) => {
-      const v = e.target.value.trim();
-      const s = getGameSettings('r6');
-      updateR6({ calib: { ...s.calib, [tab]: v ? neutralCalibrationFrom(tab, Number(v), s) : null } });
-    });
-  }
 }
 
 function bindTabs() {
@@ -1298,58 +1333,64 @@ const CONFIDENCE_BADGE = { clear: 'ok', close: 'close', tie: 'retest' };
 
 const fmtPct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
 
-function poolNote(result) {
-  return result.pooledPasses > 1 ? ` · ${result.totalFlicks} flicks from ${result.pooledPasses} passes` : '';
+function roundsNote(result) {
+  return `${result.totalRounds} rounds rated${result.passCount > 1 ? ` over ${result.passCount} passes` : ''}`;
 }
 
-/** Results saved by the old four-drill calibration have none of the flick
- * check's numbers; they're shown as needing a retest. */
-const isFlickCheck = (result) => result && result.method === 'flick-check';
+/** Results from older versions of the test (timed drills, then the flick
+ * check's balance point) aren't comparable; they show as needing a retest. */
+const isFeel = (result) => result && result.method === 'feel';
 
-function fineTuneHint(result, game) {
-  const edge = result.balance && result.balance.clamped;
-  if (edge) {
-    const way = edge === 'low' ? 'lower' : 'higher';
-    return `You ${edge === 'low' ? 'went past the head' : 'stopped short'} even at the ${
-      edge === 'low' ? 'lowest' : 'highest'
-    } value tested, so the balance point is ${way} still. Another pass tests around ${formatGameSens(game, result.best.sens)}.`;
+/** "Likely 31-33" - the range it's 80% sure of - or "Pinned to 32". */
+function rangeText(result, game) {
+  const fmt = (v) => formatGameSens(game, v);
+  return result.range.hi > result.range.lo ? `Likely ${fmt(result.range.lo)}–${fmt(result.range.hi)}` : `Pinned to ${fmt(result.best.sens)}`;
+}
+
+function refineHint(result, game) {
+  const conf = CONFIDENCE_TEXT[result.confidence] || CONFIDENCE_TEXT.close;
+  if (result.confidence === 'clear') {
+    return `${conf.hint} Refine adds a few more rounds if you want to be sure.`;
   }
-  const finest = result.atFinestStep ?? result.candidates?.[0]?.finest;
-  if (finest) {
-    return `You're down to the finest step ${game.short} allows. Another pass adds more flicks around this value, so the answer gets steadier.`;
+  return `${conf.hint} It keeps these ${result.totalRounds} rounds and tests more around ${formatGameSens(game, result.best.sens)}.`;
+}
+
+/** The settings the drill is about to use, so a mismatch with the game is
+ * easy to spot before a pass rather than after. */
+function setupLine(game, tab, s) {
+  if (game.id === 'r6') {
+    const hip = s.hipfireH === s.hipfireV ? `${s.hipfireH}` : `${s.hipfireH}/${s.hipfireV}`;
+    const mult = s.useCustomMultiplier ? ` · multiplier ${s.customMultiplier}` : '';
+    return `Hip-fire ${hip}${mult} · ${s.dpi} DPI · FOV ${s.fov} · ${s.aspectRatio} - match these to R6`;
   }
-  const next = buildCandidates(result.best.sens, result.spreadPct * 0.5, game.rules)[0].delta;
-  return `${CONFIDENCE_TEXT[result.confidence].hint} Another pass tests ±${formatGameSens(game, next)} around ${formatGameSens(
-    game,
-    result.best.sens
-  )} and keeps these flicks.`;
+  return `${s.dpi} DPI · ${String(s.resolution).replace('x', '×')} - match these to ${game.short}`;
 }
 
 const fmtMs = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v)} ms`);
 const fmtFix = (v) => (v == null || !isFinite(v) ? '—' : v.toFixed(1));
 
-/** Table rows shared by the results screen and the comparison card. */
+/** Table rows shared by the results screen and the comparison card: every
+ * sensitivity tested, how it felt and how the flicks went. */
 function comparisonRowsHtml(result, game) {
-  const tag = result.centeredOn === 'previous-best' ? 'last pick' : 'current';
   return result.candidates
     .map((c) => {
       const cls = [c.isBase ? 'base' : '', c.sens === result.best.sens ? 'best' : ''].filter(Boolean).join(' ');
       return `<tr class="${cls}">
-        <td>${formatGameSens(game, c.sens)}${c.isBase ? ` · ${tag}` : ''}</td>
+        <td>${formatGameSens(game, c.sens)}${c.isBase ? ' · start' : ''}</td>
+        <td>${feelLabel(c.feel)}${c.rounds > 1 ? ` <span class="rounds-tag">×${c.rounds}</span>` : ''}</td>
         <td>${fmtPct(c.landRate)}</td>
         <td>${fmtPct(c.pastRate)}</td>
         <td>${fmtPct(c.shortRate)}</td>
         <td>${fmtFix(c.corrections)}</td>
-        <td>${fmtMs(c.timeMs)}</td>
       </tr>`;
     })
     .join('');
 }
 
-const SCORING_FOOTNOTE =
-  'On head: flicks whose first movement stopped on the head. Past / Short: stopped beyond it or before it. ' +
-  'Fixes: corrections per flick. Time: typical time from the target appearing to the hit. ' +
-  'The pick is the sensitivity where your first movement balances out - neither past the head nor short of it.';
+const FEEL_FOOTNOTE =
+  'Felt: how you rated each round (the value was hidden while you played). On head / Past / Short: where the first ' +
+  'movement of each flick stopped. Fixes: corrections per flick. The pick is where your ratings put "just right". ' +
+  'Stopping a little short and finishing with a small nudge is how most people aim, so a slight Short lean there is normal.';
 
 function renderAll() {
   const state = getState();
@@ -1539,14 +1580,6 @@ function renderSettingsInputs(state) {
     const estimate = estimateCm360(tab, { ...s, calib: { ...s.calib, [tab]: null } });
     input.placeholder = `Estimate ${formatCm360(estimate)}`;
   }
-  // The same for the ruler-free boxes, where the placeholder is the value
-  // the model expects to match hip-fire.
-  for (const [tab, id] of Object.entries(NEUTRAL_INPUTS)) {
-    const input = $(id);
-    if (document.activeElement !== input) input.value = s.calib?.[tab]?.neutral ?? '';
-    const expected = neutralAdsValue(tab, { ...s, calib: { ...s.calib, [tab]: null } });
-    input.placeholder = expected > 100 ? 'Estimate: above 100' : `Estimate ${Math.round(expected)}`;
-  }
 }
 
 let builtTabsFor = null;
@@ -1564,26 +1597,15 @@ function renderTabsUI(state) {
     el.classList.toggle('active', el.dataset.tab === state.activeTab);
   });
   $('comparisonTag').textContent = scopeLabel(game, state.activeTab);
-  // Siege's ADS optics rest on the estimated sight zoom until measured.
-  const estimatedOptic =
-    game.id === 'r6' && state.activeTab !== 'hipfire' && !isCalibrated(state.activeTab, getGameSettings('r6'));
-  $('modelNote').style.display = estimatedOptic ? '' : 'none';
-  if (estimatedOptic) {
-    // A check anyone can make in-game without a ruler: at this value the
-    // optic should feel exactly like hip-fire. If it doesn't, the value that
-    // does goes in the calibrate section and fixes this optic.
-    const expected = neutralAdsValue(state.activeTab, getGameSettings('r6'));
-    $('modelNoteCheck').textContent =
-      expected > 100
-        ? 'Worth knowing: no value on this sight matches hip-fire speed - even 100 is slower.'
-        : `Check it in R6: this sight should feel exactly like your hip-fire at ${Math.round(expected)}.`;
-  }
+  // Siege's ADS optics: what the speed rests on, until measured.
+  const r6Optic = game.id === 'r6' && state.activeTab !== 'hipfire' && !isCalibrated(state.activeTab, getGameSettings('r6'));
+  $('modelNote').style.display = r6Optic ? '' : 'none';
 
-  // "Start calibration" is always a fresh pass around your current setting -
-  // the narrower passes are what "Fine-tune further" does.
+  // "Start calibration" is always a fresh pass from your current setting -
+  // Refine is what builds on the last one.
   $('refineSub').textContent =
-    `Flicks at your current setting and ${Math.round(INITIAL_SPREAD_PCT * 100)}% either side, ` +
-    `to find where your flicks land on the head instead of past or short of it.`;
+    'Short rounds at different sensitivities, each rated for how it felt. It learns the speed you like - slower or ' +
+    'faster - and checks your flicks stay accurate there.';
 }
 
 function renderStats(state) {
@@ -1608,7 +1630,7 @@ function renderStats(state) {
   }
 
   const result = state.results[tab];
-  if (isFlickCheck(result)) {
+  if (isFeel(result) && !isStale(tab)) {
     $('statAccuracy').textContent = fmtPct(result.best.landRate);
     $('statTargets').textContent = fmtFix(result.best.corrections);
   } else {
@@ -1629,17 +1651,18 @@ function renderRecommendation(state) {
     badge.className = 'badge incomplete';
     badge.textContent = 'NOT RUN YET';
     body.innerHTML =
-      `<p class="card-empty">No flick check yet. It takes about ${Math.round(PASS_SECONDS / 30) / 2} minutes: ` +
-      `${TOTAL_SCORED_FLICKS} flicks onto head-sized targets, read for where each one lands.</p>`;
+      `<p class="card-empty">Not run yet. It takes about ${PASS_MINUTES} minutes: short rounds of flicks, each rated ` +
+      'for how the sensitivity felt, until it has found the speed you like.</p>';
     return;
   }
 
-  if (stale || !isFlickCheck(result)) {
+  if (stale || !isFeel(result)) {
     badge.style.display = 'inline-block';
     badge.className = 'badge retest';
     badge.textContent = 'RETEST REQUIRED';
-    body.innerHTML =
-      '<p class="card-empty">These results used earlier settings or an older scoring method. Run a fresh calibration before applying a recommendation.</p>';
+    body.innerHTML = isFeel(result)
+      ? '<p class="card-empty">Your settings have changed since this was run (DPI, FOV, hip-fire or another setting that changes how a value feels). Run it again before applying.</p>'
+      : '<p class="card-empty">This came from an older version of the test, which could recommend a sensitivity faster than you like and changed a lot between runs. Run the new one before applying.</p>';
     return;
   }
 
@@ -1656,45 +1679,42 @@ function renderRecommendation(state) {
   const deltaText = same
     ? 'Matches your current setting.'
     : `${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))} from your current ${fmt(current)}.`;
-  const refinedText = result.passCount > 1 ? ` · fine-tuned ×${result.passCount - 1}` : '';
-  const landed = isFinite(result.best.landRate) ? ` First flick on the head ${fmtPct(result.best.landRate)} of the time` : '';
+  const refinedText = result.passCount > 1 ? ` · refined ×${result.passCount - 1}` : '';
+  const b = result.best;
+  const landed =
+    b.n >= 4 && isFinite(b.landRate)
+      ? `At ${fmt(b.sens)} your first flick landed on the head ${fmtPct(b.landRate)} of the time. `
+      : '';
 
   body.innerHTML = `
-    <div class="rec-value">${fmt(result.best.sens)}</div>
-    <p class="rec-sub">${deltaText}${landed}${refinedText}.</p>
-    <p class="rec-sub rec-hint">${fineTuneHint(result, game)}</p>
+    <div class="rec-value">${fmt(b.sens)}</div>
+    <p class="rec-sub">${rangeText(result, game)} · ${deltaText}${refinedText}</p>
+    <p class="rec-sub rec-hint">${landed}${refineHint(result, game)}</p>
     <div class="rec-actions">
       <button id="applyRecBtn" class="btn-accent"${same ? ' disabled' : ''}>Apply to ${scopeLabel(game, tab)}</button>
-      <button id="fineTuneCardBtn" class="plain-btn">Fine-tune further</button>
+      <button id="fineTuneCardBtn" class="plain-btn">Refine</button>
     </div>
   `;
 }
 
 function renderComparison(state) {
   const game = getGame(state.game);
-  const fmtList = (cands) => cands.map((c) => formatGameSens(game, c.sens)).join(' / ');
   const tab = state.activeTab;
   const result = state.results[tab];
   const tbody = $('comparisonBody');
   const footnote = $('comparisonFootnote');
 
-  if (!isFlickCheck(result)) {
-    // Preview which sensitivities a fresh run would test, before any data exists.
-    const preview = buildCandidates(currentSens(game, tab, state.settings), INITIAL_SPREAD_PCT, game.rules);
-    tbody.innerHTML = preview
-      .map(
-        (c) => `<tr class="${c.isBase ? 'base' : ''}">
-          <td>${formatGameSens(game, c.sens)}${c.isBase ? ' · current' : ''}</td>
-          <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
-        </tr>`
-      )
-      .join('');
-    footnote.textContent = `Pass 1 will test ${fmtList(preview)}. ${SCORING_FOOTNOTE}`;
+  if (!isFeel(result) || isStale(tab)) {
+    $('feelChartMain').hidden = true;
+    const cur = formatGameSens(game, currentSens(game, tab, state.settings));
+    tbody.innerHTML = `<tr><td colspan="6" class="card-empty">No rounds yet. The first is your current ${cur}; after that each sensitivity is picked from how you rated the rounds before.</td></tr>`;
+    footnote.textContent = FEEL_FOOTNOTE;
     return;
   }
 
+  renderFeelChart($('feelChartMain'), result, game);
   tbody.innerHTML = comparisonRowsHtml(result, game);
-  footnote.textContent = `Pass ${result.passCount} tested ${fmtList(result.candidates)}${poolNote(result)}. ${SCORING_FOOTNOTE}`;
+  footnote.textContent = `${roundsNote(result)}. ${FEEL_FOOTNOTE}`;
 }
 
 main();

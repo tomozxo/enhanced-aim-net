@@ -94,7 +94,7 @@ const degFromCm360 = (cm360, dpi) => (360 * 2.54) / (cm360 * dpi);
  */
 function calibrationFactor(tab, s) {
   const c = s.calib && s.calib[tab];
-  if (!c) return 1;
+  if (!c || isFeltNeutral(c)) return 1;
   if (c.factor > 0) return c.factor;
   if (!(c.cm360 > 0) || !(c.dpi > 0)) return 1;
   if (!(c.sens > 0)) return 1;
@@ -105,31 +105,19 @@ function calibrationFactor(tab, s) {
   return model > 0 ? degFromCm360(c.cm360, c.dpi) / model : 1;
 }
 
+/**
+ * An older ruler-free correction ("the ADS value that feels like my
+ * hip-fire") - no longer used. It assumed that value turns exactly as far as
+ * hip-fire, but Ubisoft built ADS so that 50 *feels* like hip-fire: the zoom
+ * also speeds up how the world moves on screen, so the same feel means a
+ * smaller turn. Read as a turn, it sped ADS up by 13-17% on a 1× and far
+ * more on a 2.5×. Those entries are ignored (and dropped by state.js).
+ */
+export const isFeltNeutral = (c) => !!c && c.neutral != null;
+
 export function isCalibrated(tab, settings) {
   const c = settings.calib && settings.calib[tab];
-  return !!(c && (c.factor > 0 || (c.cm360 > 0 && c.dpi > 0)));
-}
-
-/** The ADS value at which this optic turns exactly as far as hip-fire does
- * - the value where ADS and hip-fire share a cm/360. Handy as a sanity
- * check against the game, and what neutralCalibrationFrom() pins. */
-export function neutralAdsValue(tab, settings) {
-  const zoom = sightZoomRatio(tab, settings) * calibrationFactor(tab, settings);
-  if (!SIGHT_FOV_SCALE[tab] || !(zoom > 0)) return NaN;
-  return 1 / (X_FACTOR_AIMING * zoom);
-}
-
-/**
- * Calibration without a ruler: "in game, this optic's ADS value X feels the
- * same speed as my hip-fire". At that value the optic must turn exactly as
- * far as hip-fire, which pins the sight's zoom - the one estimated part of
- * the model - for every other ADS value too.
- */
-export function neutralCalibrationFrom(tab, adsValue, settings) {
-  const v = Number(adsValue);
-  const zoom = sightZoomRatio(tab, settings);
-  if (!SIGHT_FOV_SCALE[tab] || !(v > 0) || !(zoom > 0)) return null;
-  return { neutral: v, factor: 1 / (v * X_FACTOR_AIMING * zoom), model: MODEL_VERSION };
+  return !!(c && !isFeltNeutral(c) && (c.factor > 0 || (c.cm360 > 0 && c.dpi > 0)));
 }
 
 /** Degrees of rotation per mouse count, per axis - what the drill uses. */

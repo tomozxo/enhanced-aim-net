@@ -431,7 +431,7 @@ body.app-shell { height: 100%; display: flex; flex-direction: column; overflow: 
 
 /* ---------- Main column ---------- */
 .tabbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.tabbar-status { font-size: 12.5px; color: var(--text-dim); }
+.tabbar-status { min-width: 0; font-size: 12.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* The start panel: the one bold block of colour, with faint target rings
    in the corner. */
@@ -452,6 +452,8 @@ body.app-shell { height: 100%; display: flex; flex-direction: column; overflow: 
   position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   text-align: center; padding: 20px 24px; min-height: 0; overflow: hidden;
 }
+/* Never squash a line to make room - the short-screen rules below drop whole lines instead. */
+.main-panel-center > * { flex-shrink: 0; }
 .main-panel-center h3 { font-size: 28px; font-weight: 600; letter-spacing: -0.03em; margin: 0 0 8px; }
 .main-panel-center p { color: rgba(255, 255, 255, 0.82); font-size: 14px; max-width: 430px; line-height: 1.6; margin: 0 0 20px; }
 .main-panel .btn-accent {
@@ -779,11 +781,64 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
 .getready .big { font-size: 12px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(237, 237, 237, 0.65); }
 .getready .num { font-size: 72px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; color: #fff; }
 
+/* After each calibration round: rate how it felt (keys 1-5, drills.js).
+   Sits over the dimmed arena, under the pause screen. */
+.rate-overlay {
+  position: absolute; inset: 0; z-index: 4; display: none; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(0, 0, 0, 0.55);
+}
+.rate-overlay.active { display: flex; }
+.rate-card {
+  width: min(640px, 100%); padding: 22px 22px 18px; text-align: center;
+  background: var(--surface); border-radius: 20px; box-shadow: var(--shadow-md);
+}
+.rate-q { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; color: var(--text); margin-bottom: 16px; }
+.rate-options { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.rate-opt {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 6px 11px;
+  background: var(--surface-2); border: 1px solid transparent; border-radius: 12px; cursor: pointer;
+  font: inherit; font-size: 12.5px; font-weight: 500; color: var(--text-sub);
+  transition: background 0.12s, color 0.12s, border-color 0.12s, transform 0.12s;
+}
+.rate-opt:hover { color: var(--text); border-color: var(--border-strong); }
+.rate-opt.mid { color: var(--text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.rate-key {
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px;
+  background: var(--track); color: var(--text); font-size: 13px; font-weight: 600;
+}
+.rate-opt.chosen { background: var(--accent); border-color: var(--accent); color: #fff; transform: scale(1.04); }
+.rate-opt.chosen .rate-key { background: rgba(255, 255, 255, 0.22); color: #fff; }
+.rate-note { margin-top: 14px; font-size: 12px; color: var(--text-dim); }
+@media (max-width: 560px) {
+  .rate-options { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+  .rate-opt { font-size: 11px; padding: 10px 2px; }
+}
+
+/* The calibration picture (app.js renderFeelChart): rated rounds over the
+   model's belief, with the pick marked. */
+.feel-chart { margin: 4px 0 6px; }
+.feel-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.results-card .feel-chart { margin: 14px 0 0; }
+.fc-row { stroke: var(--border); stroke-width: 1; }
+.fc-label { fill: var(--text-dim); font-size: 10.5px; font-family: inherit; }
+.fc-label.fc-mid { fill: var(--text-sub); font-weight: 600; }
+.fc-curve { fill: var(--accent); opacity: 0.13; }
+.fc-band { fill: var(--accent); opacity: 0.07; }
+.fc-best { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.fc-best-label { fill: var(--accent-text); font-size: 11px; font-weight: 600; font-family: inherit; }
+.fc-tick { fill: var(--text-dim); font-size: 10.5px; font-family: inherit; }
+.fc-dot { fill: var(--text-sub); stroke: var(--surface); stroke-width: 1.5; }
+.fc-dot.fc-right { fill: var(--accent); }
+.results-range { font-size: 13px !important; color: var(--text-sub); margin: -4px 0 12px !important; }
+.rounds-tag { font-size: 11px; color: var(--text-dim); }
+
 .results-overlay {
-  position: absolute; inset: 0; display: none; padding: 30px; overflow-y: auto;
+  position: absolute; inset: 0; z-index: 5; display: none; padding: 30px; overflow-y: auto;
   background: radial-gradient(900px 500px at 50% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%), var(--bg);
 }
 .results-overlay.active { display: flex; }
+/* The key hints along the bottom would sit over the card's buttons. */
+.drill-overlay:has(.results-overlay.active) .drill-footer { display: none; }
 .results-card {
   width: 100%; max-width: 540px; margin: auto; padding: 28px 28px 24px; text-align: center;
   background: var(--surface); border-radius: 20px; box-shadow: var(--shadow-md);
@@ -811,7 +866,7 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
    Kept at the end so these win over the rules above. The page never
    scrolls, so on a shorter monitor the start panel's blurb goes first,
    then its caption and key hints - the controls themselves always stay. */
-@media (max-height: 840px) {
+@media (max-height: 940px) {
   .main-panel-center p:not(.caption) { display: none; }
 }
 @media (max-height: 800px) {
