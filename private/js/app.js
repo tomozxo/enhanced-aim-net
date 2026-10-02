@@ -43,6 +43,7 @@ import {
   aiQueue,
   aiRecords,
   aiResult,
+  shownConfidence,
   verdictFor,
 } from './calibration.js';
 import {
@@ -589,6 +590,9 @@ async function main() {
       records,
       orderFrom: records.length ? Math.max(...records.map((r) => r.order)) + 1 : 0,
       passCount: canRefine ? (prev.passCount || 1) + 1 : 1,
+      // What the last pass picked: a refine pass has to land on the same
+      // answer before it counts as a clear result.
+      previousBest: canRefine ? prev.best.sens : null,
       isPractice: false,
     };
     const center = canRefine ? prev.best.sens : currentSens(game, tab, settings);
@@ -643,6 +647,7 @@ async function main() {
         rules: game.rules,
         passCount: run.passCount,
         current: currentSens(game, run.tab, getState().settings),
+        previousBest: run.previousBest,
       });
       setResult(run.tab, saved, basisFor(run.tab));
       showCalibrationResults(saved, run.tab);
@@ -654,14 +659,15 @@ async function main() {
   function showCalibrationResults(result, tab) {
     const game = currentGame();
     const fmt = (v) => formatGameSens(game, v);
-    const conf = CONFIDENCE_TEXT[result.confidence];
+    const confidence = shownConfidence(result);
+    const conf = CONFIDENCE_TEXT[confidence];
     $('resultsTitle').textContent = result.passCount > 1 ? `Refine pass ${result.passCount - 1} complete` : 'Calibration complete';
     $('resultsSub').textContent = `${scopeLabel(game, tab)} · ${flicksNote(result)}`;
 
     $('resultsRec').hidden = false;
     $('resultsRecValue').textContent = fmt(result.best.sens);
     $('resultsRange').textContent = verdictText(result, game);
-    $('resultsConfidence').className = `badge ${CONFIDENCE_BADGE[result.confidence]}`;
+    $('resultsConfidence').className = `badge ${CONFIDENCE_BADGE[confidence]}`;
     $('resultsConfidence').textContent = conf.label;
     renderAiChart($('resultsChart'), result, game);
     $('resultsTableBody').innerHTML = comparisonRowsHtml(result, game);
@@ -673,7 +679,7 @@ async function main() {
     // or a winner that's already your setting, points at another pass.
     const current = currentSens(game, tab, getState().settings);
     const alreadySet = bestSens(game, result) === current;
-    const readyToApply = result.confidence === 'clear' && !alreadySet;
+    const readyToApply = confidence === 'clear' && !alreadySet;
     $('fineTuneBtn').hidden = false;
     $('fineTuneBtn').className = readyToApply ? 'plain-btn' : 'btn-accent';
 
@@ -1319,7 +1325,7 @@ function bindTabs() {
 
 // ---------- Rendering ----------
 
-const CONFIDENCE_BADGE = { clear: 'ok', close: 'close', tie: 'retest' };
+const CONFIDENCE_BADGE = { clear: 'ok', early: 'close', close: 'close', tie: 'retest' };
 
 const fmtPct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
 
@@ -1351,17 +1357,21 @@ function verdictText(result, game) {
 
 function aiHint(result, game) {
   const fmt = (v) => formatGameSens(game, v);
+  const confidence = shownConfidence(result);
+  if (confidence === 'tie') return CONFIDENCE_TEXT.tie.hint;
+  const sure = confidence === 'clear';
+  // A refine pass that moved the answer: say so, rather than just "confirm".
+  const moved =
+    result.passCount >= 2 && result.previousBest > 0 && !result.confirmed
+      ? ` This pass moved it from ${fmt(result.previousBest)}, so run Refine again to see where it settles.`
+      : '';
+  const confirm = sure ? ' Two passes agree.' : moved || ' One pass can be off - run Refine to confirm it before relying on it.';
   if (result.keep) {
-    if (result.confidence === 'tie') return CONFIDENCE_TEXT.tie.hint;
-    return `${
-      result.confidence === 'clear' ? 'Your flicks show' : 'Your flicks suggest'
-    } no sensitivity nearby that's worth switching to - you hit heads as quickly and cleanly on ${fmt(result.best.sens)} as on anything around it.${
-      result.confidence === 'clear' ? '' : ' A refine pass adds more flicks to make sure.'
-    }`;
+    return `${sure ? 'Your flicks show' : 'Your flicks suggest'} no sensitivity nearby that's worth switching to - you hit heads as quickly and cleanly on ${fmt(
+      result.best.sens
+    )} as on anything around it.${confirm}`;
   }
-  return `Your flicks were quicker and cleaner around ${fmt(result.best.sens)}${
-    result.confidence === 'clear' ? '.' : ' - likely, but a refine pass would make sure.'
-  } Refine keeps these ${result.totalFlicks} flicks and tests around it.`;
+  return `Your flicks were quicker and cleaner around ${fmt(result.best.sens)}.${confirm} Refine keeps these ${result.totalFlicks} flicks and tests around it.`;
 }
 
 /** The settings the drill is about to use, so a mismatch with the game is
@@ -1675,9 +1685,10 @@ function renderRecommendation(state) {
     return;
   }
 
-  const conf = CONFIDENCE_TEXT[result.confidence] || CONFIDENCE_TEXT.close;
+  const shown = shownConfidence(result);
+  const conf = CONFIDENCE_TEXT[shown] || CONFIDENCE_TEXT.close;
   badge.style.display = 'inline-block';
-  badge.className = `badge ${CONFIDENCE_BADGE[result.confidence] || 'close'}`;
+  badge.className = `badge ${CONFIDENCE_BADGE[shown] || 'close'}`;
   badge.textContent = conf.label.toUpperCase();
 
   const game = getGame(state.game);

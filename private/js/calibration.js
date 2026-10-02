@@ -476,7 +476,7 @@ function chanceNearBest(m, xv) {
  *   candidates  - per sensitivity tested: time to the head, accuracy
  *   curve, points - the fitted slowdown and the measured one, for the chart
  */
-export function aiResult({ base, records, rules, passCount, current }) {
+export function aiResult({ base, records, rules, passCount, current, previousBest = null }) {
   const kept = records.slice(-MAX_KEPT_FLICKS);
   const cur = clampSens(current, rules);
   const m = aiModel(base, kept, cur);
@@ -495,6 +495,11 @@ export function aiResult({ base, records, rules, passCount, current }) {
   } else {
     confidence = pBetter >= 0.9 ? 'clear' : 'close';
   }
+  // One pass can be off, however strong it looks - so "clear" also needs a
+  // refine pass that comes back with the same answer (within about 4%).
+  // Until then a strong result is 'early': looks right, confirm it.
+  const confirmed = passCount >= 2 && previousBest > 0 && Math.abs(Math.log(best / previousBest)) <= 0.04;
+  if (confidence === 'clear' && !confirmed) confidence = 'early';
 
   // Where you aim about equally well.
   const tested = [...new Set(kept.map((r) => r.sens))].sort((a, b) => a - b);
@@ -556,6 +561,8 @@ export function aiResult({ base, records, rules, passCount, current }) {
     keep,
     gain: keep ? 0 : gain,
     pBetter,
+    previousBest,
+    confirmed,
     best: { ...nearest, sens: best, isBase: best === cur },
     zone,
     confidence,
@@ -614,8 +621,15 @@ export const AIM_VERDICTS = {
   },
 };
 
+/** The confidence to show. Results saved before a single pass stopped
+ * counting as "clear" read as 'early' too. */
+export function shownConfidence(result) {
+  return result.confidence === 'clear' && !result.confirmed ? 'early' : result.confidence;
+}
+
 export const CONFIDENCE_TEXT = {
-  clear: { label: 'Clear result', hint: 'Your flicks show this clearly.' },
+  clear: { label: 'Clear result', hint: 'Two passes agree on this.' },
+  early: { label: 'One pass so far', hint: 'Looks right, but one pass can be off - run Refine to confirm it.' },
   close: { label: 'Close call', hint: 'Likely, but a refine pass would make sure.' },
   tie: { label: 'Needs another pass', hint: 'Not enough of a pattern yet - run a refine pass before changing anything.' },
 };
