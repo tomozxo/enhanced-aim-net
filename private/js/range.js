@@ -20,12 +20,13 @@
 //
 // Nothing is loaded from outside: every texture is painted on a canvas.
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/+esm';
 import { DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
 import { analyseFlick, summariseFlicks, verdictFor, AIM_VERDICTS } from './calibration.js';
 import { sprayPattern, shotMs, kickAfter, scoreSpray, recoilAdvice, seeded } from './recoil.js';
 import { buildGunBody, modelFor } from './gunModels.js';
 import { gpuInfo } from './gpuCheck.js';
+import { PostChain } from './post.js';
 
 const DEG = Math.PI / 180;
 
@@ -290,6 +291,8 @@ export class RangeEngine {
     this.scene.fog = new THREE.FogExp2(0xc9d6e2, 0.003);
     this.camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 900);
     this.camera.rotation.order = 'YXZ';
+    this.post = new PostChain(r, this.scene, this.camera);
+    this.postOn = true;
 
     this.solids = []; // meshes a bullet stops on
     this.colliders = []; // { x0, x1, z0, z1 } the player can't walk through
@@ -2813,6 +2816,7 @@ export class RangeEngine {
     this.vmRest.set(rust ? 0.14 : 0.2, rust ? -0.215 : -0.235, rust ? -0.42 : -0.44);
     this.renderScale = gpuInfo().software ? 0.5 : 1;
     if (gpuInfo().software) this._setShadows(false);
+    this.postOn = !gpuInfo().software;
     this.frameTimes = [];
     this._resize();
     this.overlay.dataset.wantFs = '1';
@@ -3898,6 +3902,12 @@ export class RangeEngine {
     let next = s;
     // Far too slow (under ~25 fps): straight to the lowest resolution and
     // no shadows. Merely slow: a step down. Lots of room: a step back up.
+    // The post effects go first (they cost the most for the least), then
+    // resolution.
+    if (typical > 19 && this.postOn) {
+      this.postOn = false;
+      return;
+    }
     if (typical > 40) {
       next = 0.5;
       this._setShadows(false);
@@ -3945,8 +3955,12 @@ export class RangeEngine {
     this._aimCamera();
     this._updateViewmodel(dt, now);
     const r = this.renderer;
-    r.clear();
-    r.render(this.scene, this.camera);
+    // The world, through the post chain when the GPU has room for it.
+    if (this.postOn) this.post.render(dt);
+    else {
+      r.clear();
+      r.render(this.scene, this.camera);
+    }
     r.clearDepth();
     r.render(this.vmScene, this.vmCamera);
     this._hud(now);
@@ -4013,6 +4027,8 @@ export class RangeEngine {
       this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5) * scale);
       this.renderer.setSize(w, h, false);
     }
+    const drawn = this.renderer.getSize(new THREE.Vector2());
+    this.post.setSize(drawn.x, drawn.y, this.renderer.getPixelRatio());
     for (const cam of [this.camera, this.vmCamera]) cam.aspect = view.aspect;
     this.hipVFov = view.vFovDeg;
     this._applyFov();

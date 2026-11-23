@@ -12,7 +12,7 @@
 // (leftZ/leftY: shift from the default handguard hold) and its magazine
 // (for the reload animation).
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/+esm';
 
 /** Which body each gun in the recoil trainer gets, by game and gun id. */
 export const GUN_MODELS = {
