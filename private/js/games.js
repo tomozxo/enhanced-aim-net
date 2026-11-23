@@ -398,13 +398,42 @@ GAMES.rust = simpleGame({
   yawFor: (s) => 0.0015 * rustFov(s) * (s.calib && s.calib.factor > 0 ? s.calib.factor : 1),
   fovSlider: RUST_FOV,
   fovNote: "Rust's own slider (graphics.fov), vertical, 70-90",
-  defaults: { sens: 0.3, fov: 90, resolution: '1920x1080', displayMode: 'stretch', calib: null },
+  defaults: { sens: 0.3, fov: 90, resolution: '1920x1080', displayMode: 'stretch', calib: null, adsSens: 1, adsCalib: null },
   rules: { step: 0.001, decimals: 3, min: 0.01, max: 10, minSpreadPct: 0.02 },
   arrowStep: 0.01,
   sensLabel: 'Same number as input.sensitivity in Rust',
   exact: false,
   calibratable: true,
+  // Aiming: Rust's ADS sensitivity (input.ads_sensitivity) multiplies the
+  // turn while you aim. Facepunch don't publish how much each sight zooms,
+  // so the range keeps your FOV and the plain multiplier - and a 360 you
+  // measure while aimed (settings.adsCalib) corrects it to the real turn.
+  ads: {
+    sights: [
+      {
+        id: 'ads',
+        label: 'Iron sight / holosight',
+        optic: 'dot',
+        key: 'adsSens',
+        setting: 'ADS sensitivity',
+        rules: { step: 0.001, decimals: 3, min: 0.01, max: 10 },
+      },
+    ],
+    vFov: (_s, _sight, hipV) => hipV,
+    factor: (s) => (Number(s.adsSens) || 1) * (s.adsCalib && s.adsCalib.factor > 0 ? s.adsCalib.factor : 1),
+  },
 });
+
+/** Rust: the correction a 360 measured while aimed gives the ADS model -
+ * how far off the plain multiplier is at your settings right now. */
+export function adsCalibrationFor(game, s, cm360) {
+  const v = Number(cm360);
+  const sight = game.ads && game.ads.sights[0];
+  if (!sight || !(v > 0) || !(s.dpi > 0)) return null;
+  const model = game.ads.degPerCount({ ...s, adsCalib: null }, sight.id).x;
+  const measured = (2.54 * 360) / (v * s.dpi);
+  return model > 0 ? { cm360: v, dpi: s.dpi, sens: s.sens, adsSens: s.adsSens, fov: s.fov, factor: measured / model } : null;
+}
 
 /** For a game with a measured 360 (Rust): how far the formula is off,
  * worked out against the settings right now - so a later sens or FOV

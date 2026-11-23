@@ -410,6 +410,10 @@
             <span class="convert-mini">Sight</span>
             <span class="select-wrap"><select id="rangeSight"></select></span>
           </label>
+          <label class="range-field" data-ads-calib hidden>
+            <span class="convert-mini">Measured ADS cm/360°</span>
+            <input type="number" id="rangeAdsCalib" step="0.1" min="1" inputmode="decimal" placeholder="optional" />
+          </label>
         </div>
         <p class="range-ads-note" id="rangeAdsNote"></p>
         <div class="rec-actions">
@@ -421,6 +425,62 @@
           <span class="kbd">C</span> crouch <span class="kbd">R</span> reload <span class="kbd">LMB</span> shoot · hold for auto
           <span class="kbd">RMB</span> aim down sights
           <span class="kbd">Esc</span> pause
+        </p>
+      </div>
+      <div class="card recoil-card">
+        <div class="card-header">
+          <h3>Recoil trainer</h3>
+          <span class="comparison-tag">Rust · Siege</span>
+        </div>
+        <p class="convert-intro">
+          Pick a gun and a distance, put the mark on the target's chest and empty the magazine while you pull against
+          the kick. The kick moves your aim the way it does in the game, and it's undone with your own sensitivity
+          from above - hip-fire, or your ADS setting while you hold right-click - so the pull you learn here is the
+          pull you need in the game. Eight full sprays, then it shows where each part of the spray went wrong.
+        </p>
+        <div id="recoilBody">
+          <div class="range-options">
+            <label class="range-field">
+              <span class="convert-mini">Gun</span>
+              <span class="select-wrap"><select id="recoilGun"></select></span>
+            </label>
+            <label class="range-field">
+              <span class="convert-mini">Distance</span>
+              <span class="select-wrap"><select id="recoilDistance"></select></span>
+            </label>
+            <div class="range-field">
+              <span class="convert-mini">Fire rate · magazine</span>
+              <output class="range-cm" id="recoilStats">—</output>
+            </div>
+            <div class="range-field">
+              <span class="convert-mini" id="recoilPullLabel">Mouse pull, full magazine</span>
+              <output class="range-cm" id="recoilPull">—</output>
+            </div>
+          </div>
+          <p class="range-ads-note" id="recoilNote"></p>
+          <div class="rec-actions">
+            <button class="btn-accent" id="recoilStartBtn">Start recoil drill</button>
+          </div>
+        </div>
+        <p class="range-ads-note" id="recoilNone" hidden>
+          Recoil patterns cover Rust and Rainbow Six Siege so far. Pick one of those in the sidebar.
+        </p>
+      </div>
+      <div class="card range-history" id="recoilHistoryCard">
+        <div class="card-header">
+          <h3>Recoil results</h3>
+          <button class="clear-link" id="recoilClearBtn" style="padding:0">Clear</button>
+        </div>
+        <table class="comparison">
+          <thead><tr><th>Gun</th><th>Sens</th><th title="How much of the recoil you took out: 100% means every bullet went where the first did">Controlled</th><th title="Share of bullets that hit the target">On target</th><th title="Average distance of each bullet from the first, at the target">Spread</th></tr></thead>
+          <tbody id="recoilHistoryBody"></tbody>
+        </table>
+        <p class="comparison-footnote">
+          Neither Facepunch nor Ubisoft publish their guns' recoil, so the patterns come from community demonstrations.
+          Rust's spray shapes are from XGamingServer's recoil-pattern viewer and how far each gun climbs from SprayTrace,
+          with fire rates, magazines and aim cones from the Rust wiki - Rust's pattern is the same every spray. Siege's
+          climb, side kick, fire rates and magazines are from SprayTrace; its sideways kick is random every spray, as
+          it is in the game, so you learn the pull-down and react to the rest.
         </p>
       </div>
       <div class="card range-history">
@@ -465,7 +525,7 @@
     </div>
     <div class="results-overlay" id="rangeResults">
       <div class="results-card">
-        <h3>Head test complete</h3>
+        <h3 id="rangeResultsTitle">Head test complete</h3>
         <p id="rangeResultsSub"></p>
         <div class="range-tiles" id="rangeResultsGrid"></div>
         <div class="aim-read" id="rangeAimRead" hidden>
@@ -474,6 +534,7 @@
           <div class="aim-bar-labels"><span>stops short</span><span>lands past</span></div>
           <p class="aim-read-text" id="rangeAimText"></p>
         </div>
+        <div class="recoil-read" id="rangeRecoilRead" hidden></div>
         <div class="results-actions">
           <button class="btn-accent" id="rangeAgainBtn">Run it again</button>
           <button class="plain-btn" id="rangeDoneBtn">Done</button>

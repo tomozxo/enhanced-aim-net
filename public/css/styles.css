@@ -856,3 +856,30 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
   .stat { padding-top: 9px; padding-bottom: 10px; }
   .stat-value { font-size: 19px; }
 }
+
+/* Recoil drill results: every bullet on the target, the spray in degrees
+   (the pattern against yours), and one line on what to fix. */
+.recoil-read { margin: 14px 0 18px; text-align: left; }
+.rc-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.rc-charts figure { margin: 0; padding: 10px 10px 8px; background: var(--surface-2); border-radius: 12px; }
+.rc-charts figcaption { font-size: 11.5px; color: var(--text-sub); margin: 0 0 6px; }
+.rc-svg { display: block; width: 100%; height: auto; max-height: 240px; }
+.rc-body { fill: var(--text-dim); opacity: 0.22; }
+.rc-mark { fill: none; stroke: #ff5a1f; stroke-width: 1.6; }
+.rc-hit { fill: var(--text-sub); opacity: 0.55; }
+.rc-hit.rc-last { fill: var(--accent); opacity: 1; }
+.rc-axis { stroke: var(--border-strong); stroke-width: 1; }
+.rc-pat { fill: none; stroke: var(--text-dim); stroke-width: 1.4; stroke-dasharray: 3 3; }
+.rc-pat-dot { fill: var(--text-dim); }
+.rc-you { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.rc-you-dot { fill: var(--accent); }
+.rc-key { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+.rc-key i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 4px; }
+.rc-key i:first-child { margin-left: 0; }
+.rc-key .k-hit { background: var(--text-sub); opacity: 0.55; }
+.rc-key .k-last, .rc-key .k-you { background: var(--accent); }
+.rc-key .k-pat { background: var(--text-dim); }
+.recoil-advice { display: flex; flex-direction: column; gap: 3px; margin: 10px 0 0; padding: 11px 13px; border-radius: 12px; background: var(--accent-soft); font-size: 13px; color: var(--text-sub); }
+.recoil-advice b { color: var(--text); font-weight: 600; }
+.recoil-advice.good { background: color-mix(in srgb, var(--ok) 12%, transparent); }
+@media (max-width: 520px) { .rc-charts { grid-template-columns: 1fr; } }

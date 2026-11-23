@@ -23,6 +23,7 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 import { DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
 import { analyseFlick, summariseFlicks, verdictFor, AIM_VERDICTS } from './calibration.js';
+import { sprayPattern, shotMs, kickAfter, scoreSpray, recoilAdvice, seeded } from './recoil.js';
 
 const DEG = Math.PI / 180;
 
@@ -72,6 +73,14 @@ const BAY_HALF = (LANE_W * LANES) / 2 + 2.4; // 15.2
 const FIELD_END = -60;
 const BOUNDS = { xMin: -BAY_HALF + PLAYER_R, xMax: BAY_HALF - PLAYER_R, zMin: FIELD_END + 2.6, zMax: 9.4 };
 const TARGET_AREA = { xMin: -13.4, xMax: 13.4, zMin: -54, zMax: -5 };
+
+// Recoil drill: a target stands straight down a lane at the chosen
+// distance in front of a plywood backstop, and you empty a magazine into
+// it this many times. You aim at a mark on its chest.
+const RECOIL_SPRAYS = 8;
+const RECOIL_AIM_Y = 1.35;
+const RECOIL_RELOAD_MS = 900; // a quick reload between sprays - it's not the drill
+const RECOIL_MIN_SHOTS = 5; // a shorter burst isn't scored (the pattern still resets)
 
 // The 360° arena: open grassland with targets coming from every direction,
 // Rust-style. Centred where the sun's shadow map is drawn. You can walk up
@@ -1408,9 +1417,8 @@ export class RangeEngine {
   }
 
   /** A free target of the current map's kind: training bots on the range,
-   * people in the arena. */
-  _dummy() {
-    const kind = this.map.id === 'arena' ? 'human' : 'bot';
+   * people in the arena (or the kind asked for). */
+  _dummy(kind = this.map.id === 'arena' ? 'human' : 'bot') {
     let d = this.dummies.find((x) => x.state === 'hidden' && x.kind === kind && !x.respawnAt);
     if (!d) {
       d = kind === 'human' ? this._makeHuman() : this._makeDummy();
@@ -2036,7 +2044,7 @@ export class RangeEngine {
       if (!this.running || this.paused || document.pointerLockElement !== this.canvas) return;
       if (e.button === 0) {
         this.trigger = true;
-        this._tryFire(performance.now());
+        this._tryFire(performance.now(), true);
       }
       if (e.button === 2) this._adsButton(true);
     });
@@ -2049,6 +2057,9 @@ export class RangeEngine {
     document.addEventListener('keydown', (e) => {
       if (!this.running || this.paused) return;
       if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyC', 'KeyR', 'ShiftLeft', 'ShiftRight'].includes(e.code)) e.preventDefault();
+      // The recoil drill keeps you on the spot, so the distance stays what
+      // you picked.
+      if (this.cfg.mode === 'recoil') return;
       this.keys.add(e.code);
       if (e.code === 'KeyR') this._reload();
       if (e.code === 'Space' && this.player.onGround) {
@@ -2130,7 +2141,12 @@ export class RangeEngine {
   async start(cfg) {
     this._build();
     this.cfg = cfg;
-    this._useMap(cfg.map === 'arena' ? 'arena' : 'range');
+    // The recoil drill fires the chosen gun: its own fire rate and
+    // magazine. Everything else fires the range's rifle.
+    this.weapon = cfg.mode === 'recoil' ? cfg.gun : null;
+    this.fireMs = this.weapon ? shotMs(this.weapon) : FIRE_MS;
+    this.magSize = this.weapon ? this.weapon.mag : MAG_SIZE;
+    this._useMap(cfg.mode === 'recoil' ? 'range' : cfg.map === 'arena' ? 'arena' : 'range');
     this.active = true;
     this.overlay.classList.add('active');
     this.stage.classList.remove('show-cursor');
@@ -2149,6 +2165,7 @@ export class RangeEngine {
     const locked = await this._lock();
     if (!locked) this._pause('nolock');
     if (cfg.mode === 'test') this._countdown();
+    else if (cfg.mode === 'recoil') this._beginRecoil();
     else this._beginFree();
     if (!this.rafId) this._frame();
   }
@@ -2171,11 +2188,15 @@ export class RangeEngine {
     this.trigger = false;
     this.lastShot = 0;
     this.burst = 0;
-    this.ammo = MAG_SIZE;
+    this.ammo = this.magSize || MAG_SIZE;
     this.reloadUntil = 0;
     this.keys.clear();
     this.flick = null;
     this.test = null;
+    this.spray = null;
+    this.recoilRun = null;
+    this.kicks = [];
+    if (this.recoilRig) this._showRecoilRig(false);
     this.stats = { shots: 0, heads: 0, bodies: 0, kills: 0 };
     for (const d of this.dummies) {
       d.state = 'hidden';
@@ -2478,6 +2499,8 @@ export class RangeEngine {
 
   _showResults(s) {
     const pct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
+    if (this.el.resultsTitle) this.el.resultsTitle.textContent = 'Head test complete';
+    if (this.el.recoilRead) this.el.recoilRead.hidden = true;
     const aimed = Math.round((s.adsShare || 0) * s.kills);
     this.el.resultsSub.textContent = `${this.cfg.sensLabel} · ${s.map === 'arena' ? '360° arena · ' : ''}${s.dummies} targets · ${s.distance} range${
       this.sight ? ` · ${aimed} of ${s.kills} aimed down sights` : ''
@@ -2503,6 +2526,326 @@ export class RangeEngine {
       this.el.aimDot.style.left = `${50 + (clamp(s.bias, -2, 2) / 2) * 50}%`;
     }
     this.el.results.classList.add('active');
+  }
+
+  // ---------- Recoil drill ----------
+  // A target down a clear lane at the chosen distance, a backstop behind it
+  // to show where the misses went, and eight full magazines. Each spray's
+  // kick comes from the gun's pattern (recoil.js) and moves your aim; your
+  // pull against it is scored against where the first bullet went.
+
+  /** The backstop and the aim mark, built once. */
+  _buildRecoilRig() {
+    const g = new THREE.Group();
+    const c = canvas(256);
+    const x = c.getContext('2d');
+    x.fillStyle = '#c9a877';
+    x.fillRect(0, 0, 256, 256);
+    blotches(x, 256, 30, 10, 50, ['rgba(150,110,60,A)', 'rgba(220,195,150,A)'], 0.25);
+    x.strokeStyle = 'rgba(90,60,30,0.35)';
+    x.lineWidth = 1;
+    for (let i = 0; i <= 256; i += 32) {
+      x.beginPath();
+      x.moveTo(i, 0);
+      x.lineTo(i, 256);
+      x.moveTo(0, i);
+      x.lineTo(256, i);
+      x.stroke();
+    }
+    grain(x, 256, 14);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.4, 0.04), this._mat({ color: 0xffffff, roughness: 0.9, map: this._tex(c, 1) }));
+    board.position.set(0, 1.25, 0);
+    board.castShadow = board.receiveShadow = true;
+    g.add(board);
+    const postMat = this._mat({ color: 0x5b4632, roughness: 0.9 });
+    for (const sx of [-1.15, 1.15]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.09, 2.6, 0.09), postMat);
+      post.position.set(sx, 1.3, -0.07);
+      post.castShadow = true;
+      g.add(post);
+    }
+    // The aim mark: a bright ring and dot on the target's chest, drawn
+    // over it (it isn't part of what bullets hit).
+    const mc = canvas(128);
+    const mx = mc.getContext('2d');
+    mx.strokeStyle = '#ff5a1f';
+    mx.lineWidth = 12;
+    mx.beginPath();
+    mx.arc(64, 64, 52, 0, Math.PI * 2);
+    mx.stroke();
+    mx.fillStyle = '#ff5a1f';
+    mx.beginPath();
+    mx.arc(64, 64, 14, 0, Math.PI * 2);
+    mx.fill();
+    const mt = new THREE.CanvasTexture(mc);
+    mt.colorSpace = THREE.SRGBColorSpace;
+    const mark = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: mt, transparent: true, depthTest: false }));
+    mark.renderOrder = 5;
+    this.scene.add(g);
+    this.scene.add(mark);
+    this.recoilRig = { group: g, board, mark };
+    this._showRecoilRig(false);
+  }
+
+  _showRecoilRig(on) {
+    const r = this.recoilRig;
+    r.group.visible = on;
+    r.mark.visible = on;
+    for (const m of Object.values(this.maps)) {
+      const i = m.solids.indexOf(r.board);
+      if (i >= 0) m.solids.splice(i, 1);
+    }
+    if (on) this.solids.push(r.board);
+  }
+
+  _beginRecoil() {
+    if (!this.recoilRig) this._buildRecoilRig();
+    const dist = this.cfg.distance;
+    // A lane with nothing between you and the target at this distance.
+    const ray = new THREE.Raycaster();
+    const clear = (x) => {
+      const tz = 0.2 - dist;
+      if (this._blocked(x, tz, 0.5) || this._blocked(x, tz - 0.6, 0.3)) return false;
+      for (const y of [RECOIL_AIM_Y, 1.7, 0.9]) {
+        const from = new THREE.Vector3(x, EYE, 0.2);
+        const to = new THREE.Vector3(x, y, tz);
+        const d = to.clone().sub(from);
+        ray.set(from, d.clone().normalize());
+        ray.far = d.length() - 0.4;
+        if (ray.intersectObjects(this.solids, false).length) return false;
+      }
+      return true;
+    };
+    const lanes = [1.6, -1.6, 4.8, -4.8, 8, -8, 11.2, -11.2];
+    const x = lanes.find(clear) ?? 1.6;
+    const tz = 0.2 - dist;
+    const p = this.player;
+    p.x = x;
+    p.z = 0.2;
+    p.yaw = 0;
+    p.pitch = Math.atan2(RECOIL_AIM_Y - EYE, dist);
+    const r = this.recoilRig;
+    r.group.position.set(x, 0, tz - 0.6);
+    // The mark stays the same size on screen at any distance.
+    const s = Math.max(0.09, dist * 0.0065);
+    r.mark.scale.set(s, s, 1);
+    r.mark.position.set(x, RECOIL_AIM_Y, tz + 0.2);
+    this._showRecoilRig(true);
+    const kind = this.cfg.game.id === 'rust' ? 'human' : 'bot';
+    this.recoilTarget = this._spawnDummy(x, tz, { use: this._dummy(kind) });
+    this.recoilPlane = { x, z: tz };
+    this.recoilRun = { sprays: [], started: performance.now(), seed: (Math.random() * 1e9) | 0 };
+    this.running = true;
+  }
+
+  /** A shot's about to go: start a new spray if this is its first bullet
+   * (the trigger was off long enough for the pattern to reset). */
+  _sprayShotStarting(now) {
+    const sp = this.spray;
+    if (sp && now - this.lastShot <= this.weapon.reset * 1000) return;
+    if (sp) this._endSpray();
+    // Last spray's bullet holes stay up through the reload so you can see
+    // the group; they clear when the next one starts.
+    for (const dec of this.decals) this.scene.remove(dec);
+    this.decals = [];
+    const run = this.recoilRun;
+    this.spray = {
+      pattern: sprayPattern(this.weapon, seeded(run.seed + run.sprays.length * 7919 + 1)),
+      // The kicks as they actually came: aiming down sights scales each
+      // one by the gun's ADS scale (Rust), so this is what you fought.
+      applied: [[0, 0]],
+      shots: [],
+      first: null,
+      aimed: 0,
+    };
+  }
+
+  /** Records where a drill bullet went and queues the kick before the next. */
+  _sprayShot(dir, result, now) {
+    const sp = this.spray;
+    const o = this.camera.position;
+    const pl = this.recoilPlane;
+    // Where the bullet crosses the target's plane, from the aim mark (cm).
+    const t = dir.z < -1e-6 ? (pl.z - o.z) / dir.z : 0;
+    const x = (o.x + dir.x * t - pl.x) * 100;
+    const y = (o.y + dir.y * t - RECOIL_AIM_Y) * 100;
+    // And its direction, from the first bullet's (degrees, right and up).
+    const yaw = Math.atan2(-dir.x, -dir.z);
+    const pitch = Math.asin(clamp(dir.y, -1, 1));
+    if (!sp.first) sp.first = { yaw, pitch };
+    const dx = (-wrapPi(yaw - sp.first.yaw)) / DEG;
+    const dy = (pitch - sp.first.pitch) / DEG;
+    sp.shots.push({ x, y, dx, dy, hit: result });
+    if (this._aimed(now)) sp.aimed++;
+    const k = sp.shots.length - 1;
+    const scale = this._aimed(now) ? this.weapon.ads ?? 1 : 1;
+    const [kx, ky] = kickAfter(sp.pattern, k).map((v) => v * scale);
+    const last = sp.applied[sp.applied.length - 1];
+    if (k + 1 < sp.pattern.length) sp.applied.push([last[0] + kx, last[1] + ky]);
+    // Rust eases each kick in over most of the time to the next shot;
+    // Siege's is a quick jolt.
+    const dur = this.cfg.game.id === 'rust' ? Math.min(this.fireMs * 0.75, 120) : 40;
+    if (kx || ky) this.kicks.push({ yaw: -kx * DEG, pitch: ky * DEG, t: 0, dur });
+    if (this.ammo <= 0) this._endSpray();
+  }
+
+  /** The spray's over once the magazine's empty or the trigger's been off
+   * long enough for the pattern to reset (a semi-auto gets longer between
+   * taps). */
+  _checkSprayEnd(now) {
+    const sp = this.spray;
+    if (!sp || this.paused) return;
+    const idle = this.weapon.auto ? this.weapon.reset * 1000 : 1500;
+    if (now - this.lastShot > idle) this._endSpray();
+  }
+
+  _endSpray() {
+    const sp = this.spray;
+    this.spray = null;
+    if (!sp) return;
+    const run = this.recoilRun;
+    if (sp.shots.length >= RECOIL_MIN_SHOTS) {
+      run.sprays.push({ shots: sp.shots, pattern: sp.applied, aimed: sp.aimed, score: scoreSpray(sp.shots, sp.applied, this.cfg.distance) });
+    }
+    // A fresh magazine for the next one.
+    const now = performance.now();
+    if (this.ammo < this.magSize) {
+      this.reloadUntil = now + RECOIL_RELOAD_MS;
+      this.reloadStart = now;
+      this._soundClick(0.8);
+    }
+    if (run.sprays.length >= RECOIL_SPRAYS) {
+      this.trigger = false;
+      setTimeout(() => this.active && this.recoilRun === run && this._finishRecoil(), 700);
+    }
+  }
+
+  _finishRecoil() {
+    const run = this.recoilRun;
+    const sprays = run.sprays;
+    const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+    const controls = sprays.map((s) => s.score.control).filter((v) => v != null);
+    const shots = sprays.reduce((n, s) => n + s.shots.length, 0);
+    const aimed = sprays.reduce((n, s) => n + s.aimed, 0);
+    const advice = recoilAdvice(sprays, this.cfg.distance);
+    const summary = {
+      kind: 'recoil',
+      date: Date.now(),
+      game: this.cfg.game.id,
+      gun: this.weapon.id,
+      gunName: this.weapon.name,
+      distance: this.cfg.distance,
+      sens: this.cfg.sens,
+      cm360: this.cfg.game.cm360(this.cfg.tab, this.cfg.settings),
+      sprays: sprays.length,
+      control: mean(controls),
+      bestControl: controls.length ? Math.max(...controls) : null,
+      onTarget: mean(sprays.map((s) => s.score.onTarget)),
+      groupCm: mean(sprays.map((s) => s.score.groupCm)),
+      adsShare: shots ? aimed / shots : 0,
+      sight: this.sight ? this.sight.id : null,
+      adsValue: this.sight ? this.cfg.settings[this.sight.key] : null,
+      advice: advice && { title: advice.title, text: advice.text, tone: advice.tone },
+      totalMs: performance.now() - run.started,
+    };
+    this.recoilRun = null;
+    this.running = false;
+    this.trigger = false;
+    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
+    this.stage.classList.add('show-cursor');
+    this._showRecoilResults(summary, sprays);
+    this.onFinish?.(summary);
+  }
+
+  _showRecoilResults(s, sprays) {
+    const pct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
+    const aimedShare = Math.round((s.adsShare || 0) * 100);
+    if (this.el.resultsTitle) this.el.resultsTitle.textContent = `${s.gunName} · ${s.distance} m`;
+    this.el.resultsSub.textContent = `${this.cfg.sensLabel} · ${s.sprays} sprays${this.sight ? ` · ${aimedShare}% of shots aimed down sights` : ''}`;
+    const tiles = [
+      ['Recoil controlled', pct(s.control)],
+      ['Bullets on target', pct(s.onTarget)],
+      ['Spread from first shot', s.groupCm == null ? '—' : `${Math.round(s.groupCm)} cm`],
+      ['Best spray', pct(s.bestControl)],
+    ];
+    this.el.resultsGrid.innerHTML = tiles
+      .map(([k, v]) => `<div class="range-tile"><div class="stat-label">${k}</div><div class="stat-value">${v}</div></div>`)
+      .join('');
+    this.el.aim.hidden = true;
+    const box = this.el.recoilRead;
+    if (box) {
+      box.hidden = false;
+      box.innerHTML = `${this._recoilCharts(sprays, s.distance)}${
+        s.advice ? `<div class="recoil-advice ${s.advice.tone}"><b>${s.advice.title}</b><span>${s.advice.text}</span></div>` : ''
+      }`;
+    }
+    this.el.results.classList.add('active');
+  }
+
+  /** Two pictures of the run: every bullet on the target (real size at
+   * that distance), and the spray in degrees - the pattern you were
+   * fighting against the one you left. */
+  _recoilCharts(sprays, distance) {
+    const r1 = (v) => Math.round(v * 10) / 10;
+    // 1. On the target, cm from the aim mark; y up.
+    const W = 220;
+    const H = 260;
+    const span = { x: 90, top: 60, bottom: 140 }; // cm shown each way
+    const sx = (x) => r1(W / 2 + (x / span.x) * (W / 2));
+    const sy = (y) => r1(((span.top - y) / (span.top + span.bottom)) * H);
+    const kind = this.cfg.game.id === 'rust' ? 'human' : 'bot';
+    // A rough silhouette, real size: head 21 cm wide, shoulders ~46 cm,
+    // standing on the ground 135 cm below the mark.
+    const head = `<circle cx="${sx(0)}" cy="${sy(167 - 135)}" r="${r1((10.5 / span.x) * (W / 2))}" class="rc-body"/>`;
+    const torso = `<rect x="${sx(-23)}" y="${sy(150 - 135)}" width="${r1((46 / span.x) * (W / 2))}" height="${r1(((150 - 85) / (span.top + span.bottom)) * H)}" rx="8" class="rc-body"/>`;
+    const legs = `<rect x="${sx(-16)}" y="${sy(85 - 135)}" width="${r1((32 / span.x) * (W / 2))}" height="${r1((85 / (span.top + span.bottom)) * H)}" rx="5" class="rc-body"/>`;
+    let off = 0;
+    const dots = [];
+    sprays.forEach((sp, i) => {
+      const last = i === sprays.length - 1;
+      for (const b of sp.shots) {
+        if (Math.abs(b.x) > span.x || b.y > span.top || b.y < -span.bottom) {
+          off++;
+          continue;
+        }
+        dots.push(`<circle cx="${sx(b.x)}" cy="${sy(b.y)}" r="${last ? 2.6 : 2}" class="${last ? 'rc-hit rc-last' : 'rc-hit'}"/>`);
+      }
+    });
+    const mark = `<circle cx="${sx(0)}" cy="${sy(0)}" r="5" class="rc-mark"/>`;
+    const target = `<svg viewBox="0 0 ${W} ${H}" class="rc-svg" role="img" aria-label="Where your bullets hit">${kind ? head + torso + legs : ''}${mark}${dots.join('')}</svg>`;
+
+    // 2. The spray in degrees from the first bullet: the pattern (if you
+    // hadn't pulled) and where yours went, averaged over the sprays.
+    const n = Math.max(...sprays.map((s) => s.shots.length));
+    const avg = (get) =>
+      Array.from({ length: n }, (_, k) => {
+        const vs = sprays.filter((s) => s.shots.length > k).map((s) => get(s, k));
+        return vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : 0;
+      });
+    const pat = { x: avg((s, k) => s.pattern[k][0]), y: avg((s, k) => s.pattern[k][1]) };
+    const you = { x: avg((s, k) => s.shots[k].dx), y: avg((s, k) => s.shots[k].dy) };
+    const all = [...pat.x, ...you.x].map(Math.abs);
+    const halfW = Math.max(1.5, ...all) * 1.15;
+    const top = Math.max(2, ...pat.y, ...you.y) * 1.08;
+    const bottom = Math.max(1, ...you.y.map((v) => -v)) * 1.15;
+    const W2 = 220;
+    const H2 = 260;
+    const scale = Math.min((W2 / 2) / halfW, H2 / (top + bottom));
+    const px = (x) => r1(W2 / 2 + x * scale);
+    const py = (y) => r1((top - y) * scale);
+    const line = (xs, ys) => xs.map((x, k) => `${px(x)},${py(ys[k])}`).join(' ');
+    const deg = `<svg viewBox="0 0 ${W2} ${r1((top + bottom) * scale)}" class="rc-svg" role="img" aria-label="The spray pattern against yours">
+      <line x1="${px(-halfW)}" x2="${px(halfW)}" y1="${py(0)}" y2="${py(0)}" class="rc-axis"/>
+      <line x1="${px(0)}" x2="${px(0)}" y1="${py(top)}" y2="${py(-bottom)}" class="rc-axis"/>
+      <polyline points="${line(pat.x, pat.y)}" class="rc-pat"/>
+      ${pat.x.map((x, k) => `<circle cx="${px(x)}" cy="${py(pat.y[k])}" r="1.8" class="rc-pat-dot"/>`).join('')}
+      <polyline points="${line(you.x, you.y)}" class="rc-you"/>
+      ${you.x.map((x, k) => `<circle cx="${px(x)}" cy="${py(you.y[k])}" r="2" class="rc-you-dot"/>`).join('')}
+    </svg>`;
+    return `<div class="rc-charts">
+      <figure><figcaption>On the target${off ? ` · ${off} off the chart` : ''}</figcaption>${target}<div class="rc-key"><i class="k-hit"></i>Bullets <i class="k-last"></i>Last spray</div></figure>
+      <figure><figcaption>The spray, from your first shot</figcaption>${deg}<div class="rc-key"><i class="k-pat"></i>If you don't pull <i class="k-you"></i>Yours</div></figure>
+    </div>`;
   }
 
   // ---------- Free roam ----------
@@ -2534,17 +2877,20 @@ export class RangeEngine {
 
   _reload() {
     const now = performance.now();
-    if (this.cfg.mode === 'test' || this.reloadUntil > now || this.ammo === MAG_SIZE) return;
+    if (this.cfg.mode === 'test' || this.reloadUntil > now || this.ammo === this.magSize) return;
     this.reloadUntil = now + RELOAD_MS;
     this.reloadStart = now;
     this._soundClick(0.8);
     setTimeout(() => this.active && this._soundClick(1.2), RELOAD_MS * 0.7);
   }
 
-  _tryFire(now) {
+  _tryFire(now, press = false) {
     if (!this.running || this.paused) return;
     if (now < this.reloadUntil) return;
-    if (now - this.lastShot < FIRE_MS - 2) return;
+    // A semi-automatic gun fires once per click.
+    if (this.weapon && !this.weapon.auto && !press) return;
+    if (now - this.lastShot < this.fireMs - 2) return;
+    if (this.cfg.mode === 'recoil' && (this.ammo <= 0 || !this.recoilRun || this.recoilRun.sprays.length >= RECOIL_SPRAYS)) return;
     if (this.cfg.mode !== 'test' && this.ammo <= 0) {
       this._reload();
       return;
@@ -2557,6 +2903,8 @@ export class RangeEngine {
     // where the crosshair is; each one after kicks the view up a little
     // (with some sideways wander), and the view settles back when you stop.
     if (now - this.lastShot > 260) this.burst = 0;
+    const recoil = this.cfg.mode === 'recoil';
+    if (recoil) this._sprayShotStarting(now);
     this.lastShot = now;
     this.burst++;
     if (this.cfg.mode !== 'test') this.ammo--;
@@ -2566,13 +2914,33 @@ export class RangeEngine {
     this.ray = this.ray || new THREE.Raycaster();
     const dir = new THREE.Vector3();
     this.camera.getWorldDirection(dir);
+    const cone = recoil ? (this._aimed(now) ? this.weapon.aimCone : this.weapon.hipCone) || 0 : 0;
+    if (cone > 0) {
+      // The gun's cone - much wider from the hip than aimed in Rust: each
+      // bullet leaves somewhere inside a cone this many degrees across,
+      // around where you're aiming.
+      const a = Math.sqrt(Math.random()) * (cone / 2) * DEG;
+      const t = Math.random() * Math.PI * 2;
+      const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+      dir.addScaledVector(right, Math.tan(a) * Math.cos(t)).addScaledVector(up, Math.tan(a) * Math.sin(t)).normalize();
+    }
     this.ray.set(this.camera.position, dir);
     this.ray.far = 400;
     const targets = [];
     for (const d of this.dummies) if (d.alive && d.root.visible) targets.push(...d.parts);
     const hit = this.ray.intersectObjects([...targets, ...this.solids], false)[0];
     let result = 'miss';
-    if (hit && hit.object.userData.dummy) {
+    if (recoil && hit && hit.object.userData.dummy) {
+      // The drill's target never drops: every hit just marks.
+      const d = hit.object.userData.dummy;
+      result = hit.object.userData.zone === 'head' ? 'head' : 'body';
+      if (result === 'head') this.stats.heads++;
+      else this.stats.bodies++;
+      d.flash = 0.06;
+      this._hitmarker(result === 'head');
+      this._soundHit(result === 'head');
+    } else if (hit && hit.object.userData.dummy) {
       const d = hit.object.userData.dummy;
       if (hit.object.userData.zone === 'head') {
         result = 'head';
@@ -2600,12 +2968,16 @@ export class RangeEngine {
     }
     if (this.test) this._testShot(result);
 
-    // Recoil: the view kicks (applied after the shot, so the shot itself
-    // went where you aimed) and the rifle jolts back - less so when it's
-    // shouldered and aimed.
-    const room = 1 - this.punch.pitch / (5 * DEG);
-    this.punch.pitch += 0.5 * DEG * Math.max(0.2, room);
-    this.punch.yaw += rand(-0.22, 0.22) * DEG * Math.min(1, this.burst / 3);
+    if (recoil) {
+      this._sprayShot(dir, result, now);
+    } else {
+      // Recoil: the view kicks (applied after the shot, so the shot itself
+      // went where you aimed) and the rifle jolts back - less so when it's
+      // shouldered and aimed.
+      const room = 1 - this.punch.pitch / (5 * DEG);
+      this.punch.pitch += 0.5 * DEG * Math.max(0.2, room);
+      this.punch.yaw += rand(-0.22, 0.22) * DEG * Math.min(1, this.burst / 3);
+    }
     const steady = 1 - 0.55 * this.ads.e;
     this.kick.vz += 1.6 * steady;
     this.kick.vrx += 22 * steady;
@@ -2712,6 +3084,22 @@ export class RangeEngine {
   }
 
   _updateRecoil(dt, now) {
+    // The recoil drill's kicks move your aim itself, each spread over a
+    // moment the way the games ease the view up rather than snapping it.
+    if (this.kicks && this.kicks.length) {
+      const p = this.player;
+      const ease = (k) => 1 - (1 - k) * (1 - k);
+      for (const k of this.kicks) {
+        const k0 = Math.min(1, k.t / k.dur);
+        k.t += dt * 1000;
+        const k1 = Math.min(1, k.t / k.dur);
+        const f = ease(k1) - ease(k0);
+        p.yaw += k.yaw * f;
+        p.pitch = clamp(p.pitch + k.pitch * f, -PITCH_LIMIT, PITCH_LIMIT);
+      }
+      this.kicks = this.kicks.filter((k) => k.t < k.dur);
+    }
+    if (this.cfg && this.cfg.mode === 'recoil') this._checkSprayEnd(now);
     // View punch settles back quickly once you stop shooting.
     const firing = now - this.lastShot < 140;
     const back = Math.exp(-dt * (firing ? 3 : 11));
@@ -2749,9 +3137,9 @@ export class RangeEngine {
       dip = inOut * 0.06;
       roll = inOut * 0.5;
       magDrop = k < 0.5 ? Math.min(1, k * 4) * 0.25 : Math.max(0, 1 - (k - 0.5) * 4) * 0.25;
-      if (k >= 1) this.ammo = MAG_SIZE;
-    } else if (this.reloadUntil && this.ammo < MAG_SIZE && now >= this.reloadUntil) {
-      this.ammo = MAG_SIZE;
+      if (k >= 1) this.ammo = this.magSize;
+    } else if (this.reloadUntil && this.ammo < this.magSize && now >= this.reloadUntil) {
+      this.ammo = this.magSize;
       this.reloadUntil = 0;
     }
     this.mag.position.y = -magDrop;
@@ -2867,11 +3255,23 @@ export class RangeEngine {
       e.hudMain.textContent = `${done} / ${TEST_DUMMIES}`;
       e.hudSub.textContent = t ? `${((now - t.started) / 1000).toFixed(1)}s` : 'Head test';
       e.ammo.textContent = '∞';
+    } else if (this.cfg?.mode === 'recoil') {
+      const run = this.recoilRun;
+      const done = run ? run.sprays.length : 0;
+      e.hudMain.textContent = `${this.weapon.name} · ${this.cfg.distance} m`;
+      const sp = this.spray;
+      e.hudSub.textContent =
+        done >= RECOIL_SPRAYS
+          ? 'Done'
+          : sp
+            ? `Spray ${done + 1} of ${RECOIL_SPRAYS} · ${sp.shots.length} / ${this.magSize}`
+            : `Spray ${done + 1} of ${RECOIL_SPRAYS} · ${this.weapon.auto ? 'hold to empty the magazine' : 'tap out the magazine'} on the mark`;
+      e.ammo.textContent = this.reloadUntil > now ? 'Reloading' : `${this.ammo} / ${this.magSize}`;
     } else {
       const s = this.stats || { kills: 0, heads: 0, shots: 0 };
       e.hudMain.textContent = `${s.kills} down`;
       e.hudSub.textContent = s.shots ? `Headshots ${Math.round((s.heads / s.shots) * 100)}% of shots` : 'Free roam';
-      e.ammo.textContent = this.reloadUntil > now ? 'Reloading' : `${this.ammo} / ${MAG_SIZE}`;
+      e.ammo.textContent = this.reloadUntil > now ? 'Reloading' : `${this.ammo} / ${this.magSize}`;
     }
   }
 
