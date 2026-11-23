@@ -446,10 +446,12 @@ export function calibrationFor(game, s, cm360) {
   return model > 0 ? { cm360: v, dpi: s.dpi, sens: s.sens, fov: s.fov, factor: measured / model } : null;
 }
 
-export const GAME_ORDER = ['r6', 'valorant', 'cs2', 'apex', 'cod', 'overwatch', 'rivals', 'rust'];
+// The games in the picker, alphabetical by name. Apex, Overwatch 2 and Marvel
+// Rivals are still defined (the converter uses their yaw) but aren't offered.
+export const GAME_ORDER = ['cod', 'cs2', 'r6', 'rust', 'valorant'];
 
 export function getGame(id) {
-  return GAMES[id] || GAMES.r6;
+  return GAME_ORDER.includes(id) ? GAMES[id] : GAMES.r6;
 }
 
 /** Rounds a sens to what the game accepts. */

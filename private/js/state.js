@@ -1,4 +1,4 @@
-import { GAMES, quantizeSens } from './games.js';
+import { GAMES, GAME_ORDER, quantizeSens } from './games.js';
 import { MODEL_VERSION } from './sensMath.js';
 
 const STORAGE_KEY = 'r6sf_state_v1'; // name kept; the shape inside is versioned
@@ -96,7 +96,7 @@ function normalise(p) {
   }
   return {
     version: 2,
-    game: GAMES[p.game] ? p.game : 'r6',
+    game: GAME_ORDER.includes(p.game) ? p.game : 'r6',
     shared: { ...structuredClone(SHARED_DEFAULTS), ...(p.shared || {}) },
     games,
   };
@@ -201,7 +201,7 @@ export function subscribe(fn) {
 
 /** Switches which game the page is calibrating for. */
 export function setGame(id) {
-  if (!GAMES[id] || id === data.game) return;
+  if (!GAME_ORDER.includes(id) || id === data.game) return;
   data = { ...data, game: id };
   notify();
 }
