@@ -24,6 +24,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 import { DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
 import { analyseFlick, summariseFlicks, verdictFor, AIM_VERDICTS } from './calibration.js';
 import { sprayPattern, shotMs, kickAfter, scoreSpray, recoilAdvice, seeded } from './recoil.js';
+import { buildGunBody, modelFor } from './gunModels.js';
 
 const DEG = Math.PI / 180;
 
@@ -250,7 +251,7 @@ export class RangeEngine {
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 1.0;
     r.shadowMap.enabled = true;
-    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.shadowMap.type = THREE.PCFShadowMap;
     // Nothing that casts a shadow ever moves, so the shadows are drawn once.
     r.shadowMap.autoUpdate = false;
     r.autoClear = false;
@@ -636,7 +637,7 @@ export class RangeEngine {
     sun.position.copy(this.sunDir).multiplyScalar(80);
     sun.target.position.set(0, 0, -24);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(4096, 4096);
+    sun.shadow.mapSize.set(2048, 2048);
     const s = sun.shadow.camera;
     s.left = -48;
     s.right = 48;
@@ -1601,49 +1602,12 @@ export class RangeEngine {
       gun.add(m);
       return m;
     };
-    // Receiver and lower.
-    add(this._rbox(0.05, 0.06, 0.3, 0.008, metal), 0, 0.03, -0.02);
-    add(this._rbox(0.046, 0.05, 0.19, 0.008, metal), 0, -0.02, 0.0);
-    add(this._rbox(0.052, 0.05, 0.075, 0.006, metal), 0, -0.05, -0.075);
-    // Ejection port and forward assist on the right side.
-    add(new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.022, 0.07), black), 0.026, 0.03, -0.01);
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.03, 10), steel), 0.03, 0.045, 0.06, Math.PI / 2);
-    // Charging handle.
-    add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.012, 0.02), black), 0, 0.062, 0.12);
-    // Handguard (two-tone tan) with M-LOK slots.
-    add(this._rbox(0.058, 0.058, 0.32, 0.012, tan), 0, 0.031, -0.33);
-    for (let i = 0; i < 4; i++) {
-      for (const s of [-1, 1]) add(new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.012, 0.034), black), s * 0.0295, 0.028, -0.22 - i * 0.065);
-    }
-    // Top rail with its teeth.
-    add(new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.01, 0.62), black), 0, 0.066, -0.17);
-    const teeth = new THREE.InstancedMesh(new THREE.BoxGeometry(0.026, 0.006, 0.005), black, 60);
-    const tm = new THREE.Matrix4();
-    for (let i = 0; i < 60; i++) teeth.setMatrixAt(i, tm.makeTranslation(0, 0.073, 0.13 - i * 0.01));
-    gun.add(teeth);
-    // Barrel, gas block, muzzle brake.
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.0105, 0.0105, 0.16, 16), steel), 0, 0.03, -0.56, Math.PI / 2);
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.0165, 0.0165, 0.06, 16), black), 0, 0.03, -0.665, Math.PI / 2);
-    for (let i = 0; i < 3; i++) add(new THREE.Mesh(new THREE.CylinderGeometry(0.0168, 0.0168, 0.005, 16), steel), 0, 0.03, -0.645 - i * 0.015, Math.PI / 2);
-    // Magazine: a curved box mag.
-    const mag = [];
-    for (let i = 0; i <= 8; i++) {
-      const t = i / 8;
-      mag.push([0.03 + 0.05 * t * t, -0.05 - 0.19 * t]);
-    }
-    for (let i = 8; i >= 0; i--) {
-      const t = i / 8;
-      mag.push([0.03 + 0.05 * t * t + 0.058, -0.05 - 0.19 * t + 0.006 * t]);
-    }
-    this.mag = add(this._profile(mag.map(([u, v]) => [u + 0.04, v]), 0.03, black, 0.004), 0, 0, 0);
-    // Pistol grip, angled back.
-    add(this._profile([[-0.005, -0.03], [-0.052, -0.03], [-0.088, -0.15], [-0.086, -0.165], [-0.045, -0.165], [-0.03, -0.15]], 0.036, black, 0.006), 0, 0, 0.02);
-    // Trigger guard and trigger.
-    add(new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.004, 0.07), black), 0, -0.07, -0.035);
-    add(this._profile([[0, 0], [0.006, -0.028], [0.0, -0.032], [-0.006, -0.004]], 0.006, steel, 0.001), 0, -0.04, -0.03);
-    // Stock and buffer tube.
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.16, 16), black), 0, 0.02, 0.2, Math.PI / 2);
-    add(this._profile([[-0.14, 0.05], [-0.34, 0.05], [-0.36, 0.035], [-0.36, -0.07], [-0.33, -0.08], [-0.2, -0.02], [-0.14, -0.005]], 0.042, black, 0.006), 0, -0.005, 0);
+    // The gun body itself is swapped per game and per recoil-trainer gun
+    // (gunModels.js); the sights and hands below stay, so aiming lines up
+    // the same on every one.
+    this.gunBodyHolder = new THREE.Group();
+    gun.add(this.gunBodyHolder);
+    this.gunBodies = new Map();
     // Two sights for the rail, shown by which one the game's sight uses: a
     // red dot (1× and the light zooms) and a scope (the magnified ones).
     const sightGroup = (name) => {
@@ -1695,8 +1659,11 @@ export class RangeEngine {
 
     // Gloved hands and sleeves. Right hand round the grip, trigger finger
     // on the trigger; left hand under the handguard, fingers over the side.
-    const hands = new THREE.Group();
-    gun.add(hands);
+    // The left hand is its own group so it can move to each gun's hold.
+    const rightHand = new THREE.Group();
+    this.leftHand = new THREE.Group();
+    gun.add(rightHand, this.leftHand);
+    let hands = rightHand;
     const hadd = (m, x, y, z, rx = 0, ry = 0, rz = 0) => {
       m.position.set(x, y, z);
       m.rotation.set(rx, ry, rz);
@@ -1736,6 +1703,7 @@ export class RangeEngine {
     limb([0.052, -0.172, 0.17], [0.2, -0.43, 0.5], 0.04, 0.052, sleeve);
     // Left hand under the handguard: palm below, fingers up the left side,
     // thumb along the right.
+    hands = this.leftHand;
     hadd(this._rbox(0.07, 0.03, 0.095, 0.012, glove), -0.004, -0.014, -0.4, 0, 0, -0.08);
     for (let i = 0; i < 4; i++) {
       const z = -0.366 - i * 0.022;
@@ -1796,6 +1764,26 @@ export class RangeEngine {
     this.port = new THREE.Object3D();
     this.port.position.set(0.028, 0.03, -0.01);
     gun.add(this.port);
+    this._setGunModel(modelFor(null, null));
+  }
+
+  /** Puts a gun body in the hands (built once, then kept): [family,
+   * options] from gunModels.js. The left hand moves to its hold and the
+   * reload drops its magazine. */
+  _setGunModel(spec) {
+    const key = JSON.stringify(spec);
+    let body = this.gunBodies.get(key);
+    if (!body) {
+      body = buildGunBody(spec);
+      this.gunBodies.set(key, body);
+    }
+    if (this.gunBody === body) return;
+    if (this.gunBody) this.gunBodyHolder.remove(this.gunBody.group);
+    this.gunBodyHolder.add(body.group);
+    this.gunBody = body;
+    if (this.mag) this.mag.position.y = 0;
+    this.mag = body.mag || new THREE.Object3D();
+    this.leftHand.position.set(0, body.leftY || 0, body.leftZ || 0);
   }
 
   // ---------- Impacts ----------
@@ -2154,6 +2142,12 @@ export class RangeEngine {
     this.el.pause.classList.remove('active');
     this._reset();
     this._setupSight();
+    // The gun: Rust's and Siege's own (the recoil trainer's pick, or the
+    // game's main rifle); the range's rifle for the other games.
+    const gameId = cfg.game.id;
+    this._setGunModel(gameId === 'rust' || gameId === 'r6' ? modelFor(gameId, this.weapon ? this.weapon.id : null) : modelFor(null, null));
+    this.renderScale = 1;
+    this.frameTimes = [];
     this._resize();
     this.overlay.dataset.wantFs = '1';
     try {
@@ -3222,9 +3216,31 @@ export class RangeEngine {
     }
   }
 
+  /** Dynamic resolution: watches how long frames take and steps the render
+   * scale down when they're too slow for ~60 fps, back up when there's
+   * plenty of room. */
+  _adaptQuality(frameMs) {
+    if (this.paused || !this.running) return;
+    const t = (this.frameTimes = this.frameTimes || []);
+    t.push(frameMs);
+    if (t.length < 45) return;
+    const sorted = [...t].sort((a, b) => a - b);
+    const typical = sorted[Math.floor(sorted.length * 0.6)];
+    t.length = 0;
+    const s = this.renderScale || 1;
+    let next = s;
+    if (typical > 19) next = Math.max(0.5, s - 0.1);
+    else if (typical < 12 && s < 1) next = Math.min(1, s + 0.05);
+    if (Math.abs(next - s) > 1e-3) {
+      this.renderScale = next;
+      this._resize();
+    }
+  }
+
   _frame() {
     this.rafId = requestAnimationFrame(() => this._frame());
     const now = performance.now();
+    if (this.lastFrame) this._adaptQuality(now - this.lastFrame);
     const dt = Math.min(0.05, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
     if (!this.active) return;
@@ -3296,11 +3312,15 @@ export class RangeEngine {
       left: `${(rect.width - w) / 2}px`,
       top: `${(rect.height - h) / 2}px`,
     });
+    // Drawn at 1920×1080 (or the window's size) times the render scale:
+    // a slower GPU gets a lower internal resolution (see _adaptQuality)
+    // rather than a low frame rate. Aim is unaffected - it's set by FOV.
+    const scale = this.renderScale || 1;
     if (view.renderSize) {
       this.renderer.setPixelRatio(1);
-      this.renderer.setSize(view.renderSize.w, view.renderSize.h, false);
+      this.renderer.setSize(Math.round(view.renderSize.w * scale), Math.round(view.renderSize.h * scale), false);
     } else {
-      this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+      this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5) * scale);
       this.renderer.setSize(w, h, false);
     }
     for (const cam of [this.camera, this.vmCamera]) cam.aspect = view.aspect;
