@@ -25,6 +25,7 @@ import { DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshai
 import { analyseFlick, summariseFlicks, verdictFor, AIM_VERDICTS } from './calibration.js';
 import { sprayPattern, shotMs, kickAfter, scoreSpray, recoilAdvice, seeded } from './recoil.js';
 import { buildGunBody, modelFor } from './gunModels.js';
+import { gpuInfo } from './gpuCheck.js';
 
 const DEG = Math.PI / 180;
 
@@ -232,6 +233,13 @@ export class RangeEngine {
     canvasEl.after(this.scopeCanvas);
     this.scopedShown = 0;
     this.crosshairEl = stageEl.querySelector('.drill-crosshair');
+    // A small frame-rate read-out in the corner, so a slow frame rate is
+    // visible (and so is the effect of fixing it).
+    this.fpsEl = document.createElement('div');
+    this.fpsEl.className = 'range-fps';
+    stageEl.appendChild(this.fpsEl);
+    this.fpsCount = 0;
+    this.fpsSince = performance.now();
     this.crossShown = true;
     this.built = false;
     this.active = false;
@@ -2146,7 +2154,10 @@ export class RangeEngine {
     // game's main rifle); the range's rifle for the other games.
     const gameId = cfg.game.id;
     this._setGunModel(gameId === 'rust' || gameId === 'r6' ? modelFor(gameId, this.weapon ? this.weapon.id : null) : modelFor(null, null));
-    this.renderScale = 1;
+    // Drawn in software (no graphics card): start at the lowest quality
+    // rather than spend seconds finding it.
+    this.renderScale = gpuInfo().software ? 0.5 : 1;
+    if (gpuInfo().software) this._setShadows(false);
     this.frameTimes = [];
     this._resize();
     this.overlay.dataset.wantFs = '1';
@@ -3229,7 +3240,12 @@ export class RangeEngine {
     t.length = 0;
     const s = this.renderScale || 1;
     let next = s;
-    if (typical > 19) next = Math.max(0.5, s - 0.1);
+    // Far too slow (under ~25 fps): straight to the lowest resolution and
+    // no shadows. Merely slow: a step down. Lots of room: a step back up.
+    if (typical > 40) {
+      next = 0.5;
+      this._setShadows(false);
+    } else if (typical > 19) next = Math.max(0.5, s - 0.1);
     else if (typical < 12 && s < 1) next = Math.min(1, s + 0.05);
     if (Math.abs(next - s) > 1e-3) {
       this.renderScale = next;
@@ -3237,9 +3253,27 @@ export class RangeEngine {
     }
   }
 
+  /** Sun shadows on or off (off is a big saving on a slow GPU). */
+  _setShadows(on) {
+    const r = this.renderer;
+    if (!r || r.shadowMap.enabled === on) return;
+    r.shadowMap.enabled = on;
+    r.shadowMap.needsUpdate = true;
+    this.scene.traverse((o) => {
+      if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true;
+    });
+  }
+
   _frame() {
     this.rafId = requestAnimationFrame(() => this._frame());
     const now = performance.now();
+    this.fpsCount++;
+    if (now - this.fpsSince >= 500) {
+      const fps = (this.fpsCount * 1000) / (now - this.fpsSince);
+      this.fpsEl.textContent = `${Math.round(fps)} fps${this.renderScale && this.renderScale < 1 ? ` · ${Math.round(this.renderScale * 100)}%` : ''}`;
+      this.fpsCount = 0;
+      this.fpsSince = now;
+    }
     if (this.lastFrame) this._adaptQuality(now - this.lastFrame);
     const dt = Math.min(0.05, (now - this.lastFrame) / 1000);
     this.lastFrame = now;

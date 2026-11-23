@@ -34,6 +34,7 @@ import {
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine, previewHitSound } from './drills.js';
 import { RangeEngine } from './range.js';
+import { showGpuWarning } from './gpuCheck.js';
 import { gunsFor, gunById, RECOIL_DISTANCES, sprayPattern, seeded } from './recoil.js';
 import { CROSSHAIRS, CROSSHAIR_COLORS, DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
 import {
@@ -647,6 +648,7 @@ async function main() {
   if (!session) return;
 
   document.getElementById('pageRoot').style.display = '';
+  showGpuWarning();
   if (session.isAdmin) showAdminLink();
   applyAccent(getState().settings.accentColor);
   initModeToggle();

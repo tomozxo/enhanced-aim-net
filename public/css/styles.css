@@ -883,3 +883,9 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
 .recoil-advice b { color: var(--text); font-weight: 600; }
 .recoil-advice.good { background: color-mix(in srgb, var(--ok) 12%, transparent); }
 @media (max-width: 520px) { .rc-charts { grid-template-columns: 1fr; } }
+
+/* Frame rate in the range's corner. */
+.range-fps { position: absolute; right: 12px; top: 10px; z-index: 3; font: 600 11px/1 ui-monospace, Menlo, Consolas, monospace; color: rgba(255,255,255,0.75); text-shadow: 0 1px 2px rgba(0,0,0,0.6); pointer-events: none; }
+/* Shown when the browser draws 3D without the graphics card. */
+.gpu-warning { position: sticky; top: 0; z-index: 50; padding: 10px 44px 10px 16px; background: #7a1d1d; color: #fff; font-size: 13.5px; line-height: 1.45; }
+.gpu-warning button { position: absolute; right: 10px; top: 8px; background: none; border: 0; color: #fff; font-size: 16px; cursor: pointer; }
