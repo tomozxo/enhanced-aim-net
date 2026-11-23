@@ -47,11 +47,13 @@ const RELOAD_MS = 2100;
 // Aiming down sights: how long the rifle takes to come up (about what the
 // games take for a red dot and for a scope), and how much slower you move
 // while aimed.
-const ADS_MS = { dot: 170, scope: 240 };
+const ADS_MS = { dot: 170, scope: 240, iron: 190 };
 const ADS_MOVE = 0.6;
 // Where the eye sits behind each sight while aimed (gun coordinates: the
 // sight's axis height, and the z of its rear lens plus the eye relief).
-const SIGHT_EYE = { dot: { y: 0.106, z: 0.005 + 0.13 }, scope: { y: 0.112, z: 0.118 + 0.075 } };
+// Iron sights: the line over the rear notch and the front post (gunModels.js
+// IRON_LINE), the eye a hand-span behind the rear sight.
+const SIGHT_EYE = { dot: { y: 0.106, z: 0.005 + 0.13 }, scope: { y: 0.112, z: 0.118 + 0.075 }, iron: { y: 0.09, z: -0.15 + 0.28 } };
 
 // The roof over the firing line, for the rifle's lighting (it's in shade
 // under there).
@@ -345,7 +347,7 @@ export class RangeEngine {
     if (L) {
       const look = {
         range: { fog: 0xc9d6e2, density: 0.003, hemi: [0xc2d6ea, 0x6b604d, 0.75], sun: [0xfff0dc, 2.6], sunAt: this.sunDir, exposure: 1.0, fill: 18, sky: true },
-        arena: { fog: 0xb7bfb8, density: 0.0075, hemi: [0xb9c6cc, 0x5e5848, 0.7], sun: [0xffe6c4, 2.3], sunAt: this.sunDir, exposure: 0.95, fill: 0, sky: true },
+        arena: { fog: 0xc8d4dc, density: 0.0036, hemi: [0xd4e4f0, 0x6f6b4c, 0.95], sun: [0xfff1d6, 3.0], sunAt: this.sunDir, exposure: 1.08, fill: 0, sky: true },
         indoor: { fog: 0x26282b, density: 0.006, hemi: [0xe6ecf2, 0x5c5850, 1.25], sun: [0xf4f7ff, 1.35], sunAt: new THREE.Vector3(0.08, 1, 0.12).normalize(), exposure: 1.0, fill: 0, sky: false },
       }[map.id];
       this.scene.fog.color.setHex(look.fog);
@@ -1432,7 +1434,7 @@ export class RangeEngine {
 
   /** Trees at [x, z] spots, a mix of firs and broadleaves. Returns the
    * instanced meshes (so the arena can count them as cover). */
-  _forest(spots) {
+  _forest(spots, heightAt = () => 0) {
     // Each tree is a real trunk dressed in cards: firs in whorls of
     // drooping boughs that shrink up the trunk, broadleaves as a rounded
     // crown of leaf sprays on a forking trunk. Cut out with alpha, so light
@@ -1491,7 +1493,7 @@ export class RangeEngine {
       const s = rand(0.85, 1.4);
       sc.set(s, s * rand(0.9, 1.2), s);
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, Math.PI * 2));
-      m.compose(new THREE.Vector3(x, 0, z), q, sc);
+      m.compose(new THREE.Vector3(x, heightAt(x, z), z), q, sc);
       kind.crown.setMatrixAt(n, m);
       kind.trunk.setMatrixAt(n, m);
       // A little brighter or darker each, so a forest isn't one colour.
@@ -1534,6 +1536,237 @@ export class RangeEngine {
     return geo;
   }
 
+  /** Ground height round the arena: flat where you fight (so a flick
+   * test is fair and targets stand level), rolling hills beyond. */
+  _arenaHeight(x, z) {
+    const d = Math.hypot(x - ARENA.x, z - ARENA.z);
+    const t = clamp((d - 58) / 45, 0, 1);
+    const k = t * t * (3 - 2 * t);
+    const n = 5 + Math.sin(x * 0.021 + 1.3) * 3.2 + Math.cos(z * 0.027 - 0.4) * 2.6 + Math.sin((x + z) * 0.06) * 1.1;
+    return k * n;
+  }
+
+  /** The ground: a big heightfield that rolls up into hills past the
+   * fight, with darker and lighter patches of grass across it. */
+  _arenaGround(grassMat) {
+    const size = 700;
+    const seg = 150;
+    const geo = new THREE.PlaneGeometry(size, size, seg, seg);
+    geo.rotateX(-Math.PI / 2);
+    const p = geo.attributes.position;
+    const colors = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i) + ARENA.x;
+      const z = p.getZ(i) + ARENA.z;
+      p.setY(i, this._arenaHeight(x, z));
+      const v = 0.86 + 0.14 * Math.sin(x * 0.09 + Math.cos(z * 0.07) * 2) * Math.cos(z * 0.05);
+      colors[i * 3] = v;
+      colors[i * 3 + 1] = v;
+      colors[i * 3 + 2] = v * 0.96;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+    grassMat.vertexColors = true;
+    const ground = new THREE.Mesh(geo, grassMat);
+    ground.position.set(ARENA.x, -0.02, ARENA.z);
+    this._solid(ground, { cast: false });
+  }
+
+  /** Grass blades, bushes, a gravel road with power poles - the things that
+   * make open country look like open country. */
+  _arenaNature() {
+    const C = ARENA;
+    const T = this.tex;
+    const F = this._foliageTextures();
+    // The road: a gentle curve past the north of the clearing.
+    const roadZ = (x) => C.z - 21 + Math.sin((x - C.x) / 55) * 7;
+    const roadW = 6;
+    const onRoad = (x, z) => Math.abs(z - roadZ(x)) < roadW / 2 + 0.6;
+    {
+      const c = canvas(256);
+      const x = c.getContext('2d');
+      x.fillStyle = '#8a8170';
+      x.fillRect(0, 0, 256, 256);
+      blotches(x, 256, 40, 8, 40, ['rgba(70,62,50,A)', 'rgba(170,160,140,A)'], 0.25);
+      for (let i = 0; i < 1600; i++) {
+        const g = 90 + Math.random() * 90;
+        x.fillStyle = `rgba(${g},${g - 8},${g - 20},0.8)`;
+        x.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 2.5, 1 + Math.random() * 2.5);
+      }
+      // Two worn wheel tracks.
+      x.fillStyle = 'rgba(60,54,44,0.25)';
+      x.fillRect(48, 0, 40, 256);
+      x.fillRect(168, 0, 40, 256);
+      grain(x, 256, 18);
+      const mat = this._mat({ map: this._tex(c, 1, 1), roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2 });
+      // A strip that follows the curve and the ground, its texture running
+      // along it.
+      const pos = [];
+      const uv = [];
+      const idx = [];
+      const steps = 220;
+      const x0 = C.x - 330;
+      const x1 = C.x + 330;
+      for (let i = 0; i <= steps; i++) {
+        const xx = x0 + ((x1 - x0) * i) / steps;
+        const zz = roadZ(xx);
+        const dz = (roadZ(xx + 0.5) - roadZ(xx - 0.5)) / 1;
+        const nx = -dz;
+        const nz = 1;
+        const nl = Math.hypot(nx, nz);
+        for (const s of [-1, 1]) {
+          const px = xx + (s * nx * roadW) / 2 / nl;
+          const pz = zz + (s * nz * roadW) / 2 / nl;
+          pos.push(px, this._arenaHeight(px, pz) + 0.012, pz);
+          uv.push(s < 0 ? 0 : 1, (i * (x1 - x0)) / steps / roadW);
+        }
+        if (i < steps) {
+          const a = i * 2;
+          idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const road = new THREE.Mesh(geo, mat);
+      road.receiveShadow = true;
+      this.scene.add(road);
+    }
+    // Wooden power poles along the far side of the road, wires sagging
+    // between them.
+    {
+      const pole = this._mat({ map: this._tex(F.bark, 1, 4), color: 0x8a7a66, roughness: 0.95 });
+      const wireMat = new THREE.LineBasicMaterial({ color: 0x1d1d1d });
+      const tops = [];
+      for (let x = C.x - 300; x <= C.x + 300; x += 38) {
+        const z = roadZ(x) - roadW / 2 - 1.4;
+        const y0 = this._arenaHeight(x, z);
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.16, 9.5, 8), pole);
+        p.position.set(x, y0 + 4.75, z);
+        p.rotation.z = rand(-0.03, 0.03);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.12, 0.12), pole);
+        arm.position.set(x, y0 + 8.9, z);
+        for (const m of [p, arm]) {
+          m.castShadow = true;
+          this.scene.add(m);
+        }
+        tops.push([x, y0 + 9.02, z]);
+      }
+      for (let i = 0; i + 1 < tops.length; i++) {
+        const [ax, ay, az] = tops[i];
+        const [bx, by, bz] = tops[i + 1];
+        for (const off of [-0.95, 0, 0.95]) {
+          const pts = [];
+          for (let k = 0; k <= 12; k++) {
+            const t = k / 12;
+            pts.push(new THREE.Vector3(ax + (bx - ax) * t + off, ay + (by - ay) * t - Math.sin(t * Math.PI) * 0.9, az + (bz - az) * t));
+          }
+          this.scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wireMat));
+        }
+      }
+    }
+    // Grass: thousands of clumps of blades, cut out of cards, taller
+    // further out. They don't stop bullets or block you, as in the game.
+    {
+      const c = canvas(256);
+      const x = c.getContext('2d');
+      x.clearRect(0, 0, 256, 256);
+      x.lineCap = 'round';
+      for (let i = 0; i < 85; i++) {
+        const bx = 20 + Math.random() * 216;
+        const h = 90 + Math.random() * 160;
+        const lean = (Math.random() - 0.5) * 90;
+        const g = 120 + Math.random() * 50;
+        x.strokeStyle = `rgba(${105 + Math.random() * 45},${g},${55 + Math.random() * 30},1)`;
+        x.lineWidth = 3 + Math.random() * 3;
+        x.beginPath();
+        x.moveTo(bx, 256);
+        x.quadraticCurveTo(bx + lean * 0.3, 256 - h * 0.6, bx + lean, 256 - h);
+        x.stroke();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const blade = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
+      const geo = mergeUV([
+        [blade, new THREE.Matrix4()],
+        [blade, new THREE.Matrix4().makeRotationY(Math.PI / 3)],
+        [blade, new THREE.Matrix4().makeRotationY((2 * Math.PI) / 3)],
+      ]);
+      const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.95, envMapIntensity: 0.2 });
+      const N = 14000;
+      const mesh = new THREE.InstancedMesh(geo, mat, N);
+      const m = new THREE.Matrix4();
+      const q = new THREE.Quaternion();
+      const sc = new THREE.Vector3();
+      const col = new THREE.Color();
+      let n = 0;
+      for (let i = 0; i < N * 3 && n < N; i++) {
+        const a = rand(-Math.PI, Math.PI);
+        const d = Math.sqrt(Math.random()) * 140 + 3;
+        const px = C.x + Math.sin(a) * d;
+        const pz = C.z + Math.cos(a) * d;
+        if (onRoad(px, pz)) continue;
+        const tall = d < 10 ? 0.4 : d < 30 ? 0.65 : 0.95;
+        const w = rand(0.7, 1.2);
+        sc.set(w, tall * rand(0.7, 1.2), w);
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, Math.PI));
+        m.compose(new THREE.Vector3(px, this._arenaHeight(px, pz) - 0.03, pz), q, sc);
+        mesh.setMatrixAt(n, m);
+        const v = rand(0.7, 1.0);
+        mesh.setColorAt(n, col.setRGB(v * rand(0.95, 1.1), v, v * rand(0.85, 0.95)));
+        n++;
+      }
+      mesh.count = n;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+    }
+    // Bushes: rounded heaps of leaf sprays, scattered through the field
+    // and banked up along the treeline.
+    {
+      const parts = [];
+      for (let i = 0; i < 16; i++) {
+        const u = rand(-0.2, 1);
+        const a = rand(0, Math.PI * 2);
+        const r = Math.sqrt(1 - u * u);
+        const dir = new THREE.Vector3(Math.cos(a) * r, u * 0.6, Math.sin(a) * r);
+        const at = dir.clone().multiply(new THREE.Vector3(0.9, 0.7, 0.9)).add(new THREE.Vector3(0, 0.6, 0));
+        const mm = new THREE.Matrix4().lookAt(at, at.clone().add(dir), new THREE.Vector3(0, 1, 0)).setPosition(at);
+        const s = rand(0.9, 1.4);
+        parts.push([new THREE.PlaneGeometry(s, s), mm]);
+      }
+      const geo = mergeUV(parts);
+      const mat = new THREE.MeshStandardMaterial({ map: F.leaf, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.9, envMapIntensity: 0.2 });
+      const N = 260;
+      const mesh = new THREE.InstancedMesh(geo, mat, N);
+      const m = new THREE.Matrix4();
+      const q = new THREE.Quaternion();
+      const sc = new THREE.Vector3();
+      const col = new THREE.Color();
+      let n = 0;
+      for (let i = 0; i < N * 4 && n < N; i++) {
+        const a = rand(-Math.PI, Math.PI);
+        const d = n < 60 ? rand(36, 58) : rand(60, 160);
+        const px = C.x + Math.sin(a) * d;
+        const pz = C.z + Math.cos(a) * d;
+        if (onRoad(px, pz)) continue;
+        const s = rand(0.8, 1.9);
+        sc.set(s * rand(0.9, 1.4), s, s * rand(0.9, 1.4));
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, Math.PI * 2));
+        m.compose(new THREE.Vector3(px, this._arenaHeight(px, pz), pz), q, sc);
+        mesh.setMatrixAt(n, m);
+        const v = rand(0.8, 1.1);
+        mesh.setColorAt(n, col.setRGB(v, v, v * 0.92));
+        n++;
+      }
+      mesh.count = n;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+    }
+  }
+
   /**
    * The 360° arena, Rust-style: a worn dirt clearing in open grassland,
    * boulders, a few pieces of player building (stone half-walls, a wooden
@@ -1543,18 +1776,8 @@ export class RangeEngine {
   _buildArena() {
     const T = this.tex;
     const C = ARENA;
-    const grass = this._mat({ map: this._tex(T.grass, 90), color: 0xcac6a2, roughness: 0.95 });
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 700), grass);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set(C.x, -0.02, C.z);
-    this._solid(ground, { cast: false });
-    // The clearing where you stand.
-    const dirt = this._mat({ map: this._tex(T.dirt, 5, 5), roughness: 0.97, polygonOffset: true, polygonOffsetFactor: -1 });
-    const clearing = new THREE.Mesh(new THREE.CircleGeometry(13, 48), dirt);
-    clearing.rotation.x = -Math.PI / 2;
-    clearing.position.set(C.x, 0.004, C.z);
-    clearing.receiveShadow = true;
-    this.scene.add(clearing);
+    const grass = this._mat({ map: this._tex(T.grass, 90), color: 0xd2d49c, roughness: 0.95 });
+    this._arenaGround(grass);
 
     // Somewhere free of other cover, at a given distance band.
     const taken = [];
@@ -1631,7 +1854,7 @@ export class RangeEngine {
       const d = i < 260 ? 13 + rand(-0.4, 1.6) : rand(14, 60);
       tufts.push([C.x + Math.sin(a) * d, C.z + Math.cos(a) * d, rand(0.8, 1.6)]);
     }
-    this._tufts(tufts);
+    // (Grass is drawn by _arenaNature.)
 
     // A few trees inside the arena (cover - bullets stop on them), the
     // forest beyond, and hills on the horizon.
@@ -1648,7 +1871,8 @@ export class RangeEngine {
       const d = rand(64, 120);
       outer.push([C.x + Math.sin(a) * d, C.z + Math.cos(a) * d]);
     }
-    this._forest(outer);
+    this._forest(outer, (x, z) => this._arenaHeight(x, z));
+    this._arenaNature();
     this._hills();
   }
 
@@ -2017,6 +2241,7 @@ export class RangeEngine {
     const glove = new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.9, metalness: 0 });
     const knuckle = new THREE.MeshStandardMaterial({ color: 0x1c1e21, roughness: 0.75, metalness: 0.05 });
     const sleeve = new THREE.MeshStandardMaterial({ color: 0x4d523f, roughness: 0.95, metalness: 0 });
+    this.handMats = { glove, knuckle, sleeve };
 
     const gun = (this.gun = new THREE.Group());
     const add = (m, x, y, z, rx = 0, ry = 0, rz = 0) => {
@@ -2577,6 +2802,15 @@ export class RangeEngine {
     this._setGunModel(gameId === 'rust' || gameId === 'r6' ? modelFor(gameId, this.weapon ? this.weapon.id : null) : modelFor(null, null));
     // Drawn in software (no graphics card): start at the lowest quality
     // rather than spend seconds finding it.
+    // Hands and hold: Rust's survivor holds the gun bare-handed, in rough
+    // cloth sleeves, lower and nearer the middle; everyone else wears
+    // gloves and holds it at the ready to the right.
+    const rust = gameId === 'rust';
+    this.handMats.glove.color.setHex(rust ? 0xb88866 : 0x2a2d31);
+    this.handMats.glove.roughness = rust ? 0.72 : 0.9;
+    this.handMats.knuckle.color.setHex(rust ? 0xa77a5a : 0x1c1e21);
+    this.handMats.sleeve.color.setHex(rust ? 0x5f5444 : 0x4d523f);
+    this.vmRest.set(rust ? 0.14 : 0.2, rust ? -0.215 : -0.235, rust ? -0.42 : -0.44);
     this.renderScale = gpuInfo().software ? 0.5 : 1;
     if (gpuInfo().software) this._setShadows(false);
     this.frameTimes = [];

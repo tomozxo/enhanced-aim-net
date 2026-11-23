@@ -337,7 +337,14 @@ function ak(o) {
   // The big charging handle on the right and the safety lever.
   b.add(rbox(0.012, 0.012, 0.03, 0.005, M.steel), 0.033, 0.038, -0.06);
   b.add(rbox(0.004, 0.02, 0.15, 0.003, M.steel), 0.026, 0.02, 0.04);
-  b.rail(0.12, -0.11, M.black);
+  // Iron sights on the wooden AK (the sight line is y = 0.09: notch at
+  // z -0.15, post at -0.62); the AK-12 gets a rail for optics instead.
+  if (modern) b.rail(0.12, -0.11, M.black);
+  else {
+    b.add(rbox(0.03, 0.018, 0.045, 0.004, M.blued), 0, 0.072, -0.15);
+    b.add(rbox(0.034, 0.004, 0.09, 0.001, M.blued), 0, 0.074, -0.08, -0.04);
+    for (const s of [-1, 1]) b.add(new THREE.Mesh(new THREE.BoxGeometry(0.007, 0.012, 0.006), M.blued), s * 0.0055, 0.087, -0.165);
+  }
   // Handguard: wooden lower and gas-tube cover, or a railed AK-12 one.
   if (modern) {
     b.add(rbox(0.058, 0.062, 0.3, 0.01, M.polymer), 0, 0.03, -0.33);
@@ -354,7 +361,9 @@ function ak(o) {
   b.add(rbox(0.024, 0.05, 0.03, 0.006, M.blued), 0, 0.048, -0.53);
   b.put(tube(0.0098, -0.46, -0.66, 0.03, M.blued));
   b.add(rbox(0.016, 0.05, 0.022, 0.004, M.blued), 0, 0.052, -0.62);
-  b.add(new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.022, 0.003), M.black), 0, 0.083, -0.62);
+  b.add(new THREE.Mesh(new THREE.BoxGeometry(0.0035, 0.024, 0.0035), M.black), 0, 0.078, -0.62);
+  // The post's protective ears.
+  for (const s of [-1, 1]) b.add(new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.03, 0.01), M.blued), s * 0.011, 0.075, -0.62);
   b.put(tube(0.0135, -0.66, -0.71, 0.03, modern ? M.black : M.blued));
   b.add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.01, 0.03), M.black), 0, 0.044, -0.695, 0.35);
   // The curved 30-round magazine with its ribs.

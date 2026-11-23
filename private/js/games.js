@@ -402,8 +402,8 @@ GAMES.rust = simpleGame({
     sights: [
       {
         id: 'ads',
-        label: 'Iron sight / holosight',
-        optic: 'dot',
+        label: 'Iron sights',
+        optic: 'iron',
         key: 'adsSens',
         setting: 'ADS sensitivity',
         rules: { step: 0.001, decimals: 3, min: 0.01, max: 10 },
