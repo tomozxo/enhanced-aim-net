@@ -51,19 +51,9 @@ const MULT_RULES_3 = { step: 0.001, decimals: 3, min: 0.01, max: 10 };
 // (0.818933 is the well-known one), finer than its menu slider.
 const CS_ZOOM_RULES = { step: 0.000001, decimals: 6, min: 0.01, max: 10 };
 
-const COMMON_RESOLUTIONS = [
-  { value: '1920x1080', aspect: '16:9' },
-  { value: '2560x1440', aspect: '16:9' },
-  { value: '1600x900', aspect: '16:9' },
-  { value: '1280x720', aspect: '16:9' },
-  { value: '1920x1200', aspect: '16:10' },
-  { value: '1680x1050', aspect: '16:10' },
-  { value: '1920x1440', aspect: '4:3' },
-  { value: '1440x1080', aspect: '4:3' },
-  { value: '1280x960', aspect: '4:3' },
-  { value: '1024x768', aspect: '4:3' },
-  { value: '1280x1024', aspect: '5:4' },
-];
+// One resolution only: other sizes made the drills and the range render at
+// a size that ran at a very low frame rate.
+const COMMON_RESOLUTIONS = [{ value: '1920x1080', aspect: '16:9' }];
 
 const tanHalf = (deg) => Math.tan((deg * DEG) / 2);
 /** The vertical FOV a sight of `m`× magnification gives (a change in focal
@@ -150,7 +140,7 @@ function simpleGame({ id, name, short, yaw, yawFor, vFovDeg, fovSlider, fovNote,
     degPerCount: (_tab, s) => ({ x: s.sens * yawOf(s), y: s.sens * yawOf(s) }),
     cm360: (_tab, s) => (s.sens > 0 && s.dpi > 0 ? (2.54 * 360) / (s.dpi * s.sens * yawOf(s)) : NaN),
     view(s) {
-      const r = parseResolution(s.resolution);
+      const r = parseResolution('1920x1080');
       // Games with their own FOV slider show a horizontal FOV measured at
       // 16:9 (Call of Duty, Overwatch) or 4:3 (Apex, which is Source-based
       // like CS), and keep the vertical where it is when the aspect ratio

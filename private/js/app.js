@@ -953,15 +953,6 @@ function buildSimpleGameFields(game) {
       <div class="field-label">Resolution</div>
       <div class="select-wrap"><select id="simpleResolution">${resOptions}</select></div>
     </div>
-    <div class="fill-hint">If the resolution doesn't match your monitor</div>
-    <div class="field-row">
-      <div class="select-wrap" style="width:100%">
-        <select id="simpleDisplayMode" style="width:100%">
-          <option value="stretch">Stretched (fills the screen)</option>
-          <option value="black-bars">Black bars</option>
-        </select>
-      </div>
-    </div>
     ${
       game.calibratable
         ? `<div class="field-row">
@@ -1026,8 +1017,7 @@ function renderSimpleGameFields(game, s) {
   if (builtSimpleGame !== game.id) buildSimpleGameFields(game);
   const input = $('simpleSensInput');
   if (document.activeElement !== input) input.value = formatGameSens(game, s.sens);
-  $('simpleResolution').value = s.resolution;
-  $('simpleDisplayMode').value = s.displayMode;
+  $('simpleResolution').value = '1920x1080';
   const view = game.view(s);
   const hFov = hFovFromV(view.vFovDeg, view.aspect);
   if (game.fovSlider) {
