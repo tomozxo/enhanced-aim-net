@@ -50,11 +50,13 @@ export const R6_OPTICS = [
 ];
 
 /** The full picker list. `r6HipYaw` is Siege's hip-fire degrees per count
- * per sens point (sensMath's hipDegPerSensPoint). */
-export function buildGameList(r6HipYaw) {
+ * per sens point (sensMath's hipDegPerSensPoint); `rustYaw` Rust's, which
+ * depends on its FOV setting (games.js). */
+export function buildGameList(r6HipYaw, rustYaw) {
   return [
     ...R6_OPTICS.map((o) => ({ ...o, yaw: r6HipYaw, isR6: true })),
     ...GAMES,
+    ...(rustYaw > 0 ? [{ id: 'rust', name: 'Rust (at your Rust FOV)', yaw: rustYaw, decimals: 3, min: 0.01, max: 10 }] : []),
     { id: CM360_ID, name: 'Other game — enter cm/360° directly', decimals: 1, isCm360: true },
   ];
 }

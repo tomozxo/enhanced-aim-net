@@ -73,6 +73,11 @@ const FIELD_END = -60;
 const BOUNDS = { xMin: -BAY_HALF + PLAYER_R, xMax: BAY_HALF - PLAYER_R, zMin: FIELD_END + 2.6, zMax: 9.4 };
 const TARGET_AREA = { xMin: -13.4, xMax: 13.4, zMin: -54, zMax: -5 };
 
+// The 360° arena: open grassland with targets coming from every direction,
+// Rust-style. Centred where the sun's shadow map is drawn. You can walk up
+// to `walk` metres from the middle; targets stand up to `reach` from it.
+const ARENA = { x: 0, z: -24, walk: 34, reach: 52 };
+
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -253,16 +258,64 @@ export class RangeEngine {
     this._buildTextures();
     this._buildSky();
     this._buildLights();
-    this._buildGround();
-    this._buildBay();
-    this._buildField();
-    this._buildDetail();
-    this._buildSurroundings();
+
+    // Two maps share the sky, the lights and the dummies: the shooting
+    // range and the 360° arena. Each keeps its own scenery, the meshes that
+    // stop bullets and the boxes you can't walk through; only the one in
+    // use is shown (_useMap).
+    const mapGroup = (build) => {
+      const before = new Set(this.scene.children);
+      this.solids = [];
+      this.colliders = [];
+      build();
+      const group = new THREE.Group();
+      for (const o of [...this.scene.children]) if (!before.has(o)) group.add(o);
+      this.scene.add(group);
+      return { group, solids: this.solids, colliders: this.colliders };
+    };
+    this.maps = {
+      range: {
+        id: 'range',
+        ...mapGroup(() => {
+          this._buildGround();
+          this._buildBay();
+          this._buildField();
+          this._buildDetail();
+          this._buildSurroundings();
+        }),
+      },
+      arena: { id: 'arena', ...mapGroup(() => this._buildArena()) },
+    };
     this._buildDummyParts();
     this._buildViewmodel();
     this._buildEffects();
+    this._useMap('range');
+  }
 
+  /** Shows one map and makes its walls and cover the ones that count. */
+  _useMap(id) {
+    const map = this.maps[id] || this.maps.range;
+    for (const m of Object.values(this.maps)) m.group.visible = m === map;
+    this.map = map;
+    this.solids = map.solids;
+    this.colliders = map.colliders;
     this.renderer.shadowMap.needsUpdate = true;
+  }
+
+  /** Whether a target may stand at (x, z) on the current map. */
+  _inTargetArea(x, z) {
+    if (this.map.id === 'arena') return Math.hypot(x - ARENA.x, z - ARENA.z) <= ARENA.reach;
+    return x >= TARGET_AREA.xMin && x <= TARGET_AREA.xMax && z >= TARGET_AREA.zMin && z <= TARGET_AREA.zMax;
+  }
+
+  /** Whether (x, z) is inside (or right next to) something solid. */
+  _blocked(x, z, pad = 0.3) {
+    return this.colliders.some((c) => x > c.x0 - pad && x < c.x1 + pad && z > c.z0 - pad && z < c.z1 + pad);
+  }
+
+  /** Standing on the range's concrete (footsteps, brass landing). */
+  _onConcrete() {
+    return this.map.id === 'range' && this.player.z > -1.5;
   }
 
   _tex(c, repeatX = 1, repeatY = repeatX, srgb = true) {
@@ -903,28 +956,6 @@ export class RangeEngine {
    * the walls and the berm, where nobody walks, and in the odd clump out in
    * the field. Low enough never to hide a dummy. */
   _buildDetail() {
-    const blades = this._tex(this.tex.blades, 1, 1);
-    blades.wrapS = blades.wrapT = THREE.ClampToEdgeWrapping;
-    // Three cards crossed like a star, so a tuft looks full from any side -
-    // each drawn both ways round as its own face (a double-sided material
-    // would flip the lighting on the back and turn half of them black).
-    const parts = [];
-    for (let i = 0; i < 6; i++) {
-      const g = new THREE.PlaneGeometry(0.5, 0.3);
-      g.translate(0, 0.15, 0);
-      parts.push([g, new THREE.Matrix4().makeRotationY((i * Math.PI) / 3)]);
-    }
-    const geo = mergeGeometries(parts);
-    const uv = [];
-    // In the order toNonIndexed() leaves a plane's two triangles.
-    for (let i = 0; i < 6; i++) uv.push(0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1);
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    // Lit as if they faced the sky, the usual trick for grass - otherwise
-    // each card goes dark edge-on.
-    const nor = geo.attributes.normal;
-    for (let i = 0; i < nor.count; i++) nor.setXYZ(i, 0, 1, 0);
-    const mat = this._mat({ map: blades, alphaTest: 0.45, roughness: 0.92, envMapIntensity: 0.3 });
-
     const spots = [];
     const tuft = (x, z, s = 1) => spots.push([x, z, s]);
     for (const side of [-1, 1]) {
@@ -940,7 +971,36 @@ export class RangeEngine {
       const n = 2 + ((Math.random() * 4) | 0);
       for (let i = 0; i < n; i++) tuft(cx + rand(-0.35, 0.35), cz + rand(-0.35, 0.35), rand(0.5, 0.95));
     }
-    const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
+    this._tufts(spots);
+  }
+
+  /** Grass tufts at [x, z, size] spots. */
+  _tufts(spots) {
+    if (!this.tuftGeo) {
+      const blades = this._tex(this.tex.blades, 1, 1);
+      blades.wrapS = blades.wrapT = THREE.ClampToEdgeWrapping;
+      // Three cards crossed like a star, so a tuft looks full from any side -
+      // each drawn both ways round as its own face (a double-sided material
+      // would flip the lighting on the back and turn half of them black).
+      const parts = [];
+      for (let i = 0; i < 6; i++) {
+        const g = new THREE.PlaneGeometry(0.5, 0.3);
+        g.translate(0, 0.15, 0);
+        parts.push([g, new THREE.Matrix4().makeRotationY((i * Math.PI) / 3)]);
+      }
+      const geo = mergeGeometries(parts);
+      const uv = [];
+      // In the order toNonIndexed() leaves a plane's two triangles.
+      for (let i = 0; i < 6; i++) uv.push(0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1);
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      // Lit as if they faced the sky, the usual trick for grass - otherwise
+      // each card goes dark edge-on.
+      const nor = geo.attributes.normal;
+      for (let i = 0; i < nor.count; i++) nor.setXYZ(i, 0, 1, 0);
+      this.tuftGeo = geo;
+      this.tuftMat = this._mat({ map: blades, alphaTest: 0.45, roughness: 0.92, envMapIntensity: 0.3 });
+    }
+    const mesh = new THREE.InstancedMesh(this.tuftGeo, this.tuftMat, spots.length);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const up = new THREE.Vector3(0, 1, 0);
@@ -958,6 +1018,17 @@ export class RangeEngine {
   _buildSurroundings() {
     // Rolling hills on the horizon and a treeline behind the walls, so the
     // range sits somewhere rather than floating in a void.
+    this._hills();
+    const spots = [];
+    for (let i = 0; i < 120; i++) {
+      const band = i % 3;
+      if (band === 0) spots.push([rand(-60, 60), rand(FIELD_END - 16, FIELD_END - 40)]);
+      else spots.push([(band === 1 ? -1 : 1) * rand(BAY_HALF + 8, BAY_HALF + 40), rand(FIELD_END - 20, 30)]);
+    }
+    this._forest(spots);
+  }
+
+  _hills() {
     const hills = new THREE.CylinderGeometry(360, 360, 1, 96, 1, true);
     const pos = hills.attributes.position;
     for (let i = 0; i < pos.count; i++) {
@@ -970,7 +1041,11 @@ export class RangeEngine {
     hills.computeVertexNormals();
     const hillMat = new THREE.MeshStandardMaterial({ color: 0x55664a, roughness: 1, side: THREE.BackSide });
     this.scene.add(new THREE.Mesh(hills, hillMat));
+  }
 
+  /** Trees at [x, z] spots, a mix of firs and broadleaves. Returns the
+   * instanced meshes (so the arena can count them as cover). */
+  _forest(spots) {
     // Two kinds of tree, each shade of green a little different: firs
     // (tiers of ragged boughs) and broadleaves (a lumpy canopy on a taller
     // trunk). Each is built from the ground up, so it stands at y = 0.
@@ -1015,17 +1090,133 @@ export class RangeEngine {
       kind.crown.setColorAt(n, col.setHSL(rand(h0, h1), rand(s0, s1), rand(l0, l1)));
       kind.n = n + 1;
     };
-    for (let i = 0; i < 120; i++) {
-      const kind = kinds[Math.random() < 0.6 ? 0 : 1];
-      const band = i % 3;
-      if (band === 0) place(kind, rand(-60, 60), rand(FIELD_END - 16, FIELD_END - 40));
-      else place(kind, (band === 1 ? -1 : 1) * rand(BAY_HALF + 8, BAY_HALF + 40), rand(FIELD_END - 20, 30));
-    }
+    for (const [x, z] of spots) place(kinds[Math.random() < 0.6 ? 0 : 1], x, z);
+    const meshes = [];
     for (const kind of kinds) {
       kind.crown.count = kind.trunk.count = kind.n || 0;
       kind.crown.castShadow = kind.trunk.castShadow = true;
       this.scene.add(kind.crown, kind.trunk);
+      meshes.push(kind.crown, kind.trunk);
     }
+    return meshes;
+  }
+
+  /**
+   * The 360° arena, Rust-style: a worn dirt clearing in open grassland,
+   * boulders, a few pieces of player building (stone half-walls, a wooden
+   * wall, crates and barrels) for cover, trees dotted about and a forest
+   * beyond. Targets can come from any direction.
+   */
+  _buildArena() {
+    const T = this.tex;
+    const C = ARENA;
+    const grass = this._mat({ map: this._tex(T.grass, 90), roughness: 0.95 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 700), grass);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(C.x, -0.02, C.z);
+    this._solid(ground, { cast: false });
+    // The clearing where you stand.
+    const dirt = this._mat({ map: this._tex(T.dirt, 5, 5), roughness: 0.97, polygonOffset: true, polygonOffsetFactor: -1 });
+    const clearing = new THREE.Mesh(new THREE.CircleGeometry(13, 48), dirt);
+    clearing.rotation.x = -Math.PI / 2;
+    clearing.position.set(C.x, 0.004, C.z);
+    clearing.receiveShadow = true;
+    this.scene.add(clearing);
+
+    // Somewhere free of other cover, at a given distance band.
+    const taken = [];
+    const spot = (dMin, dMax, room) => {
+      for (let i = 0; i < 60; i++) {
+        const a = rand(-Math.PI, Math.PI);
+        const d = rand(dMin, dMax);
+        const x = C.x + Math.sin(a) * d;
+        const z = C.z + Math.cos(a) * d;
+        if (taken.some(([tx, tz, tr]) => Math.hypot(tx - x, tz - z) < tr + room)) continue;
+        taken.push([x, z, room]);
+        return [x, z];
+      }
+      return null;
+    };
+
+    // Boulders.
+    const stone = this._mat({ map: this._tex(T.slab, 1), color: 0xb3ada2, roughness: 0.93 });
+    for (let i = 0; i < 24; i++) {
+      const r = rand(0.6, 2.2);
+      const at = spot(10, 60, r + 1.5);
+      if (!at) continue;
+      const geo = roughen(new THREE.IcosahedronGeometry(r, 2), 0.16);
+      geo.scale(1, rand(0.45, 0.8), rand(0.8, 1.2));
+      const rock = new THREE.Mesh(geo, stone);
+      rock.position.set(at[0], r * 0.22, at[1]);
+      rock.rotation.y = rand(0, Math.PI);
+      this._solid(rock, { collide: true });
+      this._contact(at[0], at[1], r * 2.7, r * 2.7, 0.45);
+    }
+
+    // Bits of player building: stone half-walls, a wooden wall, crates and
+    // barrels - the cover a Rust fight happens round.
+    const wallStone = this._mat({ map: this._tex(T.wall, 1, 0.5), roughness: 0.92 });
+    const wood = this._mat({ map: this._tex(T.wood, 1, 1), roughness: 0.78 });
+    const crate = this._mat({ map: this._tex(T.wood, 1), roughness: 0.8 });
+    const barrelMat = this._mat({ color: 0x6b2f24, metalness: 0.45, roughness: 0.6, map: this._tex(T.steel, 1) });
+    const barrelGeo = new THREE.CylinderGeometry(0.29, 0.29, 0.88, 24);
+    for (let i = 0; i < 4; i++) {
+      const at = spot(14, 42, 3);
+      if (!at) continue;
+      const w = this._box(3, 1.1, 0.3, wallStone, at[0], 0.55, at[1], { collide: true });
+      w.rotation.y = Math.atan2(at[0] - C.x, at[1] - C.z) + Math.PI / 2;
+      w.updateMatrixWorld(true);
+      this._contact(at[0], at[1], 3.6, 1.0, 0.45, -w.rotation.y);
+    }
+    for (let i = 0; i < 2; i++) {
+      const at = spot(18, 45, 3);
+      if (!at) continue;
+      const w = this._box(3, 3, 0.2, wood, at[0], 1.5, at[1], { collide: true });
+      w.rotation.y = rand(0, Math.PI);
+      this._contact(at[0], at[1], 3.6, 1.0, 0.45, -w.rotation.y);
+    }
+    for (let i = 0; i < 5; i++) {
+      const at = spot(9, 40, 1.4);
+      if (!at) continue;
+      const s = rand(0.8, 1.1);
+      this._box(s, s, s, crate, at[0], s / 2, at[1], { collide: true }).rotation.y = rand(0, Math.PI);
+      this._contact(at[0], at[1], s + 0.7, s + 0.7, 0.5);
+    }
+    for (let i = 0; i < 4; i++) {
+      const at = spot(9, 40, 1);
+      if (!at) continue;
+      const b = new THREE.Mesh(barrelGeo, barrelMat);
+      b.position.set(at[0], 0.44, at[1]);
+      this._solid(b, { collide: true });
+      this._contact(at[0], at[1], 1, 1, 0.45);
+    }
+
+    // Grass round the edge of the clearing and dotted through the field.
+    const tufts = [];
+    for (let i = 0; i < 520; i++) {
+      const a = rand(-Math.PI, Math.PI);
+      const d = i < 260 ? 13 + rand(-0.4, 1.6) : rand(14, 60);
+      tufts.push([C.x + Math.sin(a) * d, C.z + Math.cos(a) * d, rand(0.8, 1.6)]);
+    }
+    this._tufts(tufts);
+
+    // A few trees inside the arena (cover - bullets stop on them), the
+    // forest beyond, and hills on the horizon.
+    const inner = [];
+    for (let i = 0; i < 9; i++) {
+      const at = spot(26, 55, 3);
+      if (at) inner.push(at);
+    }
+    for (const m of this._forest(inner)) this.solids.push(m);
+    for (const [x, z] of inner) this.colliders.push({ x0: x - 0.5, x1: x + 0.5, z0: z - 0.5, z1: z + 0.5 });
+    const outer = [];
+    for (let i = 0; i < 150; i++) {
+      const a = rand(-Math.PI, Math.PI);
+      const d = rand(64, 120);
+      outer.push([C.x + Math.sin(a) * d, C.z + Math.cos(a) * d]);
+    }
+    this._forest(outer);
+    this._hills();
   }
 
   // ---------- Dummies ----------
@@ -1055,7 +1246,101 @@ export class RangeEngine {
     G.visor.scale(1, 1.14, 1.05);
     G.strip = new THREE.BoxGeometry(0.24, 0.022, 0.02);
     G.base = new THREE.CylinderGeometry(0.34, 0.38, 0.05, 28);
+
+    // A person, for the arena: boots, trousers, a top, bare hands and a
+    // real-sized head with hair - or a metal facemask, as in Rust. The head
+    // is the same size and height as the training bot's.
+    G.boot = new THREE.BoxGeometry(0.12, 0.1, 0.28);
+    G.hShin = new THREE.CapsuleGeometry(0.068, 0.34, 4, 12);
+    G.hThigh = new THREE.CapsuleGeometry(0.086, 0.32, 4, 12);
+    G.hHips = new THREE.CapsuleGeometry(0.12, 0.17, 4, 14);
+    G.hHips.rotateZ(Math.PI / 2);
+    G.hTorso = new THREE.CapsuleGeometry(0.17, 0.3, 6, 18);
+    G.hTorso.scale(1.12, 1, 0.66);
+    G.plate = new THREE.CapsuleGeometry(0.175, 0.22, 6, 18, 1);
+    G.plate.scale(1.18, 1, 0.74);
+    G.hUpper = new THREE.CapsuleGeometry(0.058, 0.25, 4, 10);
+    G.hFore = new THREE.CapsuleGeometry(0.05, 0.23, 4, 10);
+    G.hHand = new THREE.SphereGeometry(0.047, 12, 8);
+    G.hHand.scale(0.8, 1.15, 0.6);
+    G.hNeck = new THREE.CylinderGeometry(0.05, 0.058, 0.11, 12);
+    G.hair = new THREE.SphereGeometry(HEAD_R * 1.07, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    G.hair.scale(1, 1.14, 1.08);
+    G.eye = new THREE.SphereGeometry(0.012, 8, 6);
+    // The facemask covers the front half of the head (z > 0).
+    G.mask = new THREE.SphereGeometry(HEAD_R * 1.08, 24, 14, 0, Math.PI, Math.PI * 0.18, Math.PI * 0.62);
+    G.mask.scale(1, 1.14, 1.08);
+    G.slit = new THREE.BoxGeometry(0.15, 0.014, 0.02);
     this.dummies = [];
+  }
+
+  /** A person to shoot in the arena, in one of Rust's usual looks. */
+  _makeHuman() {
+    const G = this.dummyGeo;
+    const pick = (xs) => xs[(Math.random() * xs.length) | 0];
+    const skinTone = pick([0xe2b896, 0xd19f7c, 0xb47a56, 0x8a5a3c, 0x6b4430]);
+    const look = pick(['hoodie', 'hoodie', 'tshirt', 'metal', 'naked']);
+    const cloth = (color) => this._mat({ color, roughness: 0.92, metalness: 0 });
+    const top = cloth(pick([0x7a2a2a, 0x3d4a2f, 0x2f3a4a, 0x5b5b5b, 0x262626, 0x8a6a3a]));
+    const legs = cloth(pick([0x2f3b55, 0x4a4236, 0x2a2a2c, 0x3e4a33]));
+    const skin = this._mat({ color: skinTone, roughness: 0.75, metalness: 0 });
+    const metal = this._mat({ color: 0x6f6e69, metalness: 0.65, roughness: 0.45, map: this._tex(this.tex.steel, 1) });
+    const M = {
+      shell: look === 'naked' ? skin : top, // flashes on a hit
+      skin,
+      boot: this._mat({ color: 0x3a2a1c, roughness: 0.8 }),
+      hair: this._mat({ color: pick([0x2b1d12, 0x4f3420, 0x141414, 0x8f6d42]), roughness: 0.95 }),
+      eye: this._mat({ color: 0x1a1410, roughness: 0.4 }),
+    };
+    const torsoMat = look === 'naked' ? skin : top;
+    const legMat = look === 'naked' ? skin : legs;
+    const upperArm = look === 'naked' || look === 'tshirt' ? (look === 'tshirt' ? top : skin) : top;
+    const foreArm = look === 'tshirt' || look === 'naked' ? skin : top;
+
+    const root = new THREE.Group();
+    const body = new THREE.Group();
+    root.add(body);
+    const parts = [];
+    const add = (geo, mat, x, y, z, zone = 'body', rot) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+      m.castShadow = false;
+      m.receiveShadow = true;
+      m.userData.zone = zone;
+      body.add(m);
+      parts.push(m);
+      return m;
+    };
+    for (const s of [-1, 1]) {
+      add(G.boot, M.boot, s * 0.1, 0.05, 0.03);
+      add(G.hShin, legMat, s * 0.1, 0.33, 0);
+      add(G.hThigh, legMat, s * 0.1, 0.72, 0);
+      add(G.hUpper, upperArm, s * 0.255, 1.3, 0, 'body', [0, 0, s * 0.12]);
+      add(G.hFore, foreArm, s * 0.285, 1.03, 0.03, 'body', [-0.12, 0, s * 0.05]);
+      add(G.hHand, skin, s * 0.295, 0.86, 0.05);
+    }
+    add(G.hHips, look === 'naked' ? cloth(0x2c3a52) : legMat, 0, 0.95, 0);
+    add(G.hTorso, torsoMat, 0, 1.27, 0);
+    if (look === 'metal') add(G.plate, metal, 0, 1.3, 0.012);
+    add(G.hNeck, skin, 0, 1.52, 0);
+    const head = add(G.head, skin, 0, HEAD_Y, 0, 'head');
+    add(G.hair, M.hair, 0, HEAD_Y + 0.008, -0.006, 'head');
+    if (look === 'metal') {
+      add(G.mask, metal, 0, HEAD_Y, 0, 'head');
+      add(G.slit, M.eye, 0, HEAD_Y + 0.025, HEAD_R * 1.11, 'head');
+    } else {
+      for (const s of [-1, 1]) add(G.eye, M.eye, s * 0.036, HEAD_Y + 0.022, HEAD_R * 0.98, 'head');
+    }
+    const blob = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24), this.blobMat);
+    blob.rotation.x = -Math.PI / 2;
+    blob.position.y = 0.02;
+    root.add(blob);
+    this.scene.add(root);
+    const d = { kind: 'human', root, body, parts, head, mats: M, state: 'hidden', t: 0, alive: false };
+    parts.forEach((p) => (p.userData.dummy = d));
+    root.visible = false;
+    return d;
   }
 
   _dummyMaterials() {
@@ -1116,16 +1401,19 @@ export class RangeEngine {
     blob.position.y = 0.055;
     root.add(blob);
     this.scene.add(root);
-    const d = { root, body, parts, head, mats: M, state: 'hidden', t: 0, alive: false };
+    const d = { kind: 'bot', root, body, parts, head, mats: M, state: 'hidden', t: 0, alive: false };
     parts.forEach((p) => (p.userData.dummy = d));
     root.visible = false;
     return d;
   }
 
+  /** A free target of the current map's kind: training bots on the range,
+   * people in the arena. */
   _dummy() {
-    let d = this.dummies.find((x) => x.state === 'hidden');
+    const kind = this.map.id === 'arena' ? 'human' : 'bot';
+    let d = this.dummies.find((x) => x.state === 'hidden' && x.kind === kind && !x.respawnAt);
     if (!d) {
-      d = this._makeDummy();
+      d = kind === 'human' ? this._makeHuman() : this._makeDummy();
       this.dummies.push(d);
     }
     return d;
@@ -1134,6 +1422,10 @@ export class RangeEngine {
   /** Pops a dummy up at (x, z), facing the player. */
   _spawnDummy(x, z, { strafe = false, anchor = null, respawn = 0, use = null } = {}) {
     const d = use || this._dummy();
+    // Strafing runs across your line of sight, whichever way you face it.
+    const tx = this.player.x - x;
+    const tz = this.player.z - z;
+    const len = Math.hypot(tx, tz) || 1;
     d.root.position.set(x, 0, z);
     d.root.rotation.set(0, Math.atan2(this.player.x - x, this.player.z - z), 0);
     d.body.rotation.set(-Math.PI / 2, 0, 0);
@@ -1143,7 +1435,9 @@ export class RangeEngine {
     d.t = 0;
     d.alive = true;
     d.hits = 0;
-    d.strafe = strafe ? { vx: 0, want: (Math.random() < 0.5 ? -1 : 1) * STRAFE_SPEED, next: rand(0.35, 0.9), anchor: x } : null;
+    d.strafe = strafe
+      ? { v: 0, want: (Math.random() < 0.5 ? -1 : 1) * STRAFE_SPEED, next: rand(0.35, 0.9), off: 0, ax: x, az: z, dx: tz / len, dz: -tx / len }
+      : null;
     d.home = anchor || { x, z };
     d.respawn = respawn;
     d.flash = 0;
@@ -1198,13 +1492,22 @@ export class RangeEngine {
         // turning back before it reaches the end of its patch.
         const s = d.strafe;
         s.next -= dt;
-        const off = d.root.position.x - s.anchor;
-        if (s.next <= 0 || (off > 2.4 && s.want > 0) || (off < -2.4 && s.want < 0)) {
+        if (s.next <= 0 || (s.off > 2.4 && s.want > 0) || (s.off < -2.4 && s.want < 0)) {
           s.want = -Math.sign(s.want || 1) * STRAFE_SPEED;
           s.next = rand(0.3, 0.95);
         }
-        s.vx += clamp(s.want - s.vx, -40 * dt, 40 * dt);
-        d.root.position.x = clamp(d.root.position.x + s.vx * dt, TARGET_AREA.xMin, TARGET_AREA.xMax);
+        s.v += clamp(s.want - s.v, -40 * dt, 40 * dt);
+        const off = s.off + s.v * dt;
+        const nx = s.ax + s.dx * off;
+        const nz = s.az + s.dz * off;
+        if (this._inTargetArea(nx, nz) && !this._blocked(nx, nz, 0.1)) {
+          s.off = off;
+          d.root.position.x = nx;
+          d.root.position.z = nz;
+        } else {
+          s.want = -s.want;
+          s.v = 0;
+        }
         d.root.rotation.y = Math.atan2(this.player.x - d.root.position.x, this.player.z - d.root.position.z);
       }
       if (d.flash > 0) {
@@ -1827,6 +2130,7 @@ export class RangeEngine {
   async start(cfg) {
     this._build();
     this.cfg = cfg;
+    this._useMap(cfg.map === 'arena' ? 'arena' : 'range');
     this.active = true;
     this.overlay.classList.add('active');
     this.stage.classList.remove('show-cursor');
@@ -1851,8 +2155,10 @@ export class RangeEngine {
 
   _reset() {
     // The head test starts at a bench on the firing line, like a real
-    // range; free roam a few steps back under the roof.
-    const start = this.cfg && this.cfg.mode === 'test' ? { x: 1.6, z: 0.2 } : { x: 1.6, z: 2.6 };
+    // range; free roam a few steps back under the roof. In the arena you
+    // start in the middle of the clearing.
+    const start =
+      this.map.id === 'arena' ? { x: ARENA.x, z: ARENA.z } : this.cfg && this.cfg.mode === 'test' ? { x: 1.6, z: 0.2 } : { x: 1.6, z: 2.6 };
     this.player = { ...start, vx: 0, vz: 0, y: 0, vy: 0, onGround: true, yaw: 0, pitch: -1 * DEG, eye: EYE };
     this.punch = { pitch: 0, yaw: 0 };
     this.kick = { z: 0, vz: 0, rx: 0, vrx: 0, ry: 0, vry: 0 };
@@ -1972,7 +2278,7 @@ export class RangeEngine {
 
   _countdown() {
     this.running = true; // you can look and walk about during the count
-    this.el.getReadyLabel.textContent = 'Head test · 30 dummies';
+    this.el.getReadyLabel.textContent = `Head test · ${TEST_DUMMIES} ${this.map.id === 'arena' ? 'targets all round you' : 'dummies'}`;
     this.el.getReady.classList.add('active');
     let n = 3;
     this.el.getReadyNum.textContent = n;
@@ -2003,6 +2309,28 @@ export class RangeEngine {
   _testSpot() {
     const p = this.player;
     const [dMin, dMax] = TEST_DISTANCES[this.cfg.distance] || TEST_DISTANCES.mid;
+    // The arena: anywhere round you - in front, to the side or behind, the
+    // way fights come in Rust - in the distance band and in plain sight.
+    if (this.map.id === 'arena') {
+      const eye = new THREE.Vector3(p.x, p.y + p.eye, p.z);
+      for (let i = 0; i < 80; i++) {
+        const a = rand(-Math.PI, Math.PI);
+        const dist = rand(dMin, dMax);
+        const x = p.x - Math.sin(a) * dist;
+        const z = p.z - Math.cos(a) * dist;
+        if (!this._inTargetArea(x, z) || this._blocked(x, z)) continue;
+        if (!this._clearLine(eye, new THREE.Vector3(x, HEAD_Y, z))) continue;
+        return { x, z };
+      }
+      for (let i = 0; i < 80; i++) {
+        const a = rand(-Math.PI, Math.PI);
+        const dist = rand(8, 20);
+        const x = p.x - Math.sin(a) * dist;
+        const z = p.z - Math.cos(a) * dist;
+        if (this._inTargetArea(x, z) && !this._blocked(x, z) && this._clearLine(eye, new THREE.Vector3(x, HEAD_Y, z))) return { x, z };
+      }
+      return { x: p.x, z: p.z - dMin };
+    }
     let maxA = TEST_FLICK.max;
     try {
       const { game, tab, settings } = this.cfg;
@@ -2136,6 +2464,7 @@ export class RangeEngine {
       adsShare: recs.filter((r) => r.ads).length / recs.length,
       sight: this.sight ? this.sight.id : null,
       adsValue: this.sight ? this.cfg.settings[this.sight.key] : null,
+      map: this.map.id,
       totalMs: performance.now() - t.started,
     };
     this.test = null;
@@ -2150,7 +2479,7 @@ export class RangeEngine {
   _showResults(s) {
     const pct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
     const aimed = Math.round((s.adsShare || 0) * s.kills);
-    this.el.resultsSub.textContent = `${this.cfg.sensLabel} · ${s.dummies} dummies · ${s.distance} range${
+    this.el.resultsSub.textContent = `${this.cfg.sensLabel} · ${s.map === 'arena' ? '360° arena · ' : ''}${s.dummies} targets · ${s.distance} range${
       this.sight ? ` · ${aimed} of ${s.kills} aimed down sights` : ''
     }`;
     const tiles = [
@@ -2180,6 +2509,20 @@ export class RangeEngine {
 
   _beginFree() {
     this.running = true;
+    if (this.map.id === 'arena') {
+      // A dozen people all round you, near and far; three of them strafing.
+      let made = 0;
+      for (let i = 0; i < 200 && made < 12; i++) {
+        const a = (made / 12) * Math.PI * 2 + rand(-0.2, 0.2);
+        const dist = rand(9, 45);
+        const x = ARENA.x - Math.sin(a) * dist;
+        const z = ARENA.z - Math.cos(a) * dist;
+        if (!this._inTargetArea(x, z) || this._blocked(x, z, 0.6)) continue;
+        this._spawnDummy(x, z, { strafe: made % 4 === 1, respawn: 1400 });
+        made++;
+      }
+      return;
+    }
     const spots = [
       [-9.6, -6.5], [-3.2, -11.5], [3.2, -11.5], [9.6, -16.5],
       [-6.4, -21.5], [0, -21.5], [6.4, -31.5], [-9.6, -31.5], [0, -41.5], [-3.2, -51.5], [6.4, -51.5],
@@ -2284,7 +2627,7 @@ export class RangeEngine {
     // It lands a moment later: a tinkle on the concrete under the roof,
     // nothing on the dirt.
     const p = this.player;
-    if (p.z > -1.5 && p.onGround) setTimeout(() => this.active && this._soundTink(), rand(430, 620));
+    if (this._onConcrete() && p.onGround) setTimeout(() => this.active && this._soundTink(), rand(430, 620));
   }
 
   _hitmarker(head) {
@@ -2334,8 +2677,18 @@ export class RangeEngine {
     for (const c of this.colliders) {
       if (nx > c.x0 && nx < c.x1 && nz > c.z0 && nz < c.z1) nz = p.z;
     }
-    p.x = clamp(nx, BOUNDS.xMin, BOUNDS.xMax);
-    p.z = clamp(nz, BOUNDS.zMin, BOUNDS.zMax);
+    if (this.map.id === 'arena') {
+      // A circle round the middle of the arena.
+      const ox = nx - ARENA.x;
+      const oz = nz - ARENA.z;
+      const r = Math.hypot(ox, oz);
+      const k = r > ARENA.walk ? ARENA.walk / r : 1;
+      p.x = ARENA.x + ox * k;
+      p.z = ARENA.z + oz * k;
+    } else {
+      p.x = clamp(nx, BOUNDS.xMin, BOUNDS.xMax);
+      p.z = clamp(nz, BOUNDS.zMin, BOUNDS.zMax);
+    }
     if (!p.onGround || p.vy) {
       p.vy -= GRAVITY * dt;
       p.y += p.vy * dt;
@@ -2343,7 +2696,7 @@ export class RangeEngine {
         p.y = 0;
         p.vy = 0;
         p.onGround = true;
-        this._soundStep(p.z > -1.5, 1.4);
+        this._soundStep(this._onConcrete(), 1.4);
       }
     }
     p.eye += ((crouch ? EYE_CROUCH : EYE) - p.eye) * Math.min(1, dt * 12);
@@ -2354,7 +2707,7 @@ export class RangeEngine {
     const step = Math.floor(this.bob / Math.PI);
     if (step !== this.lastStep) {
       this.lastStep = step;
-      if (p.onGround && !crouch && !walk && moving > SPEED.walk + 0.3) this._soundStep(p.z > -1.5);
+      if (p.onGround && !crouch && !walk && moving > SPEED.walk + 0.3) this._soundStep(this._onConcrete());
     }
   }
 
@@ -2440,7 +2793,7 @@ export class RangeEngine {
     // relative to where you're facing, and shade under the roof.
     this.vmKey.position.copy(this.sunDir).applyQuaternion(this._invQ.copy(this.camera.quaternion).invert());
     const p = this.player;
-    const under = p.z > ROOF.zMin + 0.4 && p.z < ROOF.zMax && Math.abs(p.x) < BAY_HALF ? 1 : 0;
+    const under = this.map.id === 'range' && p.z > ROOF.zMin + 0.4 && p.z < ROOF.zMax && Math.abs(p.x) < BAY_HALF ? 1 : 0;
     this.shade += (under - this.shade) * Math.min(1, dt * 4);
     this.vmKey.intensity = 2.3 * (1 - 0.8 * this.shade);
     this.vmHemi.intensity = 0.9 * (1 - 0.3 * this.shade);

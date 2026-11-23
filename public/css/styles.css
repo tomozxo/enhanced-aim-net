@@ -288,6 +288,13 @@ body.app-shell { height: 100%; display: flex; flex-direction: column; overflow: 
 .stepper input:focus { outline: none; color: var(--accent-text); }
 /* Valorant/CS2 sens takes up to 3 decimals, so its box is wider. */
 .stepper.stepper-wide input { width: 64px; }
+/* A measured 360 (Rust): same look as the steppers, wide enough for "Estimate 34.6". */
+.calib-input {
+  width: 96px; padding: 0; background: transparent; border: none; color: var(--text);
+  font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right;
+}
+.calib-input:focus { outline: none; color: var(--accent-text); }
+.calib-input::placeholder { color: var(--text-dim); font-weight: 500; font-size: 12.5px; }
 .stepper[data-field="ads1xMeasured"] input { width: 70px; }
 .stepper[data-field="ads1xMeasured"] input::placeholder { color: var(--text-dim); }
 /* The arrows only show when you're on the tile. */

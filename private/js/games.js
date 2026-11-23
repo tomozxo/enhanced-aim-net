@@ -122,12 +122,17 @@ function simpleAds(game, { sights, vFov, factor }) {
  * the aspect ratio. That's why 4:3 shows less of the world side-to-side, and
  * why stretching it makes everything look wider.
  */
-function simpleGame({ id, name, short, yaw, vFovDeg, fovSlider, fovNote, defaults, rules, arrowStep, sensLabel, ads }) {
+function simpleGame({ id, name, short, yaw, yawFor, vFovDeg, fovSlider, fovNote, defaults, rules, arrowStep, sensLabel, ads, exact = true, calibratable = false }) {
+  // Degrees per count at sens 1: a fixed constant for most games; Rust's
+  // moves with its FOV setting (and a measured 360), so it's worked out
+  // from the settings.
+  const yawOf = (s) => (yawFor ? yawFor(s) : yaw);
   const game = {
     id,
     name,
     short,
-    exact: true,
+    exact,
+    calibratable,
     tabs: [{ id: 'main', label: 'Sensitivity' }],
     defaults,
     rules,
@@ -141,17 +146,17 @@ function simpleGame({ id, name, short, yaw, vFovDeg, fovSlider, fovNote, default
     baseSens: (_tab, s) => s.sens,
     withCandidate: (s, _tab, sens) => ({ ...s, sens }),
     applySens: (_tab, sens) => ({ sens }),
-    degPerCount: (_tab, s) => ({ x: s.sens * yaw, y: s.sens * yaw }),
-    cm360: (_tab, s) => (s.sens > 0 && s.dpi > 0 ? (2.54 * 360) / (s.dpi * s.sens * yaw) : NaN),
+    yawOf,
+    degPerCount: (_tab, s) => ({ x: s.sens * yawOf(s), y: s.sens * yawOf(s) }),
+    cm360: (_tab, s) => (s.sens > 0 && s.dpi > 0 ? (2.54 * 360) / (s.dpi * s.sens * yawOf(s)) : NaN),
     view(s) {
       const r = parseResolution(s.resolution);
       // Games with their own FOV slider show a horizontal FOV measured at
       // 16:9 (Call of Duty, Overwatch) or 4:3 (Apex, which is Source-based
       // like CS), and keep the vertical where it is when the aspect ratio
-      // changes.
-      const v = fovSlider
-        ? vFovFromH(Math.max(fovSlider.min, Math.min(fovSlider.max, Number(s.fov) || fovSlider.min)), fovSlider.basis || 16 / 9)
-        : vFovDeg;
+      // changes. Rust's slider is the vertical FOV itself (a Unity camera).
+      const fov = fovSlider ? Math.max(fovSlider.min, Math.min(fovSlider.max, Number(s.fov) || fovSlider.min)) : 0;
+      const v = fovSlider ? (fovSlider.vertical ? fov : vFovFromH(fov, fovSlider.basis || 16 / 9)) : vFovDeg;
       return {
         aspect: r.w / r.h,
         vFovDeg: v,
@@ -375,7 +380,44 @@ export const GAMES = {
   }),
 };
 
-export const GAME_ORDER = ['r6', 'valorant', 'cs2', 'apex', 'cod', 'overwatch', 'rivals'];
+// Rust (Facepunch, Unity). The turn rate is community-measured rather than
+// read from Facepunch's code: 0.1125° per count at input.sensitivity 1 on
+// the default FOV of 75, and it scales with the FOV setting - the same sens
+// turns 20% further at FOV 90 - so 0.0015° × sens × FOV. The FOV slider
+// (graphics.fov, 70-90) is the vertical FOV, as Unity cameras use. Since no
+// published source can be checked against the game itself, a 360 measured
+// in-game (settings.calib) corrects the formula for your setup, and keeps
+// it exact when you change sens or FOV afterwards.
+const RUST_FOV = { min: 70, max: 90, vertical: true };
+const rustFov = (s) => Math.max(RUST_FOV.min, Math.min(RUST_FOV.max, Number(s.fov) || 75));
+GAMES.rust = simpleGame({
+  id: 'rust',
+  name: 'Rust',
+  short: 'Rust',
+  yaw: 0.1125, // at FOV 75; see yawFor
+  yawFor: (s) => 0.0015 * rustFov(s) * (s.calib && s.calib.factor > 0 ? s.calib.factor : 1),
+  fovSlider: RUST_FOV,
+  fovNote: "Rust's own slider (graphics.fov), vertical, 70-90",
+  defaults: { sens: 0.3, fov: 90, resolution: '1920x1080', displayMode: 'stretch', calib: null },
+  rules: { step: 0.001, decimals: 3, min: 0.01, max: 10, minSpreadPct: 0.02 },
+  arrowStep: 0.01,
+  sensLabel: 'Same number as input.sensitivity in Rust',
+  exact: false,
+  calibratable: true,
+});
+
+/** For a game with a measured 360 (Rust): how far the formula is off,
+ * worked out against the settings right now - so a later sens or FOV
+ * change keeps the correction. */
+export function calibrationFor(game, s, cm360) {
+  const v = Number(cm360);
+  if (!(v > 0) || !(s.dpi > 0) || !(s.sens > 0)) return null;
+  const model = game.degPerCount('main', { ...s, calib: null }).x;
+  const measured = (2.54 * 360) / (v * s.dpi);
+  return model > 0 ? { cm360: v, dpi: s.dpi, sens: s.sens, fov: s.fov, factor: measured / model } : null;
+}
+
+export const GAME_ORDER = ['r6', 'valorant', 'cs2', 'apex', 'cod', 'overwatch', 'rivals', 'rust'];
 
 export function getGame(id) {
   return GAMES[id] || GAMES.r6;

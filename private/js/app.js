@@ -16,6 +16,7 @@ import {
   GAME_ORDER,
   getGame,
   quantizeSens,
+  calibrationFor,
   formatSens as formatGameSens,
   tabLabel,
   hFovFromV,
@@ -151,6 +152,8 @@ function renderRangePanel() {
   const data = loadRange();
   $('rangeDummies').value = data.dummies || 'standing';
   $('rangeDistance').value = data.distance || 'mid';
+  const map = rangeMap(game, data);
+  document.querySelectorAll('#rangeMap [data-map]').forEach((b) => b.classList.toggle('active', b.dataset.map === map));
   renderRangeAds(game, data);
   renderRangeHistory(game);
 }
@@ -190,6 +193,14 @@ const ADS_NOTES = {
   overwatch: "Right-click scopes in like Widowmaker or Ana, with your Relative aim sensitivity while zoomed.",
 };
 
+/** Which map the range opens on for this game: the 360° arena for Rust
+ * (where fights come from every direction), the shooting range otherwise -
+ * unless you've picked one. */
+function rangeMap(game, data = loadRange()) {
+  const picked = (data.maps || {})[game.id];
+  return picked === 'arena' || picked === 'range' ? picked : game.id === 'rust' ? 'arena' : 'range';
+}
+
 function renderRangeAds(game, data) {
   const sight = rangeSight(game, data);
   document.querySelectorAll('[data-ads-field]').forEach((el) => (el.hidden = !sight));
@@ -227,7 +238,7 @@ function renderRangeHistory(game) {
         .map(
           (h) => `<tr>
             <td>${formatGameSens(game, h.sens)} <span class="comparison-tag">${formatCm360(h.cm360)} cm</span></td>
-            <td>${h.dummies === 'strafing' ? 'Strafing' : 'Standing'} · ${distance[h.distance] || h.distance}${
+            <td>${h.map === 'arena' ? '360° · ' : ''}${h.dummies === 'strafing' ? 'Strafing' : 'Standing'} · ${distance[h.distance] || h.distance}${
               h.adsShare >= 0.5 ? ' · aimed' : ''
             }</td>
             <td>${fmtMs(h.timeMs)}</td>
@@ -289,6 +300,7 @@ function bindRange() {
       mode,
       dummies: data.dummies,
       distance: data.distance,
+      map: rangeMap(game, data),
       sight: sight ? sight.id : null,
       adsMode: data.adsMode === 'toggle' ? 'toggle' : 'hold',
     });
@@ -301,6 +313,14 @@ function bindRange() {
     $('rangeCm').textContent = formatCm360(game.cm360(tab, settings));
     const sight = rangeSight(game);
     if (sight) $('rangeAdsCm').textContent = formatCm360(rangeAdsCm(game, sight, settings, Number($('rangeAdsSens').value)));
+  });
+  $('rangeMap').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-map]');
+    if (!btn) return;
+    const data = loadRange();
+    data.maps = { ...(data.maps || {}), [currentGame().id]: btn.dataset.map };
+    saveRange(data);
+    renderRangePanel();
   });
   $('rangeSight').addEventListener('change', () => {
     const data = loadRange();
@@ -813,8 +833,19 @@ function buildSimpleGameFields(game) {
         </select>
       </div>
     </div>
-    <p class="sidebar-note">Sens here is <b>exact</b>: the drill turns ${game.yaw}° per mouse count at sens 1, the
-      same as ${game.short}, so the same mouse movement turns you the same distance.</p>`;
+    ${
+      game.calibratable
+        ? `<div class="field-row">
+      <div class="field-label">Measured cm/360°<small>Optional - makes it exact</small></div>
+      <input type="number" class="calib-input" id="simpleCalibInput" step="0.1" min="1" inputmode="decimal" />
+    </div>
+    <p class="sidebar-note">${game.short} turns <b>${game.yaw}°</b> per mouse count at sens 1 on FOV 75, and further on a
+      wider FOV (0.0015° × sens × FOV). That's measured by the community, not read from the game, so for a guaranteed
+      1:1: in ${game.short}, line your crosshair up with a mark, drag your mouse until you've turned exactly one full
+      360° back to it, measure the distance with a ruler and enter it above. It stays exact when you change sens or FOV.</p>`
+        : `<p class="sidebar-note">Sens here is <b>exact</b>: the drill turns ${game.yaw}° per mouse count at sens 1, the
+      same as ${game.short}, so the same mouse movement turns you the same distance.</p>`
+    }`;
 }
 
 function bindSimpleGameFields() {
@@ -838,6 +869,13 @@ function bindSimpleGameFields() {
     if (e.target.id === 'simpleResolution') updateGameSettings(id, { resolution: e.target.value });
     if (e.target.id === 'simpleDisplayMode') updateGameSettings(id, { displayMode: e.target.value });
     if (e.target.id === 'simpleFovInput') commitFov(Number(e.target.value));
+    if (e.target.id === 'simpleCalibInput') {
+      // A measured 360 (Rust): stored as how far the formula is off right
+      // now, so it carries over to any later sens or FOV.
+      const game = currentGame();
+      const v = e.target.value.trim();
+      updateGameSettings(id, { calib: v ? calibrationFor(game, getState().settings, Number(v)) : null });
+    }
   });
   $('simpleViewFields').addEventListener('click', (e) => {
     const btn = e.target.closest('.stepper[data-simple-field="fov"] [data-dir]');
@@ -870,13 +908,22 @@ function renderSimpleGameFields(game, s) {
   } else {
     $('simpleFovText').textContent = `${Number(hFov.toFixed(1))}° wide`;
   }
+  if (game.calibratable) {
+    const input = $('simpleCalibInput');
+    if (document.activeElement !== input) input.value = s.calib?.cm360 ?? '';
+    input.placeholder = `Estimate ${formatCm360(game.cm360('main', { ...s, calib: null }))}`;
+  }
 }
 
 /** Shows the selected game's parts of the page and hides the others. */
 function renderGameChrome(state) {
   const game = getGame(state.game);
   $('gameSelect').value = game.id;
-  $('gameExactTag').textContent = game.exact ? 'exact sens' : 'estimated sens';
+  $('gameExactTag').textContent = game.exact
+    ? 'exact sens'
+    : game.calibratable && state.settings.calib
+      ? 'measured sens'
+      : 'estimated sens';
   document.querySelectorAll('[data-game-only]').forEach((el) => {
     el.hidden = !el.dataset.gameOnly.split(' ').includes(game.id);
   });
@@ -1428,7 +1475,10 @@ function renderAll() {
 /** Siege hip-fire goes in the list with its yaw worked out from the user's
  * custom multiplier (and hip-fire measurement, if any). */
 function convertList() {
-  return buildGameList(hipDegPerSensPoint(getGameSettings('r6')));
+  // Rust's turn rate moves with its FOV (and a measured 360), so it's
+  // worked out from the Rust settings saved here.
+  const rustYaw = GAMES.rust.yawOf(getGameSettings('rust'));
+  return buildGameList(hipDegPerSensPoint(getGameSettings('r6')), rustYaw);
 }
 
 /** The converter's own fields default to whatever the user already has set
