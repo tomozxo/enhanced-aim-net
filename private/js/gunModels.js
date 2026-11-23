@@ -81,19 +81,81 @@ function woodTexture() {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 }
+/** Surface detail, as a grey canvas used for both bump and roughness: fine
+ * brushing and scratches for metal, a stipple for polymer, dents and wear
+ * for scrap. It's what stops a part looking like a smooth plastic block. */
+function surface(kind) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const x = c.getContext('2d');
+  x.fillStyle = '#808080';
+  x.fillRect(0, 0, 256, 256);
+  const img = x.getImageData(0, 0, 256, 256);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() - 0.5) * (kind === 'polymer' ? 70 : kind === 'scrap' ? 60 : 26);
+    d[i] = d[i + 1] = d[i + 2] = 128 + n;
+  }
+  x.putImageData(img, 0, 0);
+  if (kind === 'metal' || kind === 'scrap') {
+    // Brushing along the part, then scratches and edge wear.
+    for (let i = 0; i < 260; i++) {
+      x.strokeStyle = `rgba(${Math.random() < 0.5 ? '255,255,255' : '0,0,0'},${0.04 + Math.random() * 0.06})`;
+      x.lineWidth = 1;
+      const y = Math.random() * 256;
+      x.beginPath();
+      x.moveTo(0, y);
+      x.lineTo(256, y + (Math.random() - 0.5) * 6);
+      x.stroke();
+    }
+    for (let i = 0; i < (kind === 'scrap' ? 90 : 40); i++) {
+      x.strokeStyle = `rgba(255,255,255,${0.15 + Math.random() * 0.3})`;
+      x.lineWidth = 0.6 + Math.random();
+      const px = Math.random() * 256;
+      const py = Math.random() * 256;
+      const a = Math.random() * Math.PI;
+      const l = 6 + Math.random() * 30;
+      x.beginPath();
+      x.moveTo(px, py);
+      x.lineTo(px + Math.cos(a) * l, py + Math.sin(a) * l);
+      x.stroke();
+    }
+  }
+  if (kind === 'scrap') {
+    for (let i = 0; i < 30; i++) {
+      const g = x.createRadialGradient(0, 0, 0, 0, 0, 14);
+      g.addColorStop(0, 'rgba(0,0,0,0.35)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      x.save();
+      x.translate(Math.random() * 256, Math.random() * 256);
+      x.fillStyle = g;
+      x.fillRect(-14, -14, 28, 28);
+      x.restore();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(3, 3);
+  return t;
+}
+
 function mats() {
   if (MATS) return MATS;
   const std = (o) => new THREE.MeshStandardMaterial(o);
+  const metal = surface('metal');
+  const poly = surface('polymer');
+  const scrap = surface('scrap');
+  const woodTex = woodTexture();
   MATS = {
-    blued: std({ color: 0x26282c, metalness: 0.75, roughness: 0.38, envMapIntensity: 0.9 }),
-    steel: std({ color: 0x4b4e53, metalness: 0.85, roughness: 0.3, envMapIntensity: 1 }),
-    worn: std({ color: 0x55534f, metalness: 0.8, roughness: 0.5, envMapIntensity: 0.8 }),
-    black: std({ color: 0x17181b, metalness: 0.15, roughness: 0.62, envMapIntensity: 0.6 }),
-    polymer: std({ color: 0x232427, metalness: 0.05, roughness: 0.75, envMapIntensity: 0.5 }),
-    tan: std({ color: 0x8b7c61, metalness: 0.08, roughness: 0.66, envMapIntensity: 0.5 }),
-    olive: std({ color: 0x4f5638, metalness: 0.08, roughness: 0.7, envMapIntensity: 0.5 }),
-    wood: std({ color: 0xffffff, map: woodTexture(), metalness: 0.02, roughness: 0.55, envMapIntensity: 0.6 }),
-    rust: std({ color: 0x6e4a30, metalness: 0.55, roughness: 0.85, envMapIntensity: 0.5 }),
+    blued: std({ color: 0x2f3236, metalness: 0.75, roughness: 0.42, envMapIntensity: 0.95, bumpMap: metal, bumpScale: 0.6, roughnessMap: metal }),
+    steel: std({ color: 0x55585d, metalness: 0.85, roughness: 0.34, envMapIntensity: 1, bumpMap: metal, bumpScale: 0.5, roughnessMap: metal }),
+    worn: std({ color: 0x5f5c57, metalness: 0.75, roughness: 0.55, envMapIntensity: 0.8, bumpMap: scrap, bumpScale: 1.2, roughnessMap: scrap }),
+    black: std({ color: 0x202226, metalness: 0.2, roughness: 0.6, envMapIntensity: 0.6, bumpMap: metal, bumpScale: 0.4, roughnessMap: metal }),
+    polymer: std({ color: 0x2b2c2f, metalness: 0.05, roughness: 0.78, envMapIntensity: 0.55, bumpMap: poly, bumpScale: 0.8, roughnessMap: poly }),
+    tan: std({ color: 0x8b7c61, metalness: 0.06, roughness: 0.72, envMapIntensity: 0.5, bumpMap: poly, bumpScale: 0.8 }),
+    olive: std({ color: 0x525a3b, metalness: 0.06, roughness: 0.72, envMapIntensity: 0.5, bumpMap: poly, bumpScale: 0.8 }),
+    wood: new THREE.MeshPhysicalMaterial({ color: 0xffffff, map: woodTex, bumpMap: woodTex, bumpScale: 0.6, metalness: 0.02, roughness: 0.6, clearcoat: 0.35, clearcoatRoughness: 0.45, envMapIntensity: 0.6 }),
+    rust: std({ color: 0x744e33, metalness: 0.5, roughness: 0.9, envMapIntensity: 0.5, bumpMap: scrap, bumpScale: 1.6, roughnessMap: scrap }),
     tape: std({ color: 0x2f3a2c, metalness: 0, roughness: 0.95 }),
     smoke: std({ color: 0x3a3a30, metalness: 0.1, roughness: 0.25, transparent: true, opacity: 0.7, envMapIntensity: 1.2 }),
   };
@@ -118,7 +180,7 @@ function rbox(w, h, d, r, mat) {
   s.lineTo(x, y + r);
   s.quadraticCurveTo(x, y, x + r, y);
   const b = Math.min(r, d / 2) * 0.6;
-  const g = new THREE.ExtrudeGeometry(s, { depth: Math.max(1e-4, d - 2 * b), bevelEnabled: true, bevelThickness: b, bevelSize: b * 0.6, bevelSegments: 2, curveSegments: 4 });
+  const g = new THREE.ExtrudeGeometry(s, { depth: Math.max(1e-4, d - 2 * b), bevelEnabled: true, bevelThickness: b, bevelSize: b * 0.6, bevelSegments: 3, curveSegments: 6 });
   g.translate(0, 0, -(d - 2 * b) / 2);
   return new THREE.Mesh(g, mat);
 }

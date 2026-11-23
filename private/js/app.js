@@ -285,7 +285,8 @@ const ADS_NOTES = {
  * unless you've picked one. */
 function rangeMap(game, data = loadRange()) {
   const picked = (data.maps || {})[game.id];
-  return picked === 'arena' || picked === 'range' ? picked : game.id === 'rust' ? 'arena' : 'range';
+  if (['arena', 'range', 'indoor'].includes(picked)) return picked;
+  return game.id === 'rust' ? 'arena' : game.id === 'r6' ? 'indoor' : 'range';
 }
 
 function renderRangeAds(game, data) {

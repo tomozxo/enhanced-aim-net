@@ -51,7 +51,7 @@ const ADS_MS = { dot: 170, scope: 240 };
 const ADS_MOVE = 0.6;
 // Where the eye sits behind each sight while aimed (gun coordinates: the
 // sight's axis height, and the z of its rear lens plus the eye relief).
-const SIGHT_EYE = { dot: { y: 0.106, z: 0.018 + 0.13 }, scope: { y: 0.112, z: 0.118 + 0.075 } };
+const SIGHT_EYE = { dot: { y: 0.106, z: 0.005 + 0.13 }, scope: { y: 0.112, z: 0.118 + 0.075 } };
 
 // The roof over the firing line, for the rifle's lighting (it's in shade
 // under there).
@@ -145,6 +145,25 @@ function dots(ctx, size, count, rMin, rMax, colors) {
 
 /** Joins geometries into one (positions and normals), each moved by its
  * own matrix first - for trees built from several pieces. */
+/** Like mergeGeometries, keeping texture coordinates (for leaf cards and
+ * anything else that's textured). */
+function mergeUV(parts) {
+  const pos = [];
+  const nor = [];
+  const uv = [];
+  for (const [geo, matrix] of parts) {
+    const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(matrix);
+    pos.push(...g.attributes.position.array);
+    nor.push(...g.attributes.normal.array);
+    uv.push(...g.attributes.uv.array);
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return out;
+}
+
 function mergeGeometries(parts) {
   const pos = [];
   const nor = [];
@@ -303,6 +322,7 @@ export class RangeEngine {
         }),
       },
       arena: { id: 'arena', ...mapGroup(() => this._buildArena()) },
+      indoor: { id: 'indoor', ...mapGroup(() => this._buildIndoor()) },
     };
     this._buildDummyParts();
     this._buildViewmodel();
@@ -317,6 +337,30 @@ export class RangeEngine {
     this.map = map;
     this.solids = map.solids;
     this.colliders = map.colliders;
+    // Each map's own light and air: the open range in clear daylight, the
+    // Rust arena hazy and muted, the indoor facility lit from above by its
+    // strip lights (the sun is swung overhead and dimmed to stand in for
+    // them, so things still cast shadows straight down).
+    const L = this.lights;
+    if (L) {
+      const look = {
+        range: { fog: 0xc9d6e2, density: 0.003, hemi: [0xc2d6ea, 0x6b604d, 0.75], sun: [0xfff0dc, 2.6], sunAt: this.sunDir, exposure: 1.0, fill: 18, sky: true },
+        arena: { fog: 0xb7bfb8, density: 0.0075, hemi: [0xb9c6cc, 0x5e5848, 0.7], sun: [0xffe6c4, 2.3], sunAt: this.sunDir, exposure: 0.95, fill: 0, sky: true },
+        indoor: { fog: 0x26282b, density: 0.006, hemi: [0xe6ecf2, 0x5c5850, 1.25], sun: [0xf4f7ff, 1.35], sunAt: new THREE.Vector3(0.08, 1, 0.12).normalize(), exposure: 1.0, fill: 0, sky: false },
+      }[map.id];
+      this.scene.fog.color.setHex(look.fog);
+      this.scene.fog.density = look.density;
+      L.hemi.color.setHex(look.hemi[0]);
+      L.hemi.groundColor.setHex(look.hemi[1]);
+      L.hemi.intensity = look.hemi[2];
+      L.sun.color.setHex(look.sun[0]);
+      L.sun.intensity = look.sun[1];
+      L.sun.position.copy(look.sunAt).multiplyScalar(80).add(L.sun.target.position);
+      L.fill.intensity = look.fill;
+      if (this.sky) this.sky.visible = look.sky;
+      this.renderer.toneMappingExposure = look.exposure;
+      this.vmSunDir = look.sunAt;
+    }
     this.renderer.shadowMap.needsUpdate = true;
   }
 
@@ -333,7 +377,7 @@ export class RangeEngine {
 
   /** Standing on the range's concrete (footsteps, brass landing). */
   _onConcrete() {
-    return this.map.id === 'range' && this.player.z > -1.5;
+    return this.map.id === 'indoor' || (this.map.id === 'range' && this.player.z > -1.5);
   }
 
   _tex(c, repeatX = 1, repeatY = repeatX, srgb = true) {
@@ -621,6 +665,7 @@ export class RangeEngine {
     });
     const sky = new THREE.Mesh(new THREE.SphereGeometry(800, 48, 24), skyMat);
     this.scene.add(sky);
+    this.sky = sky;
     this.skyMat = skyMat;
 
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -660,6 +705,259 @@ export class RangeEngine {
     const fill = new THREE.PointLight(0xffe2b8, 18, 16, 1.6);
     fill.position.set(0, 3.1, 1.8);
     this.scene.add(fill);
+    this.lights = { hemi, sun, fill };
+  }
+
+  // ---------- The indoor facility (Siege) ----------
+
+  /** Painted textures for the indoor range: painted block walls, sealed
+   * concrete floor, rubber backstop blocks, a stencilled number. */
+  _indoorTextures() {
+    const T = {};
+    {
+      // Concrete block, painted: light grey above a dark grey dado band,
+      // every block slightly different, mortar lines, scuffs low down.
+      const c = canvas(512);
+      const x = c.getContext('2d');
+      x.fillStyle = '#b9b8b2';
+      x.fillRect(0, 0, 512, 512);
+      for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 4; col++) {
+          const off = row % 2 ? 64 : 0;
+          const v = 175 + Math.random() * 14;
+          x.fillStyle = `rgb(${v},${v - 1},${v - 6})`;
+          x.fillRect(col * 128 + off + 2, row * 64 + 2, 124, 60);
+          x.fillRect(col * 128 + off - 512 + 2, row * 64 + 2, 124, 60);
+        }
+      }
+      blotches(x, 512, 20, 20, 90, ['rgba(110,108,100,A)', 'rgba(210,208,200,A)'], 0.12);
+      grain(x, 512, 16);
+      T.block = c;
+    }
+    {
+      const c = canvas(512);
+      const x = c.getContext('2d');
+      x.fillStyle = '#5d5f60';
+      x.fillRect(0, 0, 512, 512);
+      blotches(x, 512, 30, 30, 120, ['rgba(40,42,44,A)', 'rgba(120,122,120,A)'], 0.2);
+      blotches(x, 512, 12, 10, 40, ['rgba(30,30,30,A)'], 0.25);
+      cracks(x, 512, 4, 'rgba(30,30,30,0.3)');
+      grain(x, 512, 18);
+      x.fillStyle = 'rgba(25,25,25,0.7)';
+      x.fillRect(0, 0, 512, 2);
+      x.fillRect(0, 0, 2, 512);
+      T.floor = c;
+    }
+    {
+      // Rubber backstop blocks, stacked and chewed up.
+      const c = canvas(256);
+      const x = c.getContext('2d');
+      x.fillStyle = '#1f1f20';
+      x.fillRect(0, 0, 256, 256);
+      for (let row = 0; row < 4; row++) for (let col = 0; col < 2; col++) {
+        x.strokeStyle = 'rgba(0,0,0,0.8)';
+        x.lineWidth = 3;
+        x.strokeRect(col * 128 + (row % 2) * 64, row * 64, 128, 64);
+      }
+      blotches(x, 256, 40, 4, 14, ['rgba(70,66,60,A)', 'rgba(5,5,5,A)'], 0.6);
+      grain(x, 256, 24);
+      T.rubber = c;
+    }
+    {
+      // Raw plywood: pale, with soft grain bands and the odd knot.
+      const c = canvas(256);
+      const x = c.getContext("2d");
+      x.fillStyle = "#cdb48a";
+      x.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 40; i++) {
+        x.fillStyle = `rgba(${Math.random() < 0.5 ? "150,118,78" : "225,205,170"},${0.12 + Math.random() * 0.18})`;
+        const y = Math.random() * 256;
+        x.fillRect(0, y, 256, 2 + Math.random() * 7);
+      }
+      for (let i = 0; i < 3; i++) blotches(x, 256, 1, 4, 9, ["rgba(110,80,45,A)"], 0.7);
+      grain(x, 256, 14);
+      T.ply = c;
+    }
+    return T;
+  }
+
+  /**
+   * The indoor training facility, Siege-style: a long concrete hall with a
+   * firing line, painted block walls, a ceiling of steel beams, ducts and
+   * strip lights, plywood walls and barricades out in the hall for cover,
+   * and a rubber backstop at the far end. Its floor plan matches the
+   * outdoor range (same lanes, distances and target area) so every mode
+   * works the same in it.
+   */
+  _buildIndoor() {
+    const T = this.tex;
+    const IT = this._indoorTextures();
+    const W = 16.2; // half width
+    const zBack = 11;
+    const zEnd = FIELD_END - 2;
+    const H = 6.6;
+    const len = zBack - zEnd;
+    const zMid = (zBack + zEnd) / 2;
+    // Floor, walls, ceiling.
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W * 2, len), this._mat({ map: this._tex(IT.floor, W / 2, len / 4), roughness: 0.62, metalness: 0.05 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0, zMid);
+    this._solid(floor, { cast: false });
+    const wallMat = this._mat({ map: this._tex(IT.block, len / 4, H / 3.2), roughness: 0.88 });
+    for (const s of [-1, 1]) this._box(0.4, H, len, wallMat, s * (W + 0.2), H / 2, zMid, { collide: true });
+    const endMat = this._mat({ map: this._tex(IT.block, (W * 2) / 4, H / 3.2), roughness: 0.88 });
+    this._box(W * 2, H, 0.4, endMat, 0, H / 2, zBack + 0.2, { collide: true });
+    this._box(W * 2, H, 0.4, endMat, 0, H / 2, zEnd - 0.2, { collide: true });
+    // A dark grey dado band round the bottom of the walls.
+    const band = this._mat({ color: 0x3c3e40, roughness: 0.7 });
+    for (const s of [-1, 1]) this._box(0.05, 1.1, len, band, s * W, 0.55, zMid);
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W * 2, len), this._mat({ color: 0x8a8d90, roughness: 0.95 }));
+    ceil.rotation.x = Math.PI / 2;
+    ceil.position.set(0, H, zMid);
+    ceil.receiveShadow = true;
+    this.scene.add(ceil);
+    // Steel beams across, a duct and cable tray along, strip lights between.
+    const steel = this._mat({ color: 0x3a3d42, metalness: 0.6, roughness: 0.5, map: this._tex(T.steel, 2) });
+    const lightMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xf2f6ff, emissiveIntensity: 2.2 });
+    const housing = this._mat({ color: 0xc9ccd0, roughness: 0.5, metalness: 0.3 });
+    for (let z = zBack - 3; z > zEnd; z -= 6) {
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(W * 2, 0.45, 0.22), steel);
+      beam.position.set(0, H - 0.25, z);
+      this.scene.add(beam);
+      for (const x of [-9, -3, 3, 9]) {
+        const h = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, 2.2), housing);
+        h.position.set(x, H - 0.75, z - 3);
+        const tube = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.04, 2.1), lightMat);
+        tube.position.set(x, H - 0.81, z - 3);
+        this.scene.add(h, tube);
+      }
+    }
+    const duct = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, len, 20), this._mat({ color: 0x8d9196, metalness: 0.7, roughness: 0.35 }));
+    duct.rotation.x = Math.PI / 2;
+    duct.position.set(-W + 1.2, H - 0.9, zMid);
+    this.scene.add(duct);
+    const tray = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, len), steel);
+    tray.position.set(W - 1, H - 1.2, zMid);
+    this.scene.add(tray);
+    // The backstop: a sloped wall of rubber blocks.
+    const rubber = this._mat({ map: this._tex(IT.rubber, 4, 2), roughness: 0.98 });
+    const stop = this._box(W * 2, 5, 1.6, rubber, 0, 2.3, zEnd + 1.2);
+    stop.rotation.x = -0.18;
+    // The firing line: a long counter with gaps for each lane (no
+    // dividers), a yellow line on the floor, lane lines downrange.
+    const counter = this._mat({ map: this._tex(T.wood, 2, 1), roughness: 0.7 });
+    const legMat = this._mat({ color: 0x2a2c2f, metalness: 0.6, roughness: 0.5 });
+    for (let i = 0; i < LANES; i++) {
+      const x = -BAY_HALF + 2.4 + LANE_W / 2 + i * LANE_W;
+      this._box(LANE_W - 0.6, 0.06, 0.62, counter, x, 1.02, -0.62, { collide: true });
+      for (const s of [-1, 1]) this._box(0.05, 1.0, 0.5, legMat, x + s * (LANE_W / 2 - 0.4), 0.5, -0.62);
+    }
+    const paint = (w, d, x, z, color) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ color, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }));
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(x, 0.006, z);
+      m.receiveShadow = true;
+      this.scene.add(m);
+    };
+    paint(W * 2, 0.12, 0, -1.4, 0xd9b21c);
+    for (let i = 0; i <= LANES; i++) paint(0.05, -FIELD_END - 4, -BAY_HALF + 2.4 + i * LANE_W, (FIELD_END - 4) / 2 - 1.5, 0x8c8f90);
+    // Distances stencilled on the walls.
+    for (const d of [10, 20, 30, 40, 50]) {
+      const c = canvas(256);
+      const x = c.getContext('2d');
+      x.clearRect(0, 0, 256, 256);
+      x.fillStyle = '#e8e4d8';
+      x.font = 'bold 120px Arial';
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.fillText(`${d}`, 128, 110);
+      x.font = 'bold 54px Arial';
+      x.fillText('M', 128, 205);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      for (const s of [-1, 1]) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4), new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: 0.8 }));
+        m.position.set(s * (W - 0.02), 2.4, -d);
+        m.rotation.y = -s * Math.PI / 2;
+        this.scene.add(m);
+      }
+    }
+    // Cover out in the hall: plywood walls (some with a window), concrete
+    // barriers, shelving and crates - a kill house's worth of cover.
+    const ply = this._mat({ map: this._tex(IT.ply, 1, 1), roughness: 0.82 });
+    const frame = this._mat({ color: 0x6d5a40, roughness: 0.85 });
+    const plyWall = (x, z, w, ry, window) => {
+      const g = new THREE.Group();
+      const h = 2.6;
+      if (window) {
+        const side = (w - 1.2) / 2;
+        for (const s of [-1, 1]) {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(side, h, 0.08), ply);
+          m.position.set(s * (w / 2 - side / 2), h / 2, 0);
+          g.add(m);
+        }
+        const low = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.95, 0.08), ply);
+        low.position.set(0, 0.475, 0);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.55, 0.08), ply);
+        top.position.set(0, h - 0.275, 0);
+        g.add(low, top);
+      } else {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.08), ply);
+        m.position.set(0, h / 2, 0);
+        g.add(m);
+      }
+      for (const s of [-1, 1]) {
+        const stud = new THREE.Mesh(new THREE.BoxGeometry(0.09, h, 0.09), frame);
+        stud.position.set(s * (w / 2 - 0.045), h / 2, -0.085);
+        g.add(stud);
+      }
+      g.position.set(x, 0, z);
+      g.rotation.y = ry;
+      this.scene.add(g);
+      g.updateMatrixWorld(true);
+      g.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = o.receiveShadow = true;
+          this.solids.push(o);
+        }
+      });
+      const b = new THREE.Box3().setFromObject(g);
+      this.colliders.push({ x0: b.min.x - PLAYER_R, x1: b.max.x + PLAYER_R, z0: b.min.z - PLAYER_R, z1: b.max.z + PLAYER_R });
+      this._contact(x, z, w + 0.4, 0.6, 0.4, -ry);
+    };
+    plyWall(-9.6, -13, 3, 0, true);
+    plyWall(7.2, -17, 3.6, 0, false);
+    plyWall(-3.6, -27, 2.4, 0, true);
+    plyWall(11.2, -34, 3, Math.PI / 2, false);
+    plyWall(-11.5, -38, 3.2, 0, false);
+    plyWall(4.8, -44, 3, 0, true);
+    const concrete = this._mat({ map: this._tex(T.slab, 1), color: 0xbdbab2, roughness: 0.9 });
+    const barrier = (x, z) => {
+      const geo = new THREE.CylinderGeometry(0.18, 0.32, 0.8, 4, 1);
+      geo.rotateY(Math.PI / 4);
+      geo.scale(5, 1, 1);
+      const m = new THREE.Mesh(geo, concrete);
+      m.position.set(x, 0.4, z);
+      this._solid(m, { collide: true });
+      this._contact(x, z, 3.4, 1.0, 0.45);
+    };
+    barrier(1.2, -9);
+    barrier(-6.5, -22);
+    barrier(9, -27);
+    barrier(-1.5, -40);
+    const shelfMat = this._mat({ color: 0x2f5a8a, metalness: 0.5, roughness: 0.5 });
+    const shelf = (x, z) => {
+      for (const sx of [-0.9, 0.9]) for (const sz of [-0.3, 0.3]) this._box(0.05, 2, 0.05, shelfMat, x + sx, 1, z + sz);
+      for (const y of [0.15, 0.9, 1.65]) this._box(1.9, 0.04, 0.65, steel, x, y, z);
+      this.colliders.push({ x0: x - 1 - PLAYER_R, x1: x + 1 + PLAYER_R, z0: z - 0.35 - PLAYER_R, z1: z + 0.35 + PLAYER_R });
+    };
+    shelf(13.6, -8);
+    shelf(-13.6, -24);
+    const crate = this._mat({ map: this._tex(T.wood, 1), roughness: 0.8 });
+    for (const [x, z, s] of [[-12.6, -6, 1], [-11.5, -6.2, 0.8], [12.8, -46, 1.1], [3, -31.5, 0.9]]) {
+      this._box(s, s, s, crate, x, s / 2, z, { collide: true }).rotation.y = rand(-0.3, 0.3);
+      this._contact(x, z, s + 0.6, s + 0.6, 0.5);
+    }
   }
 
   /** Adds a mesh that stops bullets, optionally casting/receiving shadows,
@@ -1061,35 +1359,127 @@ export class RangeEngine {
     this.scene.add(new THREE.Mesh(hills, hillMat));
   }
 
+  /** Leaf and needle textures for the trees: painted sprays on a clear
+   * background, cut out with alpha so each card reads as a bough or a
+   * cluster of leaves rather than a solid shape. */
+  _foliageTextures() {
+    if (this.foliageTex) return this.foliageTex;
+    const make = (draw) => {
+      const c = canvas(256);
+      const x = c.getContext('2d');
+      x.clearRect(0, 0, 256, 256);
+      draw(x);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = this.maxAniso;
+      return t;
+    };
+    // A fir bough: stems across the card, needles off both sides, shorter
+    // towards the tip, in a few greens.
+    const fir = make((x) => {
+      x.lineCap = 'round';
+      for (let layer = 0; layer < 3; layer++) {
+        const y0 = 128 + (layer - 1) * 34;
+        x.strokeStyle = 'rgba(70,52,34,0.9)';
+        x.lineWidth = 3;
+        x.beginPath();
+        x.moveTo(6, y0);
+        x.quadraticCurveTo(128, y0 + 10, 250, y0 + 26);
+        x.stroke();
+        for (let i = 0; i < 120; i++) {
+          const t = i / 120;
+          const sx = 6 + t * 244;
+          const sy = y0 + 10 * t + 16 * t * t;
+          const len = 30 * (1 - t * 0.6) * (0.7 + Math.random() * 0.5);
+          const g = 60 + Math.random() * 50;
+          x.strokeStyle = `rgba(${20 + Math.random() * 20},${g},${25 + Math.random() * 20},0.95)`;
+          x.lineWidth = 1.6;
+          for (const s of [-1, 1]) {
+            x.beginPath();
+            x.moveTo(sx, sy);
+            x.lineTo(sx + len * 0.45, sy + s * len * (0.7 + Math.random() * 0.3));
+            x.stroke();
+          }
+        }
+      }
+    });
+    // A broadleaf spray: many small leaves, light and dark, clustered.
+    const leaf = make((x) => {
+      for (let i = 0; i < 650; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.sqrt(Math.random()) * 112;
+        const px = 128 + Math.cos(a) * r;
+        const py = 128 + Math.sin(a) * r * 0.85;
+        const g = 70 + Math.random() * 70;
+        x.fillStyle = `rgba(${40 + Math.random() * 40},${g},${25 + Math.random() * 25},0.97)`;
+        x.beginPath();
+        x.ellipse(px, py, 7 + Math.random() * 5, 3.5 + Math.random() * 2.5, Math.random() * Math.PI, 0, Math.PI * 2);
+        x.fill();
+      }
+    });
+    const barkC = canvas(128);
+    const bx = barkC.getContext('2d');
+    bx.fillStyle = '#4a3b2d';
+    bx.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 60; i++) {
+      bx.fillStyle = `rgba(${Math.random() < 0.5 ? '25,18,12' : '110,92,70'},${0.2 + Math.random() * 0.4})`;
+      bx.fillRect(Math.random() * 128, 0, 1 + Math.random() * 4, 128);
+    }
+    grain(bx, 128, 20);
+    this.foliageTex = { fir, leaf, bark: barkC };
+    return this.foliageTex;
+  }
+
   /** Trees at [x, z] spots, a mix of firs and broadleaves. Returns the
    * instanced meshes (so the arena can count them as cover). */
   _forest(spots) {
-    // Two kinds of tree, each shade of green a little different: firs
-    // (tiers of ragged boughs) and broadleaves (a lumpy canopy on a taller
-    // trunk). Each is built from the ground up, so it stands at y = 0.
-    const T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z);
-    const firGeo = mergeGeometries([
-      [roughen(new THREE.ConeGeometry(1.9, 2.8, 10, 3), 0.07), T(0, 2.6, 0)],
-      [roughen(new THREE.ConeGeometry(1.5, 2.6, 10, 3), 0.07), T(0, 3.9, 0)],
-      [roughen(new THREE.ConeGeometry(1.05, 2.4, 9, 3), 0.07), T(0, 5.1, 0)],
-      [roughen(new THREE.ConeGeometry(0.6, 1.8, 8, 2), 0.06), T(0, 6.2, 0)],
+    // Each tree is a real trunk dressed in cards: firs in whorls of
+    // drooping boughs that shrink up the trunk, broadleaves as a rounded
+    // crown of leaf sprays on a forking trunk. Cut out with alpha, so light
+    // and sky show through the gaps the way they do in real trees.
+    const F = this._foliageTextures();
+    const card = (w, h) => new THREE.PlaneGeometry(w, h).translate(w / 2, 0, 0);
+    const firParts = [];
+    const whorls = 9;
+    for (let i = 0; i < whorls; i++) {
+      const t = i / (whorls - 1);
+      const y = 1.6 + t * 5.4;
+      const len = 2.3 * (1 - t * 0.78) + 0.25;
+      const n = 7 - Math.round(t * 3);
+      for (let k = 0; k < n; k++) {
+        const m = new THREE.Matrix4().makeRotationY((k / n) * Math.PI * 2 + i * 0.7);
+        m.multiply(new THREE.Matrix4().makeTranslation(0, y, 0));
+        m.multiply(new THREE.Matrix4().makeRotationZ(-0.32 - t * 0.2));
+        m.multiply(new THREE.Matrix4().makeRotationX(rand(-0.25, 0.25)));
+        firParts.push([card(len, len * 0.62), m]);
+      }
+    }
+    firParts.push([new THREE.PlaneGeometry(0.9, 1.4), new THREE.Matrix4().makeTranslation(0, 7.4, 0)]);
+    const firGeo = mergeUV(firParts);
+    const firTrunk = new THREE.CylinderGeometry(0.08, 0.24, 7.6, 9).translate(0, 3.8, 0);
+    const leafParts = [];
+    for (let i = 0; i < 34; i++) {
+      // Points on a squashed sphere, each card facing out from the middle.
+      const u = rand(-1, 1);
+      const a = rand(0, Math.PI * 2);
+      const r = Math.sqrt(1 - u * u);
+      const dir = new THREE.Vector3(Math.cos(a) * r, u * 0.7, Math.sin(a) * r);
+      const at = dir.clone().multiply(new THREE.Vector3(1.9, 1.5, 1.9)).add(new THREE.Vector3(0, 4.9, 0));
+      const m = new THREE.Matrix4().lookAt(at, at.clone().add(dir), new THREE.Vector3(0, 1, 0)).setPosition(at);
+      const s = rand(1.6, 2.4);
+      leafParts.push([new THREE.PlaneGeometry(s, s), m]);
+    }
+    const leafGeo = mergeUV(leafParts);
+    const leafTrunk = mergeUV([
+      [new THREE.CylinderGeometry(0.12, 0.26, 4.2, 9), new THREE.Matrix4().makeTranslation(0, 2.1, 0)],
+      [new THREE.CylinderGeometry(0.05, 0.11, 2.2, 7), new THREE.Matrix4().makeTranslation(0.5, 4.6, 0).multiply(new THREE.Matrix4().makeRotationZ(-0.5))],
+      [new THREE.CylinderGeometry(0.05, 0.11, 2.0, 7), new THREE.Matrix4().makeTranslation(-0.45, 4.5, 0.2).multiply(new THREE.Matrix4().makeRotationZ(0.55))],
     ]);
-    const firTrunk = new THREE.CylinderGeometry(0.12, 0.2, 2.2, 7).translate(0, 1.1, 0);
-    // A broadleaf canopy: a few lumpy clumps of leaves bunched together.
-    const clump = (r) => softNormals(roughen(new THREE.IcosahedronGeometry(r, 3), 0.1), 0.65);
-    const leafGeo = mergeGeometries([
-      [clump(1.7), T(0, 4.7, 0)],
-      [clump(1.25), T(1.05, 4.1, 0.3)],
-      [clump(1.2), T(-0.95, 4.25, -0.35)],
-      [clump(1.1), T(0.2, 5.6, -0.6)],
-      [clump(1.0), T(-0.3, 4.0, 1.0)],
-    ]);
-    const leafTrunk = new THREE.CylinderGeometry(0.14, 0.24, 3.4, 7).translate(0, 1.7, 0);
-    const bark = this._mat({ color: 0x4a3b2c, roughness: 1 });
-    const foliage = () => this._mat({ color: 0xffffff, roughness: 0.95, envMapIntensity: 0.25 });
+    const bark = this._mat({ map: this._tex(F.bark, 1, 3), roughness: 1 });
+    const foliage = (map) => new THREE.MeshStandardMaterial({ map, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.9, envMapIntensity: 0.2 });
     const kinds = [
-      { crown: new THREE.InstancedMesh(firGeo, foliage(), 70), trunk: new THREE.InstancedMesh(firTrunk, bark, 70), hsl: [0.27, 0.33, 0.28, 0.42, 0.13, 0.2] },
-      { crown: new THREE.InstancedMesh(leafGeo, foliage(), 50), trunk: new THREE.InstancedMesh(leafTrunk, bark, 50), hsl: [0.19, 0.25, 0.32, 0.48, 0.19, 0.28] },
+      { crown: new THREE.InstancedMesh(firGeo, foliage(F.fir), 70), trunk: new THREE.InstancedMesh(firTrunk, bark, 70), v: [0.78, 1.0] },
+      { crown: new THREE.InstancedMesh(leafGeo, foliage(F.leaf), 50), trunk: new THREE.InstancedMesh(leafTrunk, bark, 50), v: [0.8, 1.05] },
     ];
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -1098,14 +1488,15 @@ export class RangeEngine {
     const place = (kind, x, z) => {
       const n = kind.n || 0;
       if (n >= kind.crown.count) return;
-      const s = rand(0.8, 1.45);
-      sc.set(s, s * rand(0.9, 1.25), s);
+      const s = rand(0.85, 1.4);
+      sc.set(s, s * rand(0.9, 1.2), s);
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, Math.PI * 2));
       m.compose(new THREE.Vector3(x, 0, z), q, sc);
       kind.crown.setMatrixAt(n, m);
       kind.trunk.setMatrixAt(n, m);
-      const [h0, h1, s0, s1, l0, l1] = kind.hsl;
-      kind.crown.setColorAt(n, col.setHSL(rand(h0, h1), rand(s0, s1), rand(l0, l1)));
+      // A little brighter or darker each, so a forest isn't one colour.
+      const v = rand(kind.v[0], kind.v[1]);
+      kind.crown.setColorAt(n, col.setRGB(v, v * rand(0.97, 1.03), v * rand(0.9, 1)));
       kind.n = n + 1;
     };
     for (const [x, z] of spots) place(kinds[Math.random() < 0.6 ? 0 : 1], x, z);
@@ -1113,10 +1504,34 @@ export class RangeEngine {
     for (const kind of kinds) {
       kind.crown.count = kind.trunk.count = kind.n || 0;
       kind.crown.castShadow = kind.trunk.castShadow = true;
+      kind.crown.receiveShadow = true;
       this.scene.add(kind.crown, kind.trunk);
       meshes.push(kind.crown, kind.trunk);
     }
     return meshes;
+  }
+
+  /** A boulder: a smooth sphere pushed in and out by layered noise, so it
+   * reads as weathered rock rather than a faceted gem. */
+  _rockGeo(r) {
+    const geo = new THREE.IcosahedronGeometry(r, 5);
+    const p = geo.attributes.position;
+    const v = new THREE.Vector3();
+    const s1 = rand(0, 100);
+    const n = (x, y, z) =>
+      Math.sin(x * 1.3 + s1) * Math.cos(y * 1.7 - s1) * 0.5 +
+      Math.sin(x * 3.1 + z * 2.3 + s1) * 0.22 +
+      Math.cos(y * 5.7 + x * 4.1) * Math.sin(z * 6.3) * 0.08;
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);
+      const u = v.clone().normalize();
+      v.multiplyScalar(1 + n(u.x * 2, u.y * 2, u.z * 2) * 0.32);
+      // Flatter underneath, as a boulder sits in the ground.
+      if (v.y < 0) v.y *= 0.55;
+      p.setXYZ(i, v.x, v.y, v.z);
+    }
+    geo.computeVertexNormals();
+    return geo;
   }
 
   /**
@@ -1128,7 +1543,7 @@ export class RangeEngine {
   _buildArena() {
     const T = this.tex;
     const C = ARENA;
-    const grass = this._mat({ map: this._tex(T.grass, 90), roughness: 0.95 });
+    const grass = this._mat({ map: this._tex(T.grass, 90), color: 0xcac6a2, roughness: 0.95 });
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 700), grass);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(C.x, -0.02, C.z);
@@ -1162,8 +1577,8 @@ export class RangeEngine {
       const r = rand(0.6, 2.2);
       const at = spot(10, 60, r + 1.5);
       if (!at) continue;
-      const geo = roughen(new THREE.IcosahedronGeometry(r, 2), 0.16);
-      geo.scale(1, rand(0.45, 0.8), rand(0.8, 1.2));
+      const geo = this._rockGeo(r);
+      geo.scale(1, rand(0.55, 0.85), rand(0.8, 1.2));
       const rock = new THREE.Mesh(geo, stone);
       rock.position.set(at[0], r * 0.22, at[1]);
       rock.rotation.y = rand(0, Math.PI);
@@ -1635,12 +2050,14 @@ export class RangeEngine {
     // is drawn at the centre of the screen while you aim (see reticle), the
     // way a real one has no parallax.
     const dot = sightGroup('dot');
-    dot(this._rbox(0.03, 0.018, 0.06, 0.004, black), 0, 0.08, -0.02);
-    // Open at both ends and drawn inside too, so aiming through it you see
-    // the tube round the picture rather than two floating rings.
+    // A compact micro red dot on a riser: a short tube open at both ends
+    // (drawn inside too, so aiming through it you see the housing round the
+    // picture), an adjustment turret on top and one on the side.
+    dot(this._rbox(0.026, 0.016, 0.042, 0.004, black), 0, 0.08, -0.02);
+    dot(this._rbox(0.03, 0.006, 0.05, 0.002, black), 0, 0.074, -0.02);
     dot(
       new THREE.Mesh(
-        new THREE.CylinderGeometry(0.02, 0.02, 0.075, 32, 1, true),
+        new THREE.CylinderGeometry(0.0165, 0.0165, 0.05, 32, 1, true),
         new THREE.MeshStandardMaterial({ color: 0x2b2d31, metalness: 0.7, roughness: 0.4, envMapIntensity: 0.9, side: THREE.DoubleSide })
       ),
       0,
@@ -1648,8 +2065,10 @@ export class RangeEngine {
       -0.02,
       Math.PI / 2
     );
-    for (const z of [0.018, -0.058]) dot(new THREE.Mesh(new THREE.TorusGeometry(0.0205, 0.0022, 8, 32), metal), 0, 0.106, z);
-    dot(new THREE.Mesh(new THREE.CircleGeometry(0.019, 24), glass(0x7fa6c9, 0.16)), 0, 0.106, -0.056);
+    for (const z of [0.005, -0.045]) dot(new THREE.Mesh(new THREE.TorusGeometry(0.0168, 0.0022, 8, 32), metal), 0, 0.106, z);
+    dot(new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.01, 14), black), 0, 0.125, -0.02);
+    dot(new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.01, 14), black), 0.019, 0.106, -0.02, 0, 0, Math.PI / 2);
+    dot(new THREE.Mesh(new THREE.CircleGeometry(0.0155, 24), glass(0x7fa6c9, 0.16)), 0, 0.106, -0.043);
     // The scope: a tube in two rings, a wider objective bell at the front,
     // turrets, and a rubber eyecup at the back.
     const scope = sightGroup('scope');
@@ -2142,7 +2561,9 @@ export class RangeEngine {
     this.weapon = cfg.mode === 'recoil' ? cfg.gun : null;
     this.fireMs = this.weapon ? shotMs(this.weapon) : FIRE_MS;
     this.magSize = this.weapon ? this.weapon.mag : MAG_SIZE;
-    this._useMap(cfg.mode === 'recoil' ? 'range' : cfg.map === 'arena' ? 'arena' : 'range');
+    // The recoil drill needs the long lanes: the range, or the indoor hall.
+    const map = ['range', 'arena', 'indoor'].includes(cfg.map) ? cfg.map : 'range';
+    this._useMap(cfg.mode === 'recoil' && map === 'arena' ? 'range' : map);
     this.active = true;
     this.overlay.classList.add('active');
     this.stage.classList.remove('show-cursor');
@@ -3182,11 +3603,12 @@ export class RangeEngine {
       c.mesh.rotation.z += c.spin.z * dt;
     }
 
-    // Light the rifle like the world round it: the sun from wherever it is
-    // relative to where you're facing, and shade under the roof.
-    this.vmKey.position.copy(this.sunDir).applyQuaternion(this._invQ.copy(this.camera.quaternion).invert());
+    // Light the rifle like the world round it: the sun (or the strip
+    // lights indoors) from wherever it is relative to where you're facing,
+    // and shade under the roof.
+    this.vmKey.position.copy(this.vmSunDir || this.sunDir).applyQuaternion(this._invQ.copy(this.camera.quaternion).invert());
     const p = this.player;
-    const under = this.map.id === 'range' && p.z > ROOF.zMin + 0.4 && p.z < ROOF.zMax && Math.abs(p.x) < BAY_HALF ? 1 : 0;
+    const under = this.map.id === 'range' && p.z > ROOF.zMin + 0.4 && p.z < ROOF.zMax && Math.abs(p.x) < BAY_HALF ? 1 : this.map.id === 'indoor' ? 0.35 : 0;
     this.shade += (under - this.shade) * Math.min(1, dt * 4);
     this.vmKey.intensity = 2.3 * (1 - 0.8 * this.shade);
     this.vmHemi.intensity = 0.9 * (1 - 0.3 * this.shade);
