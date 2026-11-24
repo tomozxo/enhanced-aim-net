@@ -17,7 +17,6 @@ import {
   getGame,
   quantizeSens,
   calibrationFor,
-  adsCalibrationFor,
   formatSens as formatGameSens,
   tabLabel,
   hFovFromV,
@@ -160,7 +159,7 @@ function rangeAdsCm(game, sight, settings, adsValue) {
 }
 
 const ADS_NOTES = {
-  rust: "Right-click aims with your ADS sensitivity (input.ads_sensitivity), and the gun's recoil is cut by its own aiming scale while you do. Facepunch don't publish how far Rust's sights zoom, so the turn while aimed is your sens × that multiplier - measure a 360 while aimed in Rust and enter it to make it exact.",
+  rust: "Right-click aims with your ADS sensitivity (input.ads_sensitivity), and the gun's recoil is cut by its own aiming scale while you do. The turn while aimed is your sens × that multiplier.",
 };
 
 function renderRangePanel() {
@@ -186,13 +185,6 @@ function renderRangePanel() {
 function renderRangeAds(game, data) {
   const sight = rangeSight(game);
   document.querySelectorAll('[data-ads-field]').forEach((el) => (el.hidden = !sight));
-  // Rust: a 360 measured while aimed makes the ADS turn exact.
-  const calibField = document.querySelector('[data-ads-calib]');
-  calibField.hidden = !(sight && game.id === 'rust');
-  if (!calibField.hidden && document.activeElement !== $('rangeAdsCalib')) {
-    const cal = rangeSettings(game).settings.adsCalib;
-    $('rangeAdsCalib').value = cal && cal.cm360 ? cal.cm360 : '';
-  }
   $('rangeAdsNote').textContent = sight ? ADS_NOTES[game.id] || '' : '';
   if (!sight) return;
   $('rangeAdsLabel').textContent = sight.setting;
@@ -313,12 +305,6 @@ function bindRange() {
     data.recoilHistory = (data.recoilHistory || []).filter((h) => h.game !== game.id);
     saveRange(data);
     renderRangePanel();
-  });
-  $('rangeAdsCalib').addEventListener('change', () => {
-    const game = currentGame();
-    if (game.id !== 'rust') return;
-    const v = Number($('rangeAdsCalib').value);
-    updateGameSettings(game.id, { adsCalib: v > 0 ? adsCalibrationFor(game, getState().settings, v) : null });
   });
   $('rangeSens').addEventListener('input', () => {
     rangeSensEdited = true;

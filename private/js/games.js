@@ -410,7 +410,7 @@ GAMES.rust = simpleGame({
       },
     ],
     vFov: (_s, _sight, hipV) => hipV,
-    factor: (s) => (Number(s.adsSens) || 1) * (s.adsCalib && s.adsCalib.factor > 0 ? s.adsCalib.factor : 1),
+    factor: (s) => Number(s.adsSens) || 1,
   },
 });
 
