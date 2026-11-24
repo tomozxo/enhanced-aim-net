@@ -63,6 +63,65 @@ export const RUST_GUNS = [
 
 export const RECOIL_GUNS = { rust: RUST_GUNS };
 
+// Rust attachments (same client data, builds of September 2026): each
+// changes some of recoil, time between shots, aimed cone, hip cone and
+// magazine - multipliers multiply, additions add (both checked on a live
+// server by the publisher). Cross-checked against Facepunch: scopes add
+// recoil (July 2022), the silencer lost its accuracy bonus (July 2022, so it
+// changes nothing here and isn't listed), and Gas Compression Overdrive fits
+// the Thompson and Custom SMG (Sept 2024).
+// Left out because they couldn't be confirmed: scopes and the holosight
+// (how they change your aimed sens and zoom is unverified), the Burst
+// Module (which of these guns take it), and crouching (marked experimental).
+export const RUST_ATTACHMENTS = {
+  muzzle: [
+    { id: 'brake', name: 'Muzzle Brake', recoil: 0.5, aimCone: [1, 0.5], hipCone: [1, 2] },
+    { id: 'boost', name: 'Muzzle Boost', delay: 0.9, aimCone: [1, 0.15], hipCone: [1, 0.5] },
+  ],
+  underbarrel: [{ id: 'laser', name: 'Laser Sight', aimCone: [0.8, 0], hipCone: [0.5, 0] }],
+  magazine: [{ id: 'extended', name: 'Extended Magazine', mag: 1.25 }],
+  gco: [{ id: 'gco', name: 'Gas Compression Overdrive', recoil: 1.1, delay: 1.2, only: ['thompson', 'custom'] }],
+};
+export const ATTACHMENT_SLOTS = [
+  ['muzzle', 'Muzzle'],
+  ['underbarrel', 'Underbarrel'],
+  ['magazine', 'Magazine'],
+  ['gco', 'Gas compression'],
+];
+
+/** The attachments that fit a gun, slot by slot. */
+export function attachmentsFor(gun) {
+  const out = {};
+  for (const [slot] of ATTACHMENT_SLOTS) {
+    const fits = (RUST_ATTACHMENTS[slot] || []).filter((a) => !a.only || a.only.includes(gun.id));
+    if (fits.length) out[slot] = fits;
+  }
+  return out;
+}
+
+/** A gun with attachments fitted ({ slot: attachment id }): its recoil,
+ * fire rate, cones and magazine changed by each one. */
+export function withAttachments(gun, picks = {}) {
+  const fits = attachmentsFor(gun);
+  const on = Object.entries(picks)
+    .map(([slot, id]) => (fits[slot] || []).find((a) => a.id === id))
+    .filter(Boolean);
+  if (!on.length) return { ...gun, recoilScale: 1, coneMod: [1, 0], hipMod: [1, 0], fitted: [] };
+  const mul = (k) => on.reduce((v, a) => v * (a[k] ?? 1), 1);
+  const cone = (k) => on.reduce(([s, o], a) => (a[k] ? [s * a[k][0], o + a[k][1]] : [s, o]), [1, 0]);
+  const delay = gun.delay * mul('delay');
+  return {
+    ...gun,
+    delay,
+    rpm: Math.round(60 / delay),
+    mag: Math.ceil(gun.mag * mul('mag')),
+    recoilScale: mul('recoil'),
+    coneMod: cone('aimCone'),
+    hipMod: cone('hipCone'),
+    fitted: on.map((a) => a.name),
+  };
+}
+
 /** Target distances in metres. */
 export const RECOIL_DISTANCES = { rust: [10, 25, 50] };
 
@@ -96,7 +155,7 @@ export function evalCurve(keys, t) {
  * degrees: { yaw: right +, pitch: up + }. `aimed` applies the ADS scale. */
 export function kickFor(gun, index, aimed, rng = Math.random) {
   const t = Math.min(1, Math.max(0, Math.floor(index) / Math.max(1, gun.untilMax)));
-  const scale = aimed ? gun.ads : 1;
+  const scale = (aimed ? gun.ads : 1) * (gun.recoilScale ?? 1);
   const yaw = (gun.yaw[0] + (gun.yaw[1] - gun.yaw[0]) * rng()) * scale * evalCurve(gun.yawCurve, t);
   const pitch = -(gun.pitch[0] + (gun.pitch[1] - gun.pitch[0]) * rng()) * scale * evalCurve(gun.pitchCurve, t);
   return { yaw, pitch };
@@ -105,9 +164,13 @@ export function kickFor(gun, index, aimed, rng = Math.random) {
 /** The cone (degrees across) shot `index` leaves inside: the hip-fire cone,
  * or the aimed cone plus the gun's curve over the magazine. */
 export function coneFor(gun, index, aimed) {
-  if (!aimed) return gun.hipCone;
+  if (!aimed) {
+    const [s, o] = gun.hipMod || [1, 0];
+    return Math.max(0, gun.hipCone * s + o);
+  }
   const t = (index / gun.mag) % 1;
-  return Math.max(0, gun.cone + evalCurve(gun.coneCurve, t) * gun.coneScale);
+  const [s, o] = gun.coneMod || [1, 0];
+  return Math.max(0, (gun.cone + evalCurve(gun.coneCurve, t) * gun.coneScale) * s + o);
 }
 
 /** Milliseconds between shots. */

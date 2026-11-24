@@ -528,6 +528,7 @@ export class RecoilControl {
       game: this.cfg.game.id,
       gun: this.gun.id,
       gunName: this.gun.name,
+      fitted: this.gun.fitted || [],
       distance: this.cfg.distance,
       sens: this.cfg.sens,
       sprays: sprays.length,
@@ -549,6 +550,7 @@ export class RecoilControl {
   _showResults(s, sprays) {
     const pct = (v) => (v == null || !isFinite(v) ? '—' : `${Math.round(v * 100)}%`);
     this.el.resultsTitle.textContent = `${s.gunName} · ${s.distance} m`;
+    if (s.fitted.length) this.el.resultsTitle.textContent += ` · ${s.fitted.join(', ')}`;
     this.el.resultsSub.textContent = `${this.cfg.sensLabel} · ${s.sprays} sprays${this.sight ? ` · ${Math.round(s.adsShare * 100)}% of shots aimed` : ''}`;
     const tiles = [
       ['Recoil controlled', pct(s.control)],

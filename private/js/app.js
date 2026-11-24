@@ -34,7 +34,7 @@ import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine, previewHitSound } from './drills.js';
 import { RecoilControl } from './recoilControl.js';
 import { showGpuWarning } from './gpuCheck.js';
-import { gunsFor, gunById, RECOIL_DISTANCES } from './recoil.js';
+import { gunsFor, gunById, RECOIL_DISTANCES, ATTACHMENT_SLOTS, attachmentsFor, withAttachments } from './recoil.js';
 import { CROSSHAIRS, CROSSHAIR_COLORS, DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
 import {
   analyseAim,
@@ -201,10 +201,33 @@ function recoilChoice(game, data = loadRange()) {
   const guns = gunsFor(game.id);
   if (!guns) return null;
   const picked = (data.recoil || {})[game.id] || {};
-  const gun = gunById(game.id, picked.gun);
+  const base = gunById(game.id, picked.gun);
   const dists = RECOIL_DISTANCES[game.id];
   const distance = dists.includes(picked.distance) ? picked.distance : dists[0];
-  return { guns, gun, dists, distance };
+  // Attachments are remembered per gun.
+  const mods = ((picked.mods || {})[base.id]) || {};
+  return { guns, base, gun: withAttachments(base, mods), mods, dists, distance };
+}
+
+/** One dropdown per attachment slot the gun has. */
+function renderRecoilAttachments(c) {
+  const fits = attachmentsFor(c.base);
+  const box = $('recoilAtt');
+  const key = c.base.id;
+  if (box.dataset.gun !== key) {
+    box.dataset.gun = key;
+    box.innerHTML = ATTACHMENT_SLOTS.filter(([slot]) => fits[slot])
+      .map(
+        ([slot, label]) => `<label class="range-field">
+          <span class="convert-mini">${label}</span>
+          <span class="select-wrap"><select data-att-slot="${slot}"><option value="">None</option>${fits[slot]
+            .map((a) => `<option value="${a.id}">${a.name}</option>`)
+            .join('')}</select></span>
+        </label>`
+      )
+      .join('');
+  }
+  box.querySelectorAll('[data-att-slot]').forEach((sel) => (sel.value = c.mods[sel.dataset.attSlot] || ''));
 }
 
 function renderRecoilPanel(game, data = loadRange()) {
@@ -219,12 +242,18 @@ function renderRecoilPanel(game, data = loadRange()) {
     gunSelect.innerHTML = c.guns.map((g) => `<option value="${g.id}">${g.name}</option>`).join('');
     $('recoilDistance').innerHTML = c.dists.map((d) => `<option value="${d}">${d} m</option>`).join('');
   }
-  gunSelect.value = c.gun.id;
+  gunSelect.value = c.base.id;
+  renderRecoilAttachments(c);
   $('recoilDistance').value = String(c.distance);
   const g = c.gun;
   $('recoilStats').textContent = `${g.rpm} RPM · ${g.mag} rounds`;
   const side = g.yaw[0] >= 0 ? 'to the right' : g.yaw[1] <= 0 ? 'to the left' : 'either way';
-  $('recoilNote').textContent = `${g.name}: each shot kicks you ${-g.pitch[0]}–${-g.pitch[1]}° up and ${Math.min(Math.abs(g.yaw[0]), Math.abs(g.yaw[1]))}–${Math.max(Math.abs(g.yaw[0]), Math.abs(g.yaw[1]))}° ${side}, a random amount each time, so no two sprays are the same. Aiming cuts the kick to ×${g.ads}. Spread is ${g.hipCone}° from the hip and ${g.cone}° aimed, widening as you hold. (Game data: ${g.source}.)`;
+  const r = (v) => Math.round(v * 100) / 100;
+  const k = g.recoilScale ?? 1;
+  const [ys0, ys1] = [Math.abs(g.yaw[0]), Math.abs(g.yaw[1])].sort((a, b) => a - b);
+  const hip = r(g.hipCone * g.hipMod[0] + g.hipMod[1]);
+  const aimedCone = r(g.cone * g.coneMod[0] + g.coneMod[1]);
+  $('recoilNote').textContent = `${g.name}${g.fitted.length ? ` with ${g.fitted.join(', ')}` : ''}: each shot kicks you ${r(-g.pitch[0] * k)}–${r(-g.pitch[1] * k)}° up and ${r(ys0 * k)}–${r(ys1 * k)}° ${side}, a random amount each time, so no two sprays are the same. Aiming cuts the kick to ×${g.ads}. Spread is ${hip}° from the hip and ${aimedCone}° aimed, widening as you hold. (Game data: ${g.source}.)`;
 }
 
 function renderRecoilHistory(game) {
@@ -233,7 +262,7 @@ function renderRecoilHistory(game) {
     ? rows
         .map(
           (h) => `<tr>
-            <td>${h.gunName} <span class="comparison-tag">${h.distance} m</span></td>
+            <td>${h.gunName}${h.fitted && h.fitted.length ? ` <span class="comparison-tag">${h.fitted.join(' · ')}</span>` : ''} <span class="comparison-tag">${h.distance} m</span></td>
             <td>${formatGameSens(game, h.sens)}${h.adsShare >= 0.5 ? ' · aimed' : ''}</td>
             <td>${fmtPct(h.control)}</td>
             <td>${fmtPct(h.onTarget)}</td>
@@ -293,11 +322,27 @@ function bindRange() {
     $(id).addEventListener('change', () => {
       const game = currentGame();
       const data = loadRange();
-      data.recoil = { ...(data.recoil || {}), [game.id]: { gun: $('recoilGun').value, distance: Number($('recoilDistance').value) } };
+      const prev = (data.recoil || {})[game.id] || {};
+      data.recoil = { ...(data.recoil || {}), [game.id]: { ...prev, gun: $('recoilGun').value, distance: Number($('recoilDistance').value) } };
       saveRange(data);
       renderRangePanel();
     });
   }
+  $('recoilAtt').addEventListener('change', (e) => {
+    const sel = e.target.closest('[data-att-slot]');
+    if (!sel) return;
+    const game = currentGame();
+    const data = loadRange();
+    const picked = { ...((data.recoil || {})[game.id] || {}) };
+    const gunId = $('recoilGun').value;
+    const mods = { ...((picked.mods || {})[gunId] || {}) };
+    if (sel.value) mods[sel.dataset.attSlot] = sel.value;
+    else delete mods[sel.dataset.attSlot];
+    picked.mods = { ...(picked.mods || {}), [gunId]: mods };
+    data.recoil = { ...(data.recoil || {}), [game.id]: picked };
+    saveRange(data);
+    renderRangePanel();
+  });
   $('recoilStartBtn').addEventListener('click', start);
   $('recoilClearBtn').addEventListener('click', () => {
     const data = loadRange();
