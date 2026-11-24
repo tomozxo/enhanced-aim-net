@@ -662,7 +662,6 @@ async function main() {
     $('resultsConfidence').textContent = conf.label;
     renderAiChart($('resultsChart'), result, game);
     $('resultsTableBody').innerHTML = comparisonRowsHtml(result, game);
-    $('resultsHint').textContent = aiHint(result, game);
     renderAccuracyRead(result, game);
 
     // Whichever action makes more sense right now gets the accent colour: a
@@ -758,7 +757,7 @@ function buildSimpleGameFields(game) {
   builtSimpleGame = game.id;
   $('simpleSensFields').innerHTML = `
     <div class="field-row">
-      <div class="field-label">Sensitivity<small>${game.sensLabel}</small></div>
+      <div class="field-label">Sensitivity</div>
       <div class="stepper stepper-wide" data-simple-field="sens">
         <input type="number" step="any" min="${game.rules.min}" max="${game.rules.max}" inputmode="decimal" id="simpleSensInput" />
         <div class="stepper-arrows"><button type="button" data-dir="1">▲</button><button type="button" data-dir="-1">▼</button></div>
@@ -775,24 +774,18 @@ function buildSimpleGameFields(game) {
   // Call of Duty have a slider, so theirs is a field to copy across.
   const fovRow = game.fovSlider
     ? `<div class="field-row">
-      <div class="field-label">Field of view<small>${game.fovNote}</small></div>
+      <div class="field-label">Field of view</div>
       <div class="stepper stepper-wide" data-simple-field="fov">
         <input type="number" step="1" min="${game.fovSlider.min}" max="${game.fovSlider.max}" id="simpleFovInput" />
         <div class="stepper-arrows"><button type="button" data-dir="1">▲</button><button type="button" data-dir="-1">▼</button></div>
       </div>
     </div>`
     : `<div class="field-row">
-      <div class="field-label">Field of view<small>${game.fovNote}</small></div>
+      <div class="field-label">Field of view</div>
       <div class="field-static" id="simpleFovText">—</div>
     </div>`;
   $('simpleViewFields').innerHTML = `
-    ${fovRow}
-    ${
-      game.calibratable
-        ? ''
-        : `<p class="sidebar-note">Sens here is <b>exact</b>: the drill turns ${game.yaw}° per mouse count at sens 1, the
-      same as ${game.short}, so the same mouse movement turns you the same distance.</p>`
-    }`;
+    ${fovRow}`;
 }
 
 function bindSimpleGameFields() {
@@ -1688,15 +1681,10 @@ function renderRecommendation(state) {
     : `${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))} from your current ${fmt(current)}.`;
   const refinedText = result.passCount > 1 ? ` · refined ×${result.passCount - 1}` : '';
   const b = result.best;
-  const landed =
-    b.n >= 4 && isFinite(b.landRate)
-      ? `At ${fmt(b.sens)} your first flick landed on the head ${fmtPct(b.landRate)} of the time. `
-      : '';
 
   body.innerHTML = `
     <div class="rec-value">${fmt(b.sens)}</div>
     <p class="rec-sub">${verdictText(result, game)}${result.keep ? '' : ` · ${deltaText}`}${refinedText}</p>
-    <p class="rec-sub rec-hint">${landed}${aiHint(result, game)}</p>
     <div class="rec-actions">
       <button id="applyRecBtn" class="btn-accent"${same ? ' disabled' : ''}>Apply to ${scopeLabel(game, tab)}</button>
       <button id="fineTuneCardBtn" class="plain-btn">Refine</button>

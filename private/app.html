@@ -50,7 +50,6 @@
       <div data-game-only="valorant cs2 cod rust" id="simpleSensFields" hidden></div>
 
       <div data-game-only="r6">
-      <p class="fill-hint">Copy these from R6 → Settings → Controls</p>
       <div class="field-row">
         <div class="field-label">Hip-fire H</div>
         <div class="stepper" data-field="hipfireH">
@@ -105,14 +104,13 @@
       <div class="field-row">
         <button class="clear-link" id="mouseCheckBtn" style="padding:0">Check my mouse with a ruler ↗</button>
       </div>
-      <p class="fill-hint" id="mouseCheckHint">Measures the DPI your mouse really sends, and whether this browser gets it unaltered.</p>
 
       <!-- Valorant / CS2 field of view, resolution and stretch, rendered by app.js -->
       <div data-game-only="valorant cs2 cod rust" id="simpleViewFields" hidden></div>
 
       <div data-game-only="r6">
       <div class="field-row">
-        <div class="field-label">In-game FOV<small>vertical, 60–90 like R6's slider</small></div>
+        <div class="field-label">In-game FOV</div>
         <div class="stepper" data-field="fov">
           <input type="number" value="60" min="60" max="90" />
           <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
@@ -186,7 +184,6 @@
           <button type="button" class="size-btn" data-size="large" role="radio">Large</button>
         </div>
       </div>
-      <p class="sidebar-note size-note">The smaller the dots, the more accurate the test.</p>
 
       <!-- The drill crosshair, picked from a dropdown of pictures, in any
            colour. Shared by every game. Filled in by app.js from crosshairs.js. -->
@@ -522,7 +519,6 @@
             <thead><tr><th>Sens</th><th title="Typical time from a head appearing to hitting it">Time</th><th title="First movement stopped on the head">On head</th><th title="First movement stopped past the head">Past</th><th title="First movement stopped short of the head">Short</th><th title="Corrections per flick">Fixes</th></tr></thead>
             <tbody id="resultsTableBody"></tbody>
           </table>
-          <p class="results-hint" id="resultsHint"></p>
         </div>
         <!-- Reads the shots themselves: whether flicks land past the target
              or short of it (calibration.js analyseAim). Outside the
