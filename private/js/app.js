@@ -849,6 +849,11 @@ function renderSimpleGameFields(game, s) {
 /** Shows the selected game's parts of the page and hides the others. */
 function renderGameChrome(state) {
   const game = getGame(state.game);
+  // Recoil control only for games with confirmed recoil data.
+  const hasRecoil = !!gunsFor(game.id);
+  const recoilTab = document.querySelector('#viewSwitch [data-view="range"]');
+  recoilTab.hidden = !hasRecoil;
+  if (!hasRecoil && !$('viewRange').hidden) document.querySelector('#viewSwitch [data-view="calibrate"]').click();
   $('gameSelect').value = game.id;
   $('gameExactTag').textContent = game.exact
     ? 'exact sens'
