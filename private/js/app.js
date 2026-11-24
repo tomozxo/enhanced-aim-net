@@ -33,9 +33,9 @@ import {
 } from './sensMath.js';
 import { applyAccent, initThemePicker, initModeToggle } from './theme.js';
 import { DrillEngine, previewHitSound } from './drills.js';
-import { RangeEngine } from './range.js';
+import { RecoilControl } from './recoilControl.js';
 import { showGpuWarning } from './gpuCheck.js';
-import { gunsFor, gunById, RECOIL_DISTANCES, sprayPattern, seeded } from './recoil.js';
+import { gunsFor, gunById, RECOIL_DISTANCES } from './recoil.js';
 import { CROSSHAIRS, CROSSHAIR_COLORS, DEFAULT_CROSSHAIR_COLOR, drawCrosshair, getCrosshair } from './crosshairs.js';
 import {
   analyseAim,
@@ -103,9 +103,10 @@ function bindViewSwitch() {
   });
 }
 
-// ---------- The Range ----------
-// Its settings and head-test history are this browser's own, kept apart
-// from the calibration state: { dummies, distance, history: [...] }.
+// ---------- Recoil control ----------
+// Its choices (gun, distance, right-click mode) and results are this
+// browser's own, kept apart from the calibration state:
+// { recoil: { [game]: { gun, distance } }, adsMode, recoilHistory: [...] }.
 
 const RANGE_KEY = 'r6sf_range_v1';
 function loadRange() {
@@ -123,12 +124,12 @@ function saveRange(data) {
   }
 }
 
-/** The range always uses a game's main sens: hip-fire for Siege. */
+/** Recoil control uses a game's main sens. */
 const rangeTab = (game) => game.tabs[0].id;
 let rangeSensFor = null; // the game the sens box was filled in for
 let rangeSensEdited = false; // typed in by hand, so leave it alone
 
-/** The session's settings: yours, with the range's sens swapped in. */
+/** The session's settings: yours, with the sens box's value swapped in. */
 function rangeSettings(game) {
   const state = getState();
   const tab = rangeTab(game);
@@ -137,6 +138,30 @@ function rangeSettings(game) {
   sens = quantizeSens(game, sens);
   return { tab, sens, settings: game.withCandidate(state.settings, tab, sens) };
 }
+
+/** The game's aim-down-sights setting, or null if it has none. */
+function rangeSight(game) {
+  return ((game.ads && game.ads.sights) || [])[0] || null;
+}
+
+const fmtAds = (sight, v) => (v == null || !isFinite(v) ? '' : String(Number(Number(v).toFixed(sight.rules.decimals))));
+
+function quantizeAds(sight, v) {
+  const { step, decimals, min, max } = sight.rules;
+  return Math.max(min, Math.min(max, Number((Math.round(v / step) * step).toFixed(decimals))));
+}
+
+/** cm/360 while aimed, with an ADS value swapped in (the box being typed
+ * in) or the saved one. */
+function rangeAdsCm(game, sight, settings, adsValue) {
+  const s = adsValue > 0 ? { ...settings, [sight.key]: adsValue } : settings;
+  const d = game.ads.degPerCount(s, sight.id).x;
+  return d > 0 && s.dpi > 0 ? (2.54 * 360) / (d * s.dpi) : NaN;
+}
+
+const ADS_NOTES = {
+  rust: "Right-click aims with your ADS sensitivity (input.ads_sensitivity), and the gun's recoil is cut by its own aiming scale while you do. Facepunch don't publish how far Rust's sights zoom, so the turn while aimed is your sens × that multiplier - measure a 360 while aimed in Rust and enter it to make it exact.",
+};
 
 function renderRangePanel() {
   if ($('viewRange').hidden) return;
@@ -153,37 +178,42 @@ function renderRangePanel() {
   const { tab, settings } = rangeSettings(game);
   $('rangeCm').textContent = formatCm360(game.cm360(tab, settings));
   const data = loadRange();
-  $('rangeDummies').value = data.dummies || 'standing';
-  $('rangeDistance').value = data.distance || 'mid';
-  const map = rangeMap(game, data);
-  document.querySelectorAll('#rangeMap [data-map]').forEach((b) => b.classList.toggle('active', b.dataset.map === map));
   renderRangeAds(game, data);
   renderRecoilPanel(game, data);
-  renderRangeHistory(game);
   renderRecoilHistory(game);
 }
 
-// ---------- The Range: recoil trainer ----------
-// The gun and distance are the range's own choice, saved per game in
-// data.recoil; results go to data.recoilHistory.
+function renderRangeAds(game, data) {
+  const sight = rangeSight(game);
+  document.querySelectorAll('[data-ads-field]').forEach((el) => (el.hidden = !sight));
+  // Rust: a 360 measured while aimed makes the ADS turn exact.
+  const calibField = document.querySelector('[data-ads-calib]');
+  calibField.hidden = !(sight && game.id === 'rust');
+  if (!calibField.hidden && document.activeElement !== $('rangeAdsCalib')) {
+    const cal = rangeSettings(game).settings.adsCalib;
+    $('rangeAdsCalib').value = cal && cal.cm360 ? cal.cm360 : '';
+  }
+  $('rangeAdsNote').textContent = sight ? ADS_NOTES[game.id] || '' : '';
+  if (!sight) return;
+  $('rangeAdsLabel').textContent = sight.setting;
+  const input = $('rangeAdsSens');
+  const { settings } = rangeSettings(game);
+  if (document.activeElement !== input) input.value = fmtAds(sight, settings[sight.key]);
+  $('rangeAdsCm').textContent = formatCm360(rangeAdsCm(game, sight, settings, Number(input.value)));
+  $('rangeAdsMode').value = data.adsMode === 'toggle' ? 'toggle' : 'hold';
+}
 
 /** The gun and distance picked for this game, or null for a game without
- * recoil patterns yet. */
+ * confirmed recoil values. */
 function recoilChoice(game, data = loadRange()) {
   const guns = gunsFor(game.id);
   if (!guns) return null;
   const picked = (data.recoil || {})[game.id] || {};
   const gun = gunById(game.id, picked.gun);
   const dists = RECOIL_DISTANCES[game.id];
-  const distance = dists.includes(picked.distance) ? picked.distance : dists[1];
+  const distance = dists.includes(picked.distance) ? picked.distance : dists[0];
   return { guns, gun, dists, distance };
 }
-
-/** How far a full magazine climbs if you don't pull, in degrees. */
-const fullClimb = (gun) => {
-  const p = sprayPattern(gun, seeded(1));
-  return p[p.length - 1][1];
-};
 
 function renderRecoilPanel(game, data = loadRange()) {
   const c = recoilChoice(game, data);
@@ -194,36 +224,15 @@ function renderRecoilPanel(game, data = loadRange()) {
   const gunSelect = $('recoilGun');
   if (gunSelect.dataset.game !== game.id) {
     gunSelect.dataset.game = game.id;
-    // Siege's list is long: grouped rifles / SMGs / LMGs.
-    const classes = [...new Set(c.guns.map((g) => g.cls).filter(Boolean))];
-    const opt = (g) => `<option value="${g.id}">${g.name}</option>`;
-    gunSelect.innerHTML = classes.length
-      ? classes.map((cls) => `<optgroup label="${cls}s">${c.guns.filter((g) => g.cls === cls).map(opt).join('')}</optgroup>`).join('')
-      : c.guns.map(opt).join('');
+    gunSelect.innerHTML = c.guns.map((g) => `<option value="${g.id}">${g.name}</option>`).join('');
     $('recoilDistance').innerHTML = c.dists.map((d) => `<option value="${d}">${d} m</option>`).join('');
   }
   gunSelect.value = c.gun.id;
   $('recoilDistance').value = String(c.distance);
-  $('recoilStats').textContent = `${c.gun.rpm} RPM · ${c.gun.mag} rounds${c.gun.auto ? '' : ' · semi-auto'}`;
-  // The mouse it takes to hold a whole magazine down, at the range's sens
-  // (and your ADS setting while aimed).
-  const { tab, settings } = rangeSettings(game);
-  const climb = fullClimb(c.gun);
-  const cm = (degPerCount) => (degPerCount > 0 && settings.dpi > 0 ? (climb / degPerCount / settings.dpi) * 2.54 : NaN);
   const g = c.gun;
-  const adsScale = g.ads ?? 1;
-  const hip = cm(game.degPerCount(tab, settings).y);
-  const sight = rangeSight(game, data);
-  const aimed = sight ? cm(game.ads.degPerCount(settings, sight.id).y) * adsScale : NaN;
-  const f = (v) => (isFinite(v) ? v.toFixed(1) : '—');
-  $('recoilPull').textContent = `${f(hip)} cm${isFinite(aimed) ? ` · ${f(aimed)} aimed` : ''}`;
-  const r1 = (v) => Math.round(v * 10) / 10;
-  $('recoilNote').textContent =
-    game.id === 'rust'
-      ? `${g.name}: climbs ${r1(climb)}° over the magazine from the hip and ${r1(climb * adsScale)}° aimed (aiming scales its kick by ×${adsScale}), along the same path every spray - so the path can be learnt. Its cone is ${g.aimCone}° aimed, ${g.hipCone}° from the hip. ${
-          g.auto ? `The pattern starts again after ${g.reset} s off the trigger.` : 'Semi-auto: one shot per click, pull down between taps.'
-        }${g.estimated ? ' No spray demonstration was found for this gun, so its path is built from its recoil range alone.' : ''} Mouse pull is how far your mouse travels down over a full magazine at your sens.`
-      : `${g.name}: climbs about ${r1(climb)}° over the magazine, the first few shots hardest, and kicks sideways at random inside about ${g.width}° - different every spray, as in Siege. Pull down steadily and react to the side kick. Mouse pull is how far your mouse travels down over a full magazine at your sens.`;
+  $('recoilStats').textContent = `${g.rpm} RPM · ${g.mag} rounds`;
+  const side = g.yaw[0] >= 0 ? 'to the right' : g.yaw[1] <= 0 ? 'to the left' : 'either way';
+  $('recoilNote').textContent = `${g.name}: each shot kicks you ${-g.pitch[0]}–${-g.pitch[1]}° up and ${Math.min(Math.abs(g.yaw[0]), Math.abs(g.yaw[1]))}–${Math.max(Math.abs(g.yaw[0]), Math.abs(g.yaw[1]))}° ${side}, a random amount each time, so no two sprays are the same. Aiming cuts the kick to ×${g.ads}. Spread is ${g.hipCone}° from the hip and ${g.cone}° aimed, widening as you hold. (Game data: ${g.source}.)`;
 }
 
 function renderRecoilHistory(game) {
@@ -243,111 +252,8 @@ function renderRecoilHistory(game) {
     : '<tr><td colspan="5" class="card-empty">No recoil drills yet.</td></tr>';
 }
 
-// ---------- The Range: aiming down sights ----------
-// Which sight you aim with is the range's own choice (saved per game);
-// the ADS value is your real in-game setting, so it's saved with your
-// settings - for Siege it's the same number as the 1× / 2.5× tabs.
-
-/** The chosen sight for this game, or null for a game without ADS. */
-function rangeSight(game, data = loadRange()) {
-  const sights = (game.ads && game.ads.sights) || [];
-  return sights.find((s) => s.id === (data.sights || {})[game.id]) || sights[0] || null;
-}
-
-const fmtAds = (sight, v) => (v == null || !isFinite(v) ? '' : String(Number(Number(v).toFixed(sight.rules.decimals))));
-
-function quantizeAds(sight, v) {
-  const { step, decimals, min, max } = sight.rules;
-  return Math.max(min, Math.min(max, Number((Math.round(v / step) * step).toFixed(decimals))));
-}
-
-/** cm/360 while aimed with this sight, with an ADS value swapped in (the
- * box being typed in) or the saved one. */
-function rangeAdsCm(game, sight, settings, adsValue) {
-  const s = adsValue > 0 ? { ...settings, [sight.key]: adsValue } : settings;
-  const d = game.ads.degPerCount(s, sight.id).x;
-  return d > 0 && s.dpi > 0 ? (2.54 * 360) / (d * s.dpi) : NaN;
-}
-
-const ADS_NOTES = {
-  r6: 'Right-click aims with your ADS value for that sight - the same numbers as the 1× and 2.5× tabs.',
-  valorant: 'Right-click aims: the Vandal and Phantom zoom 1.25× and use your ADS multiplier, the Operator 2.5× and your scoped multiplier.',
-  cs2: "CS2's AK and M4 don't aim down sights, so right-click scopes in like the AUG / SG 553 or the AWP, with your Zoom sensitivity (zoom_sensitivity_ratio).",
-  apex: 'Right-click aims down a 2× HCOG with your ADS sensitivity multiplier.',
-  cod: 'Right-click aims down a reflex sight with your ADS sensitivity multiplier (Relative, coefficient 1.33 - the defaults).',
-  overwatch: "Right-click scopes in like Widowmaker or Ana, with your Relative aim sensitivity while zoomed.",
-  rust:
-    "Right-click aims with your ADS sensitivity (input.ads_sensitivity). Facepunch don't publish how far Rust's sights zoom, so the turn while aimed is your sens × that multiplier - measure a 360 while aimed in Rust and enter it to make it exact.",
-};
-
-/** Which map the range opens on for this game: the 360° arena for Rust
- * (where fights come from every direction), the shooting range otherwise -
- * unless you've picked one. */
-function rangeMap(game, data = loadRange()) {
-  const picked = (data.maps || {})[game.id];
-  if (['arena', 'range', 'indoor'].includes(picked)) return picked;
-  return game.id === 'rust' ? 'arena' : game.id === 'r6' ? 'indoor' : 'range';
-}
-
-function renderRangeAds(game, data) {
-  const sight = rangeSight(game, data);
-  document.querySelectorAll('[data-ads-field]').forEach((el) => (el.hidden = !sight));
-  // Rust: a 360 measured while aimed makes the ADS turn exact.
-  const calibField = document.querySelector('[data-ads-calib]');
-  calibField.hidden = !(sight && game.id === 'rust');
-  if (!calibField.hidden && document.activeElement !== $('rangeAdsCalib')) {
-    const cal = rangeSettings(game).settings.adsCalib;
-    $('rangeAdsCalib').value = cal && cal.cm360 ? cal.cm360 : '';
-  }
-  $('rangeAdsNote').textContent = sight
-    ? ADS_NOTES[game.id] || ''
-    : `Most ${game.name} heroes don't aim down sights, so right-click does nothing in the range.`;
-  if (!sight) return;
-  const select = $('rangeSight');
-  if (select.dataset.game !== game.id) {
-    select.dataset.game = game.id;
-    select.innerHTML = game.ads.sights.map((s) => `<option value="${s.id}">${s.label}</option>`).join('');
-  }
-  select.value = sight.id;
-  $('rangeAdsLabel').textContent = sight.setting;
-  const input = $('rangeAdsSens');
-  const { settings } = rangeSettings(game);
-  if (document.activeElement !== input) input.value = fmtAds(sight, settings[sight.key]);
-  $('rangeAdsCm').textContent = formatCm360(rangeAdsCm(game, sight, settings, Number(input.value)));
-  $('rangeAdsMode').value = data.adsMode === 'toggle' ? 'toggle' : 'hold';
-}
-
-const LANDS = {
-  over: 'Past',
-  'slightly-over': 'Slightly past',
-  balanced: 'On target',
-  'slightly-under': 'Slightly short',
-  under: 'Short',
-};
-
-function renderRangeHistory(game) {
-  const rows = (loadRange().history || []).filter((h) => h.game === game.id);
-  const distance = { close: 'close', mid: 'mid', far: 'far', mixed: 'mixed' };
-  $('rangeHistoryBody').innerHTML = rows.length
-    ? rows
-        .map(
-          (h) => `<tr>
-            <td>${formatGameSens(game, h.sens)} <span class="comparison-tag">${formatCm360(h.cm360)} cm</span></td>
-            <td>${h.map === 'arena' ? '360° · ' : ''}${h.dummies === 'strafing' ? 'Strafing' : 'Standing'} · ${distance[h.distance] || h.distance}${
-              h.adsShare >= 0.5 ? ' · aimed' : ''
-            }</td>
-            <td>${fmtMs(h.timeMs)}</td>
-            <td>${fmtPct(h.firstShotRate)}</td>
-            <td>${fmtPct(h.landRate)}</td>
-            <td>${h.bias == null ? '—' : LANDS[verdictFor(h.bias)]}</td>
-          </tr>`
-        )
-        .join('')
-    : '<tr><td colspan="6" class="card-empty">No head tests yet.</td></tr>';
-}
-
 function bindRange() {
-  const engine = new RangeEngine({
+  const engine = new RecoilControl({
     overlayEl: $('rangeOverlay'),
     stageEl: $('rangeStage'),
     canvasEl: $('rangeCanvas'),
@@ -355,18 +261,10 @@ function bindRange() {
       pause: $('rangePause'),
       pauseReason: $('rangePauseReason'),
       results: $('rangeResults'),
+      resultsTitle: $('rangeResultsTitle'),
       resultsSub: $('rangeResultsSub'),
       resultsGrid: $('rangeResultsGrid'),
-      aim: $('rangeAimRead'),
-      aimTitle: $('rangeAimTitle'),
-      aimTag: $('rangeAimTag'),
-      aimText: $('rangeAimText'),
-      aimDot: $('rangeAimDot'),
-      resultsTitle: $('rangeResultsTitle'),
       recoilRead: $('rangeRecoilRead'),
-      getReady: $('rangeGetReady'),
-      getReadyLabel: $('rangeGetReadyLabel'),
-      getReadyNum: $('rangeGetReadyNum'),
       hitmarker: $('rangeHitmarker'),
       hudMain: $('rangeHudMain'),
       hudSub: $('rangeHudSub'),
@@ -374,42 +272,29 @@ function bindRange() {
     },
     onFinish: (summary) => {
       const data = loadRange();
-      if (summary.kind === 'recoil') data.recoilHistory = [summary, ...(data.recoilHistory || [])].slice(0, 40);
-      else data.history = [summary, ...(data.history || [])].slice(0, 30);
+      data.recoilHistory = [summary, ...(data.recoilHistory || [])].slice(0, 40);
       saveRange(data);
       renderRangePanel();
     },
   });
 
-  let lastMode = 'test';
-  const start = (mode) => {
+  const start = () => {
     const game = currentGame();
-    const { tab, sens, settings } = rangeSettings(game);
     const data = loadRange();
-    data.dummies = $('rangeDummies').value;
-    data.distance = $('rangeDistance').value;
-    saveRange(data);
-    const sight = rangeSight(game, data);
-    let recoil = {};
-    if (mode === 'recoil') {
-      const c = recoilChoice(game, data);
-      if (!c) return;
-      recoil = { gun: c.gun, distance: c.distance };
-    }
-    lastMode = mode;
+    const c = recoilChoice(game, data);
+    if (!c) return;
+    const { tab, sens, settings } = rangeSettings(game);
+    const sight = rangeSight(game);
     engine.start({
       game,
       tab,
       settings,
       sens,
       sensLabel: `${game.short} ${formatGameSens(game, sens)}`,
-      mode,
-      dummies: data.dummies,
-      distance: data.distance,
-      map: rangeMap(game, data),
+      gun: c.gun,
+      distance: c.distance,
       sight: sight ? sight.id : null,
       adsMode: data.adsMode === 'toggle' ? 'toggle' : 'hold',
-      ...recoil,
     });
   };
   for (const id of ['recoilGun', 'recoilDistance']) {
@@ -421,7 +306,7 @@ function bindRange() {
       renderRangePanel();
     });
   }
-  $('recoilStartBtn').addEventListener('click', () => start('recoil'));
+  $('recoilStartBtn').addEventListener('click', start);
   $('recoilClearBtn').addEventListener('click', () => {
     const data = loadRange();
     const game = currentGame();
@@ -435,7 +320,6 @@ function bindRange() {
     const v = Number($('rangeAdsCalib').value);
     updateGameSettings(game.id, { adsCalib: v > 0 ? adsCalibrationFor(game, getState().settings, v) : null });
   });
-
   $('rangeSens').addEventListener('input', () => {
     rangeSensEdited = true;
     const game = currentGame();
@@ -444,20 +328,6 @@ function bindRange() {
     const sight = rangeSight(game);
     if (sight) $('rangeAdsCm').textContent = formatCm360(rangeAdsCm(game, sight, settings, Number($('rangeAdsSens').value)));
     renderRecoilPanel(game);
-  });
-  $('rangeMap').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-map]');
-    if (!btn) return;
-    const data = loadRange();
-    data.maps = { ...(data.maps || {}), [currentGame().id]: btn.dataset.map };
-    saveRange(data);
-    renderRangePanel();
-  });
-  $('rangeSight').addEventListener('change', () => {
-    const data = loadRange();
-    data.sights = { ...(data.sights || {}), [currentGame().id]: $('rangeSight').value };
-    saveRange(data);
-    renderRangePanel();
   });
   $('rangeAdsMode').addEventListener('change', () => {
     const data = loadRange();
@@ -479,31 +349,14 @@ function bindRange() {
     if (!(v > 0)) return renderRangePanel(); // put the saved value back
     updateSettings({ [sight.key]: quantizeAds(sight, v) });
   });
-  for (const id of ['rangeDummies', 'rangeDistance']) {
-    $(id).addEventListener('change', () => {
-      const data = loadRange();
-      data.dummies = $('rangeDummies').value;
-      data.distance = $('rangeDistance').value;
-      saveRange(data);
-    });
-  }
-  $('rangeTestBtn').addEventListener('click', () => start('test'));
-  $('rangeFreeBtn').addEventListener('click', () => start('free'));
   $('rangeResumeBtn').addEventListener('click', () => engine.resume());
   $('rangeLeaveBtn').addEventListener('click', () => {
     engine.exit();
     renderRangePanel();
   });
-  $('rangeAgainBtn').addEventListener('click', () => start(lastMode === 'recoil' ? 'recoil' : 'test'));
+  $('rangeAgainBtn').addEventListener('click', start);
   $('rangeDoneBtn').addEventListener('click', () => {
     engine.exit();
-    renderRangePanel();
-  });
-  $('rangeClearBtn').addEventListener('click', () => {
-    const data = loadRange();
-    const game = currentGame();
-    data.history = (data.history || []).filter((h) => h.game !== game.id);
-    saveRange(data);
     renderRangePanel();
   });
 }

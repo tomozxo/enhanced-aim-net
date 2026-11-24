@@ -38,7 +38,7 @@
     <div class="view-switch" id="viewSwitch" role="tablist" aria-label="What to show">
       <button class="view-btn active" data-view="calibrate" role="tab" aria-selected="true">Calibrate</button>
       <button class="view-btn" data-view="convert" role="tab" aria-selected="false">Converter</button>
-      <button class="view-btn" data-view="range" role="tab" aria-selected="false">The Range</button>
+      <button class="view-btn" data-view="range" role="tab" aria-selected="false">Recoil control</button>
     </div>
   </div>
 
@@ -349,95 +349,19 @@
       </div>
       </div><!-- /viewConvert -->
 
-      <!-- The Range: a separate 3D range to walk around and flick onto
-           heads (range.js). Its settings and head-test history live here. -->
+      <!-- Recoil control (recoilControl.js): pick a gun and a distance and
+           pull its recoil back with your own sens. -->
       <div class="view" id="viewRange" hidden>
-      <div class="card range-card">
-        <div class="card-header">
-          <h3>The Range</h3>
-          <div class="size-toggle" id="rangeMap" role="group" aria-label="Map">
-            <button type="button" class="size-btn" data-map="range">Shooting range</button>
-            <button type="button" class="size-btn" data-map="arena">360° arena</button>
-            <button type="button" class="size-btn" data-map="indoor">Indoor range</button>
-          </div>
-        </div>
-        <p class="convert-intro">
-          An outdoor range with an open firing line, lanes marked to 50 m, and pop-up training dummies with
-          real-sized heads - or the 360° arena, where people come at you from every direction. You carry a rifle that kicks, and right-click aims down its sight with your game's
-          own ADS setting. The head test drops 30 dummies one at a time and reads each flick to the head - past
-          it or short of it - so you can run it at two sensitivities and compare.
-        </p>
-        <div class="range-options">
-          <label class="range-field">
-            <span class="convert-mini">Sensitivity</span>
-            <input type="number" id="rangeSens" step="any" min="0" inputmode="decimal" />
-          </label>
-          <div class="range-field">
-            <span class="convert-mini">cm/360°</span>
-            <output class="range-cm" id="rangeCm">—</output>
-          </div>
-          <label class="range-field">
-            <span class="convert-mini">Dummies</span>
-            <span class="select-wrap"><select id="rangeDummies">
-              <option value="standing">Standing</option>
-              <option value="strafing">Strafing</option>
-            </select></span>
-          </label>
-          <label class="range-field">
-            <span class="convert-mini">Distance</span>
-            <span class="select-wrap"><select id="rangeDistance">
-              <option value="close">Close · 8–14 m</option>
-              <option value="mid">Mid · 14–24 m</option>
-              <option value="far">Far · 24–38 m</option>
-              <option value="mixed">Mixed</option>
-            </select></span>
-          </label>
-          <label class="range-field" data-ads-field>
-            <span class="convert-mini" id="rangeAdsLabel">ADS sensitivity</span>
-            <input type="number" id="rangeAdsSens" step="any" min="0" inputmode="decimal" />
-          </label>
-          <div class="range-field" data-ads-field>
-            <span class="convert-mini">cm/360° aimed</span>
-            <output class="range-cm" id="rangeAdsCm">—</output>
-          </div>
-          <label class="range-field" data-ads-field>
-            <span class="convert-mini">Right-click</span>
-            <span class="select-wrap"><select id="rangeAdsMode">
-              <option value="hold">Hold to aim</option>
-              <option value="toggle">Toggle aim</option>
-            </select></span>
-          </label>
-          <label class="range-field" data-ads-field>
-            <span class="convert-mini">Sight</span>
-            <span class="select-wrap"><select id="rangeSight"></select></span>
-          </label>
-          <label class="range-field" data-ads-calib hidden>
-            <span class="convert-mini">Measured ADS cm/360°</span>
-            <input type="number" id="rangeAdsCalib" step="0.1" min="1" inputmode="decimal" placeholder="optional" />
-          </label>
-        </div>
-        <p class="range-ads-note" id="rangeAdsNote"></p>
-        <div class="rec-actions">
-          <button class="btn-accent" id="rangeTestBtn">Start head test</button>
-          <button class="plain-btn" id="rangeFreeBtn">Free roam</button>
-        </div>
-        <p class="range-keys">
-          <span class="kbd">WASD</span> move <span class="kbd">Shift</span> walk <span class="kbd">Space</span> jump
-          <span class="kbd">C</span> crouch <span class="kbd">R</span> reload <span class="kbd">LMB</span> shoot · hold for auto
-          <span class="kbd">RMB</span> aim down sights
-          <span class="kbd">Esc</span> pause
-        </p>
-      </div>
       <div class="card recoil-card">
         <div class="card-header">
-          <h3>Recoil trainer</h3>
-          <span class="comparison-tag">Rust · Siege</span>
+          <h3>Recoil control</h3>
+          <span class="comparison-tag">Rust</span>
         </div>
         <p class="convert-intro">
-          Pick a gun and a distance, put the mark on the target's chest and empty the magazine while you pull against
-          the kick. The kick moves your aim the way it does in the game, and it's undone with your own sensitivity
-          from above - hip-fire, or your ADS setting while you hold right-click - so the pull you learn here is the
-          pull you need in the game. Eight full sprays, then it shows where each part of the spray went wrong.
+          Pick your gun and a distance, put the crosshair on the orange mark on the target's chest and hold the trigger.
+          The gun's recoil moves your aim the way it does in the game, and you pull it back with your own sensitivity -
+          hip-fire, or your ADS sensitivity while you hold right-click. Eight full magazines, then it shows which part of
+          the spray went wrong and which way.
         </p>
         <div id="recoilBody">
           <div class="range-options">
@@ -449,22 +373,49 @@
               <span class="convert-mini">Distance</span>
               <span class="select-wrap"><select id="recoilDistance"></select></span>
             </label>
+            <label class="range-field">
+              <span class="convert-mini">Sensitivity</span>
+              <input type="number" id="rangeSens" step="any" min="0" inputmode="decimal" />
+            </label>
+            <div class="range-field">
+              <span class="convert-mini">cm/360°</span>
+              <output class="range-cm" id="rangeCm">—</output>
+            </div>
+            <label class="range-field" data-ads-field>
+              <span class="convert-mini" id="rangeAdsLabel">ADS sensitivity</span>
+              <input type="number" id="rangeAdsSens" step="any" min="0" inputmode="decimal" />
+            </label>
+            <div class="range-field" data-ads-field>
+              <span class="convert-mini">cm/360° aimed</span>
+              <output class="range-cm" id="rangeAdsCm">—</output>
+            </div>
+            <label class="range-field" data-ads-field>
+              <span class="convert-mini">Right-click</span>
+              <span class="select-wrap"><select id="rangeAdsMode">
+                <option value="hold">Hold to aim</option>
+                <option value="toggle">Toggle aim</option>
+              </select></span>
+            </label>
+            <label class="range-field" data-ads-calib hidden>
+              <span class="convert-mini">Measured ADS cm/360°</span>
+              <input type="number" id="rangeAdsCalib" step="0.1" min="1" inputmode="decimal" placeholder="optional" />
+            </label>
             <div class="range-field">
               <span class="convert-mini">Fire rate · magazine</span>
               <output class="range-cm" id="recoilStats">—</output>
             </div>
-            <div class="range-field">
-              <span class="convert-mini" id="recoilPullLabel">Mouse pull, full magazine</span>
-              <output class="range-cm" id="recoilPull">—</output>
-            </div>
           </div>
+          <p class="range-ads-note" id="rangeAdsNote"></p>
           <p class="range-ads-note" id="recoilNote"></p>
           <div class="rec-actions">
-            <button class="btn-accent" id="recoilStartBtn">Start recoil drill</button>
+            <button class="btn-accent" id="recoilStartBtn">Start</button>
           </div>
+          <p class="range-keys">
+            <span class="kbd">LMB</span> hold to spray <span class="kbd">RMB</span> aim down sights <span class="kbd">Esc</span> pause
+          </p>
         </div>
         <p class="range-ads-note" id="recoilNone" hidden>
-          Recoil patterns cover Rust and Rainbow Six Siege so far. Pick one of those in the sidebar.
+          Recoil control covers Rust for now. Pick Rust in the sidebar to use it.
         </p>
       </div>
       <div class="card range-history" id="recoilHistoryCard">
@@ -473,29 +424,15 @@
           <button class="clear-link" id="recoilClearBtn" style="padding:0">Clear</button>
         </div>
         <table class="comparison">
-          <thead><tr><th>Gun</th><th>Sens</th><th title="How much of the recoil you took out: 100% means every bullet went where the first did">Controlled</th><th title="Share of bullets that hit the target">On target</th><th title="Average distance of each bullet from the first, at the target">Spread</th></tr></thead>
+          <thead><tr><th>Gun</th><th>Sens</th><th title="How much of the recoil you took out: 100% means every bullet went where the first did">Controlled</th><th title="Share of bullets that hit the silhouette">On target</th><th title="Average distance of each bullet from the first, at the target">Spread</th></tr></thead>
           <tbody id="recoilHistoryBody"></tbody>
         </table>
         <p class="comparison-footnote">
-          Neither Facepunch nor Ubisoft publish their guns' recoil, so the patterns come from community demonstrations.
-          Rust's spray shapes are from XGamingServer's recoil-pattern viewer and how far each gun climbs from SprayTrace,
-          with fire rates, magazines and aim cones from the Rust wiki - Rust's pattern is the same every spray. Siege's
-          climb, side kick, fire rates and magazines are from SprayTrace; its sideways kick is random every spray, as
-          it is in the game, so you learn the pull-down and react to the rest.
-        </p>
-      </div>
-      <div class="card range-history">
-        <div class="card-header">
-          <h3>Head test results</h3>
-          <button class="clear-link" id="rangeClearBtn" style="padding:0">Clear</button>
-        </div>
-        <table class="comparison">
-          <thead><tr><th>Sens</th><th>Dummies</th><th title="Typical time from a dummy popping up to the headshot">Time to kill</th><th title="Dummies dropped with the first shot">First shot</th><th title="Flicks whose first movement stopped on the head">On head</th><th title="Where your first movement landed on average">Lands</th></tr></thead>
-          <tbody id="rangeHistoryBody"></tbody>
-        </table>
-        <p class="comparison-footnote">
-          Run the head test at your current sensitivity, then at another, and compare. A sensitivity that suits you
-          lands on the head more often, needs fewer shots, and doesn't pull past or short of the head.
+          Rust has no fixed spray pattern - Facepunch replaced it in June 2022 and nothing since (checked to November 2026)
+          has brought one back: each shot kicks your aim by a random amount inside the gun's own range, so no two sprays
+          are the same. The ranges, curves, aim-down-sights scale and spread for each gun are the game client's own recoil
+          settings (published by RustFront from client builds of September 2026); fire rates, magazines and spread are
+          checked against the Rust wiki. Only guns whose current values could be confirmed are listed.
         </p>
       </div>
       </div><!-- /viewRange -->
@@ -503,7 +440,7 @@
   </div>
 </div>
 
-<!-- The Range, fullscreen (range.js). Uses the drill overlay's look. -->
+<!-- Recoil control, fullscreen (recoilControl.js). Uses the drill overlay's look. -->
 <div class="drill-overlay range-overlay" id="rangeOverlay">
   <div class="drill-stage" id="rangeStage">
     <canvas id="rangeCanvas"></canvas>
@@ -511,30 +448,23 @@
     <div class="range-hitmarker" id="rangeHitmarker" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="range-hud-top"><div class="range-hud-main" id="rangeHudMain"></div><div class="range-hud-sub" id="rangeHudSub"></div></div>
     <div class="range-ammo" id="rangeAmmo"></div>
-    <div class="range-help">WASD move · Shift walk · Space jump · C crouch · R reload · Right-click aims · Esc pause</div>
-    <div class="getready" id="rangeGetReady"><div class="big" id="rangeGetReadyLabel">Head test</div><div class="num" id="rangeGetReadyNum">3</div></div>
+    <div class="range-help">Hold left click to spray · Right-click aims · Esc pause</div>
     <div class="pause-overlay" id="rangePause">
       <div class="pause-card">
         <h3>Paused</h3>
         <p id="rangePauseReason">Paused. Click Resume to carry on.</p>
         <button class="btn-accent" id="rangeResumeBtn">Resume</button>
         <div class="pause-secondary-actions">
-          <button class="clear-link" id="rangeLeaveBtn">Leave the range</button>
+          <button class="clear-link" id="rangeLeaveBtn">Leave</button>
         </div>
       </div>
       <button type="button" class="fs-toggle" data-fs-toggle>Fullscreen</button>
     </div>
     <div class="results-overlay" id="rangeResults">
       <div class="results-card">
-        <h3 id="rangeResultsTitle">Head test complete</h3>
+        <h3 id="rangeResultsTitle">Recoil control</h3>
         <p id="rangeResultsSub"></p>
         <div class="range-tiles" id="rangeResultsGrid"></div>
-        <div class="aim-read" id="rangeAimRead" hidden>
-          <div class="aim-read-head"><span class="aim-read-title" id="rangeAimTitle"></span><span class="aim-read-tag" id="rangeAimTag"></span></div>
-          <div class="aim-bar"><span class="aim-bar-mid"></span><span class="aim-bar-dot" id="rangeAimDot"></span></div>
-          <div class="aim-bar-labels"><span>stops short</span><span>lands past</span></div>
-          <p class="aim-read-text" id="rangeAimText"></p>
-        </div>
         <div class="recoil-read" id="rangeRecoilRead" hidden></div>
         <div class="results-actions">
           <button class="btn-accent" id="rangeAgainBtn">Run it again</button>

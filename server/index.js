@@ -56,11 +56,8 @@ const CONTENT_SECURITY_POLICY = [
   "script-src 'self' https://cdn.jsdelivr.net",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
-  // Poly Haven (CC0 textures, skies and models for the range) is the only
-  // outside source of images and data; blob: is how the model loader hands
-  // textures to the GPU.
-  "img-src 'self' data: blob: https://dl.polyhaven.org",
-  "connect-src 'self' https://dl.polyhaven.org https://api.polyhaven.com",
+  "img-src 'self' data:",
+  "connect-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",
