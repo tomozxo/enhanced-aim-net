@@ -503,7 +503,6 @@ async function main() {
   bindFullscreenToggles();
   bindCrosshair();
   bindRange();
-  bindMouseCheck();
   bindTabs();
   bindConvert();
   initThemePicker({

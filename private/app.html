@@ -46,7 +46,9 @@
     <aside class="sidebar">
       <div class="sidebar-header"><h2 id="sidebarTitle">Your R6 settings</h2></div>
 
-      <!-- Valorant / CS2 sensitivity, rendered by app.js -->
+      <div class="side-label">Sensitivity</div>
+      <div class="side-group"><div class="side-rows">
+      <!-- Sensitivity for the simple games, rendered by app.js -->
       <div data-game-only="valorant cs2 cod rust" id="simpleSensFields" hidden></div>
 
       <div data-game-only="r6">
@@ -101,9 +103,6 @@
           <div class="stepper-arrows"><button data-dir="1">▲</button><button data-dir="-1">▼</button></div>
         </div>
       </div>
-      <div class="field-row">
-        <button class="clear-link" id="mouseCheckBtn" style="padding:0">Check my mouse with a ruler ↗</button>
-      </div>
 
       <!-- Valorant / CS2 field of view, resolution and stretch, rendered by app.js -->
       <div data-game-only="valorant cs2 cod rust" id="simpleViewFields" hidden></div>
@@ -130,10 +129,10 @@
         </div>
       </div>
 
-      <div class="fill-hint">How R6 fills your screen</div>
       <div class="field-row">
-        <div class="select-wrap" style="width:100%">
-          <select id="screenFill" style="width:100%">
+        <div class="field-label">Screen fill</div>
+        <div class="select-wrap">
+          <select id="screenFill">
             <option value="keep-aspect">Keep aspect ratio</option>
             <option value="stretch">Stretch to fill</option>
           </select>
@@ -166,6 +165,10 @@
       </div>
       </div>
 
+      </div></div>
+
+      <div class="side-label">Practice</div>
+      <div class="side-group"><div class="side-rows">
       <!-- The pop when a target is hit. Shared by every game. -->
       <div class="field-row">
         <div class="field-label">Hit sound</div>
@@ -185,6 +188,10 @@
         </div>
       </div>
 
+      </div></div>
+
+      <div class="side-label">Crosshair</div>
+      <div class="side-group"><div class="side-rows">
       <!-- The drill crosshair, picked from a dropdown of pictures, in any
            colour. Shared by every game. Filled in by app.js from crosshairs.js. -->
       <div class="crosshair-tile">
@@ -198,6 +205,10 @@
         <div class="crosshair-colors" id="crosshairColors" role="group" aria-label="Crosshair colour"></div>
       </div>
 
+      </div></div>
+
+      <div class="side-label">Appearance</div>
+      <div class="side-group"><div class="side-rows">
       <div class="expander">
         <button class="expander-toggle" id="themeToggle"><span class="chev">›</span> Accent color</button>
         <div class="expander-body" id="themeBody">
@@ -209,6 +220,8 @@
           </div>
         </div>
       </div>
+      </div></div>
+
     </aside>
 
     <main class="content">
@@ -545,31 +558,6 @@
   </div>
 </div>
 
-<!-- Mouse check: counts the mouse movement the browser actually receives
-     over a distance you measure with a ruler. R6 is fed the same counts, so
-     this says what DPI your mouse really reports and whether anything is
-     altering it on the way in. -->
-<div class="modal-overlay" id="mouseCheckOverlay">
-  <div class="modal-card">
-    <h3>Check your mouse</h3>
-    <p id="mouseCheckStep">
-      Measure how far the <em>mouse</em> travels, not how wide your pad is: the mouse body
-      takes up several centimetres of the pad. Line one edge of the mouse up with a mark on
-      the ruler, press Start, drag it straight, stop with that same edge on a second mark,
-      then click. The gap between the two marks is the distance.
-    </p>
-    <div class="sub-field">
-      <span class="sub-field-label">Distance you'll move it (cm)</span>
-      <input type="number" id="mouseCheckDistance" value="20" min="5" max="60" step="1" />
-    </div>
-    <div class="mouse-check-result" id="mouseCheckResult" hidden></div>
-    <div class="results-actions">
-      <button class="btn-accent" id="mouseCheckStart">Start</button>
-      <button class="plain-btn" id="mouseCheckUse" hidden>Use this DPI</button>
-      <button class="plain-btn" id="mouseCheckClose">Close</button>
-    </div>
-  </div>
-</div>
 
 <script src="js/fingerprint.js"></script>
 <script type="module" src="js/app.js"></script>

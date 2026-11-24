@@ -889,3 +889,27 @@ table.comparison tr.best td { color: var(--accent-text); font-weight: 600; }
 /* Shown when the browser draws 3D without the graphics card. */
 .gpu-warning { position: sticky; top: 0; z-index: 50; padding: 10px 44px 10px 16px; background: #7a1d1d; color: #fff; font-size: 13.5px; line-height: 1.45; }
 .gpu-warning button { position: absolute; right: 10px; top: 8px; background: none; border: 0; color: #fff; font-size: 16px; cursor: pointer; }
+
+/* Sidebar: grouped cards under small headings, rows divided by hairlines -
+   roomier than a stack of separate tiles. */
+.side-label {
+  margin: 18px 6px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.sidebar-header + .side-label { margin-top: 4px; }
+.side-group { background: var(--surface); border-radius: 14px; box-shadow: var(--shadow-sm); overflow: hidden; }
+.side-rows { margin-top: -1px; }
+.side-group .field-row {
+  min-height: 54px; padding: 0 18px; margin: 0; background: none; box-shadow: none; border-radius: 0;
+  border-top: 1px solid var(--border);
+}
+.side-group .field-label { font-size: 13.5px; }
+.side-group .stepper input { font-size: 15px; }
+.side-group .sub-field { padding: 0 18px 14px; }
+.side-group .crosshair-tile { margin: 0; padding: 0 18px 16px; background: none; box-shadow: none; border-radius: 0; border-top: 1px solid var(--border); }
+.side-group .crosshair-head { min-height: 56px; }
+.side-group .expander { margin: 0; border-top: 1px solid var(--border); }
+.side-group .expander-toggle { height: 54px; padding: 0 18px; background: none; box-shadow: none; border-radius: 0; font-size: 13.5px; }
+.side-group .expander-toggle:hover { background: var(--track); box-shadow: none; }
+.side-group .expander-body { padding: 0 18px 14px; }
+.side-group .volume input[type="range"] { width: 120px; }
