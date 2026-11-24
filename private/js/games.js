@@ -385,7 +385,7 @@ GAMES.rust = simpleGame({
   name: 'Rust',
   short: 'Rust',
   yaw: 0.1125, // at FOV 75; see yawFor
-  yawFor: (s) => 0.0015 * rustFov(s) * (s.calib && s.calib.factor > 0 ? s.calib.factor : 1),
+  yawFor: (s) => 0.0015 * rustFov(s),
   fovSlider: RUST_FOV,
   fovNote: "Rust's own slider (graphics.fov), vertical, 70-90",
   defaults: { sens: 0.3, fov: 90, resolution: '1920x1080', displayMode: 'stretch', calib: null, adsSens: 1, adsCalib: null },

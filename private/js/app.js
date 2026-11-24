@@ -794,10 +794,6 @@ function buildSimpleGameFields(game) {
         <input type="number" step="1" min="${game.fovSlider.min}" max="${game.fovSlider.max}" id="simpleFovInput" />
         <div class="stepper-arrows"><button type="button" data-dir="1">▲</button><button type="button" data-dir="-1">▼</button></div>
       </div>
-    </div>
-    <div class="field-row">
-      <div class="field-label">That works out to</div>
-      <div class="field-static" id="simpleFovText">—</div>
     </div>`
     : `<div class="field-row">
       <div class="field-label">Field of view<small>${game.fovNote}</small></div>
@@ -805,20 +801,9 @@ function buildSimpleGameFields(game) {
     </div>`;
   $('simpleViewFields').innerHTML = `
     ${fovRow}
-    <div class="field-row">
-      <div class="field-label">Resolution</div>
-      <div class="select-wrap"><select id="simpleResolution">${resOptions}</select></div>
-    </div>
     ${
       game.calibratable
-        ? `<div class="field-row">
-      <div class="field-label">Measured cm/360°<small>Optional - makes it exact</small></div>
-      <input type="number" class="calib-input" id="simpleCalibInput" step="0.1" min="1" inputmode="decimal" />
-    </div>
-    <p class="sidebar-note">${game.short} turns <b>${game.yaw}°</b> per mouse count at sens 1 on FOV 75, and further on a
-      wider FOV (0.0015° × sens × FOV). That's measured by the community, not read from the game, so for a guaranteed
-      1:1: in ${game.short}, line your crosshair up with a mark, drag your mouse until you've turned exactly one full
-      360° back to it, measure the distance with a ruler and enter it above. It stays exact when you change sens or FOV.</p>`
+        ? ''
         : `<p class="sidebar-note">Sens here is <b>exact</b>: the drill turns ${game.yaw}° per mouse count at sens 1, the
       same as ${game.short}, so the same mouse movement turns you the same distance.</p>`
     }`;
@@ -873,20 +858,13 @@ function renderSimpleGameFields(game, s) {
   if (builtSimpleGame !== game.id) buildSimpleGameFields(game);
   const input = $('simpleSensInput');
   if (document.activeElement !== input) input.value = formatGameSens(game, s.sens);
-  $('simpleResolution').value = '1920x1080';
   const view = game.view(s);
   const hFov = hFovFromV(view.vFovDeg, view.aspect);
   if (game.fovSlider) {
     const fovInput = $('simpleFovInput');
     if (document.activeElement !== fovInput) fovInput.value = s.fov;
-    $('simpleFovText').textContent = `${Number(hFov.toFixed(1))}° wide at this resolution`;
   } else {
     $('simpleFovText').textContent = `${Number(hFov.toFixed(1))}° wide`;
-  }
-  if (game.calibratable) {
-    const input = $('simpleCalibInput');
-    if (document.activeElement !== input) input.value = s.calib?.cm360 ?? '';
-    input.placeholder = `Estimate ${formatCm360(game.cm360('main', { ...s, calib: null }))}`;
   }
 }
 
@@ -896,9 +874,7 @@ function renderGameChrome(state) {
   $('gameSelect').value = game.id;
   $('gameExactTag').textContent = game.exact
     ? 'exact sens'
-    : game.calibratable && state.settings.calib
-      ? 'measured sens'
-      : 'estimated sens';
+    : 'estimated sens';
   document.querySelectorAll('[data-game-only]').forEach((el) => {
     el.hidden = !el.dataset.gameOnly.split(' ').includes(game.id);
   });
